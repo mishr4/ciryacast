@@ -338,51 +338,69 @@ async function deleteMedia(id) {
 // ── Upload ──
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
+const uploadStatus = document.getElementById('upload-status');
+let uploading = false;
 
 if (uploadArea && fileInput) {
-  uploadArea.addEventListener('click', () => fileInput.click());
-  uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+  uploadArea.addEventListener('click', () => { if (!uploading) fileInput.click(); });
+  uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); if (!uploading) uploadArea.classList.add('dragover'); });
   uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
   uploadArea.addEventListener('drop', (e) => {
     e.preventDefault();
     uploadArea.classList.remove('dragover');
-    handleFiles(e.dataTransfer.files);
+    if (!uploading) handleFiles(e.dataTransfer.files);
   });
-  fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0 && !uploading) {
+      handleFiles(fileInput.files);
+    }
+  });
+}
+
+function showUploadStatus(msg, type) {
+  if (!uploadStatus) return;
+  uploadStatus.style.display = 'block';
+  const colors = { info: '#7C4DFF', success: '#00C853', error: '#FF2A2A' };
+  const bgs = { info: '#f0eaff', success: '#e8f5e9', error: '#fce4ec' };
+  uploadStatus.innerHTML = `<div style="padding:14px 18px;border-radius:14px;background:${bgs[type] || bgs.info};color:${colors[type] || colors.info};font-size:14px;font-weight:600;margin-bottom:16px">${msg}</div>`;
+}
+
+function hideUploadStatus() {
+  if (uploadStatus) uploadStatus.style.display = 'none';
 }
 
 async function handleFiles(files) {
   if (!currentStationId) return alert('Select a station first');
+  if (uploading) return;
 
   const fileArr = Array.from(files);
   const totalFiles = fileArr.length;
+  if (totalFiles === 0) return;
 
-  // Upload in batches of 20 to avoid timeout issues
-  const BATCH_SIZE = 20;
+  uploading = true;
+  uploadArea.style.opacity = '0.5';
+  uploadArea.style.pointerEvents = 'none';
+
+  // Upload one file at a time to avoid timeouts on Railway
+  const BATCH_SIZE = 5;
   const batches = [];
   for (let i = 0; i < fileArr.length; i += BATCH_SIZE) {
     batches.push(fileArr.slice(i, i + BATCH_SIZE));
   }
 
-  uploadArea.innerHTML = `
-    <div class="upload-icon" style="color:#7C4DFF">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-    </div>
-    <p><strong>Uploading ${totalFiles} file${totalFiles > 1 ? 's' : ''}...</strong></p>
-    <p class="upload-hint">Batch 1 of ${batches.length}</p>
-  `;
-
   let uploaded = 0;
   let failed = 0;
 
-  try {
-    for (let b = 0; b < batches.length; b++) {
-      const form = new FormData();
-      for (const f of batches[b]) form.append('files', f);
+  showUploadStatus(`Uploading 0 / ${totalFiles} files...`, 'info');
 
-      uploadArea.querySelector('.upload-hint').textContent =
-        `Batch ${b + 1} of ${batches.length} — ${uploaded} uploaded so far`;
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b];
+    const form = new FormData();
+    for (const f of batch) form.append('files', f);
 
+    showUploadStatus(`Uploading ${uploaded} / ${totalFiles} files... (batch ${b + 1}/${batches.length})`, 'info');
+
+    try {
       const res = await fetch(`/api/stations/${currentStationId}/media`, {
         method: 'POST',
         body: form,
@@ -392,43 +410,35 @@ async function handleFiles(files) {
         const data = await res.json();
         uploaded += data.length;
       } else {
-        failed += batches[b].length;
-        console.error('Upload batch failed:', await res.text());
+        failed += batch.length;
+        let errMsg = 'Unknown error';
+        try { errMsg = (await res.json()).error || errMsg; } catch { try { errMsg = await res.text(); } catch {} }
+        console.error(`Upload batch ${b + 1} failed (${res.status}):`, errMsg);
       }
+    } catch (e) {
+      failed += batch.length;
+      console.error(`Upload batch ${b + 1} network error:`, e);
     }
-
-    const msg = failed > 0
-      ? `Uploaded ${uploaded} files (${failed} failed)`
-      : `Successfully uploaded ${uploaded} files!`;
-
-    uploadArea.innerHTML = `
-      <div class="upload-icon" style="color:${failed > 0 ? '#FF2A2A' : '#00C853'}">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><polyline points="20 6 9 17 4 12"/></svg>
-      </div>
-      <p><strong>${msg}</strong></p>
-      <p class="upload-hint">Drop more files or click to browse</p>`;
-
-    setTimeout(() => {
-      resetUploadArea();
-    }, 3000);
-
-    refreshMedia();
-    refreshDashboard();
-  } catch (e) {
-    console.error('Upload error:', e);
-    uploadArea.innerHTML = `<p style="color:#FF2A2A"><strong>Upload failed</strong> — ${e.message || 'try again'}</p>`;
-    setTimeout(resetUploadArea, 3000);
   }
-}
 
-function resetUploadArea() {
-  if (!uploadArea) return;
-  uploadArea.innerHTML = `
-    <div class="upload-icon" style="color:#7C4DFF">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-    </div>
-    <p><strong>Drop audio files here</strong> or click to browse</p>
-    <p class="upload-hint">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>`;
+  // Done
+  uploading = false;
+  uploadArea.style.opacity = '1';
+  uploadArea.style.pointerEvents = 'auto';
+  fileInput.value = ''; // reset file input so same files can be re-selected
+
+  if (failed === 0) {
+    showUploadStatus(`Successfully uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}!`, 'success');
+  } else if (uploaded > 0) {
+    showUploadStatus(`Uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}, ${failed} failed. Try uploading failed files again.`, 'error');
+  } else {
+    showUploadStatus(`Upload failed — ${failed} file${failed !== 1 ? 's' : ''} could not be uploaded. Check file format and try smaller batches.`, 'error');
+  }
+
+  setTimeout(hideUploadStatus, 8000);
+
+  refreshMedia();
+  refreshDashboard();
 }
 
 // ── History ──
