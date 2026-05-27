@@ -1,3 +1,38 @@
+// ── Auth Gate ──
+(function checkAuth() {
+  const user = sessionStorage.getItem('ciryacast_user');
+  if (!user) {
+    window.location.href = '/login';
+    return;
+  }
+
+  // Show user info in sidebar
+  try {
+    const u = JSON.parse(user);
+    const nameEl = document.getElementById('sidebar-username');
+    const handleEl = document.getElementById('sidebar-handle');
+    const avatarEl = document.getElementById('sidebar-avatar');
+
+    if (nameEl) nameEl.textContent = u.display_name || u.cirya_handle || 'User';
+    if (handleEl) handleEl.textContent = u.cirya_handle ? '@' + u.cirya_handle : u.email || '';
+    if (avatarEl) {
+      if (u.avatar_url) {
+        avatarEl.innerHTML = `<img src="${u.avatar_url}" alt="">`;
+      } else {
+        avatarEl.textContent = (u.display_name || '?')[0].toUpperCase();
+      }
+    }
+  } catch {}
+})();
+
+function signOut() {
+  sessionStorage.removeItem('ciryacast_user');
+  if (window.CiryaSSO) {
+    CiryaSSO.signOut();
+  }
+  window.location.href = '/login';
+}
+
 // ── State ──
 let stations = [];
 let currentStationId = null;
@@ -33,8 +68,32 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (view === 'media') refreshMedia();
     if (view === 'history') refreshHistory();
     if (view === 'stations') loadStations();
+
+    // Close mobile sidebar
+    closeMobileSidebar();
   });
 });
+
+// ── Mobile Menu ──
+const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+const sidebar = document.querySelector('.sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+if (mobileMenuBtn) {
+  mobileMenuBtn.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+    sidebarOverlay.classList.toggle('show');
+  });
+}
+
+if (sidebarOverlay) {
+  sidebarOverlay.addEventListener('click', closeMobileSidebar);
+}
+
+function closeMobileSidebar() {
+  sidebar.classList.remove('open');
+  sidebarOverlay.classList.remove('show');
+}
 
 // ── API helpers ──
 async function api(path, opts = {}) {
@@ -62,7 +121,9 @@ function renderDashboardStations() {
   const el = document.getElementById('dashboard-stations');
   if (stations.length === 0) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">&#128225;</div>
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+      </div>
       <h3>No stations yet</h3>
       <p>Create your first station to get started</p>
     </div>`;
@@ -76,27 +137,44 @@ function renderDashboardStations() {
     return `
       <div class="card now-playing-card" style="margin-bottom:16px">
         <div class="np-info">
-          <div class="np-art">&#127925;</div>
+          <div class="np-art">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
           <div class="np-meta" style="flex:1">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
               <h3>${esc(s.name)}</h3>
               <span class="badge ${running ? 'badge-green' : 'badge-red'}">${running ? 'ON AIR' : 'OFFLINE'}</span>
             </div>
-            ${np ? `<p>${esc(np.artist)} — ${esc(np.title)}</p>` : '<p style="color:var(--text-dim)">Nothing playing</p>'}
+            ${np ? `<p>${esc(np.artist)} — ${esc(np.title)}</p>` : '<p>Nothing playing</p>'}
           </div>
           <div class="station-meta">
             <div class="listeners">${s.listeners}</div>
-            <div>listeners</div>
+            <div class="listeners-label">listeners</div>
           </div>
         </div>
         <div class="np-controls">
           ${running
-            ? `<button class="btn btn-ghost btn-sm" onclick="skipTrack('${s.id}')">&#9197; Skip</button>
-               <button class="btn btn-danger btn-sm" onclick="stopAutoDJ('${s.id}')">&#9209; Stop</button>`
-            : `<button class="btn btn-primary btn-sm" onclick="startAutoDJ('${s.id}')">&#9654; Start AutoDJ</button>`
+            ? `<button class="btn btn-ghost btn-sm" onclick="skipTrack('${s.id}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
+                Skip
+              </button>
+              <button class="btn btn-danger btn-sm" onclick="stopAutoDJ('${s.id}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                Stop
+              </button>`
+            : `<button class="btn btn-green btn-sm" onclick="startAutoDJ('${s.id}')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Start AutoDJ
+              </button>`
           }
-          <button class="btn btn-ghost btn-sm" onclick="copyListenUrl('${s.id}')">&#128279; Copy URL</button>
-          <a class="btn btn-ghost btn-sm" href="/player/${s.id}" target="_blank">&#127760; Player Page</a>
+          <button class="btn btn-ghost btn-sm" onclick="copyListenUrl('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy URL
+          </button>
+          <a class="btn btn-ghost btn-sm" href="/player/${s.id}" target="_blank">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            Player
+          </a>
         </div>
       </div>
     `;
@@ -104,7 +182,6 @@ function renderDashboardStations() {
 }
 
 function updateListenerCount(stationId, count) {
-  // Just refresh dashboard — it's fast enough
   refreshDashboard();
 }
 
@@ -115,7 +192,9 @@ async function loadStations() {
 
   if (stations.length === 0) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">&#128225;</div>
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+      </div>
       <h3>No stations</h3>
       <p>Create your first station to get started</p>
     </div>`;
@@ -131,7 +210,7 @@ async function loadStations() {
       </div>
       <div class="station-meta">
         <div class="listeners">${s.listeners}</div>
-        <div>listeners</div>
+        <div class="listeners-label">listeners</div>
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteStation('${s.id}')">Delete</button>
     </div>
@@ -183,11 +262,12 @@ async function skipTrack(id) {
 function copyListenUrl(id) {
   const url = `${location.origin}/listen/${id}/radio.mp3`;
   navigator.clipboard.writeText(url);
-  // Quick visual feedback
-  const btn = event.target;
-  const orig = btn.innerHTML;
-  btn.innerHTML = '&#10003; Copied!';
-  setTimeout(() => btn.innerHTML = orig, 1500);
+  const btn = event.target.closest('.btn');
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+    setTimeout(() => btn.innerHTML = orig, 1500);
+  }
 }
 
 // ── Media ──
@@ -210,7 +290,9 @@ async function refreshMedia() {
   if (media.length === 0) {
     document.getElementById('media-table-wrap').innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">&#127925;</div>
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
         <h3>No media yet</h3>
         <p>Upload some audio files to get started</p>
       </div>`;
@@ -237,7 +319,9 @@ async function refreshMedia() {
             <td class="dim">${esc(m.album)}</td>
             <td class="dim">${formatDuration(m.duration)}</td>
             <td class="dim">${formatBytes(m.size)}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="deleteMedia('${m.id}')">&#128465;</button></td>
+            <td><button class="btn btn-danger btn-sm" onclick="deleteMedia('${m.id}')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button></td>
           </tr>
         `).join('')}
       </tbody>
@@ -255,15 +339,17 @@ async function deleteMedia(id) {
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
 
-uploadArea.addEventListener('click', () => fileInput.click());
-uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
-uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-uploadArea.addEventListener('drop', (e) => {
-  e.preventDefault();
-  uploadArea.classList.remove('dragover');
-  handleFiles(e.dataTransfer.files);
-});
-fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+if (uploadArea && fileInput) {
+  uploadArea.addEventListener('click', () => fileInput.click());
+  uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+  uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+  uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    handleFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+}
 
 async function handleFiles(files) {
   if (!currentStationId) return alert('Select a station first');
@@ -271,27 +357,33 @@ async function handleFiles(files) {
   const form = new FormData();
   for (const f of files) form.append('files', f);
 
-  uploadArea.innerHTML = '<p>Uploading...</p>';
+  uploadArea.innerHTML = `
+    <div class="upload-icon" style="color:var(--accent)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px;animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"/></svg>
+    </div>
+    <p>Uploading ${files.length} file${files.length > 1 ? 's' : ''}...</p>
+  `;
 
   try {
-    const res = await fetch(`/api/stations/${currentStationId}/media`, {
+    await fetch(`/api/stations/${currentStationId}/media`, {
       method: 'POST',
       body: form,
     });
-    const data = await res.json();
-    uploadArea.innerHTML = `<div class="upload-icon">&#128266;</div>
+    uploadArea.innerHTML = `
+      <div class="upload-icon" style="color:var(--accent)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      </div>
       <p><strong>Drop audio files here</strong> or click to browse</p>
-      <p style="font-size:12px;margin-top:4px">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>`;
+      <p class="upload-hint">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>`;
     refreshMedia();
     refreshDashboard();
   } catch {
-    uploadArea.innerHTML = '<p style="color:var(--accent-red)">Upload failed</p>';
+    uploadArea.innerHTML = '<p style="color:var(--red)">Upload failed — try again</p>';
   }
 }
 
 // ── History ──
 async function refreshHistory() {
-  // Get first station's history (or selected)
   const sid = currentStationId || (stations[0]?.id);
   if (!sid) return;
 
@@ -300,7 +392,9 @@ async function refreshHistory() {
 
   if (history.length === 0) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">&#128340;</div>
+      <div class="empty-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
       <h3>No history yet</h3>
       <p>Tracks will appear here as they play</p>
     </div>`;
@@ -328,11 +422,18 @@ function closeModal(id) {
   document.getElementById(id).classList.remove('show');
 }
 
-// Close modal on overlay click
 document.querySelectorAll('.modal-overlay').forEach(m => {
   m.addEventListener('click', (e) => {
     if (e.target === m) m.classList.remove('show');
   });
+});
+
+// Escape key closes modals
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
+    closeMobileSidebar();
+  }
 });
 
 // ── Utilities ──

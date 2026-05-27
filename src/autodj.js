@@ -2,73 +2,52 @@ const fs = require('fs');
 const path = require('path');
 
 const MEDIA_DIR = path.join(__dirname, '..', 'media');
-const CHUNK_SIZE = 4096;       // bytes per read chunk
-const BITRATE_128 = 128000;    // bits per second
 
 /**
  * AutoDJ — reads MP3 files from a station's playlist and streams
  * them as raw bytes to the StreamEngine at the correct bitrate.
  *
- * This is a pure Node.js streaming approach — no ffmpeg required.
- * It reads MP3 files and pushes audio chunks at the correct pace
- * to simulate real-time playback.
+ * Pure Node.js — no ffmpeg, no Liquidsoap.
  */
 class AutoDJ {
   constructor(db, streamEngine, broadcast) {
     this.db = db;
     this.streamEngine = streamEngine;
     this.broadcast = broadcast;
-    // stationId -> { active, timer, currentMediaId, queue }
+    // stationId -> { active, interval, queue, queueIndex }
     this.sessions = new Map();
   }
 
-  /**
-   * Start AutoDJ for a station
-   */
   start(stationId) {
     if (this.sessions.has(stationId)) return;
 
     const session = {
       active: true,
-      timer: null,
-      currentStream: null,
+      interval: null,
       queue: [],
       queueIndex: 0,
+      fileBuffer: null,
+      bufferOffset: 0,
     };
     this.sessions.set(stationId, session);
-
     this._buildQueue(stationId);
     this._playNext(stationId);
   }
 
-  /**
-   * Stop AutoDJ for a station
-   */
   stop(stationId) {
     const session = this.sessions.get(stationId);
     if (!session) return;
-
     session.active = false;
-    if (session.timer) clearTimeout(session.timer);
-    if (session.currentStream) {
-      session.currentStream.destroy();
-      session.currentStream = null;
-    }
+    if (session.interval) clearInterval(session.interval);
     this.sessions.delete(stationId);
   }
 
-  /**
-   * Skip to the next track
-   */
   skip(stationId) {
     const session = this.sessions.get(stationId);
     if (!session) return;
-
-    if (session.timer) clearTimeout(session.timer);
-    if (session.currentStream) {
-      session.currentStream.destroy();
-      session.currentStream = null;
-    }
+    if (session.interval) clearInterval(session.interval);
+    session.interval = null;
+    session.fileBuffer = null;
     this._playNext(stationId);
   }
 
@@ -76,71 +55,86 @@ class AutoDJ {
     return this.sessions.has(stationId);
   }
 
-  /**
-   * Build a shuffled queue from all media in the station's playlists
-   */
   _buildQueue(stationId) {
     const session = this.sessions.get(stationId);
     if (!session) return;
 
     // Get all media for this station via playlists
-    const media = this.db.prepare(`
-      SELECT m.* FROM media m
+    let media = this.db.prepare(`
+      SELECT DISTINCT m.* FROM media m
       JOIN playlist_items pi ON pi.media_id = m.id
       JOIN playlists p ON p.id = pi.playlist_id
       WHERE p.station_id = ?
-      ORDER BY pi.sort_order
     `).all(stationId);
 
-    // Fallback: get all media for station (unplaylist'd)
-    const allMedia = media.length > 0 ? media : this.db.prepare(
-      'SELECT * FROM media WHERE station_id = ?'
-    ).all(stationId);
+    // Fallback: all media for station
+    if (media.length === 0) {
+      media = this.db.prepare('SELECT * FROM media WHERE station_id = ?').all(stationId);
+    }
 
     // Shuffle
-    session.queue = allMedia.sort(() => Math.random() - 0.5);
+    session.queue = media.sort(() => Math.random() - 0.5);
     session.queueIndex = 0;
   }
 
-  /**
-   * Play the next track in the queue
-   */
   _playNext(stationId) {
     const session = this.sessions.get(stationId);
     if (!session || !session.active) return;
 
-    // If queue is empty or exhausted, rebuild
-    if (session.queue.length === 0) {
+    // Clean up previous interval
+    if (session.interval) {
+      clearInterval(session.interval);
+      session.interval = null;
+    }
+
+    // Rebuild queue if empty or exhausted
+    if (session.queue.length === 0 || session.queueIndex >= session.queue.length) {
       this._buildQueue(stationId);
     }
 
     if (session.queue.length === 0) {
-      // No media at all — wait and retry
-      session.timer = setTimeout(() => this._playNext(stationId), 5000);
+      // No media — wait 10 seconds and retry
+      session.interval = setTimeout(() => {
+        session.interval = null;
+        this._playNext(stationId);
+      }, 10000);
       return;
-    }
-
-    // Wrap around
-    if (session.queueIndex >= session.queue.length) {
-      session.queue = session.queue.sort(() => Math.random() - 0.5);
-      session.queueIndex = 0;
     }
 
     const track = session.queue[session.queueIndex++];
     const filePath = path.join(MEDIA_DIR, track.filename);
 
+    // Check file exists BEFORE doing anything
     if (!fs.existsSync(filePath)) {
-      console.log(`  ⚠ File missing: ${track.filename}, skipping`);
-      this._playNext(stationId);
+      console.log(`  ⚠ Missing: ${track.original_name}, skipping`);
+      // Small delay to prevent rapid loop if all files missing
+      setTimeout(() => this._playNext(stationId), 500);
+      return;
+    }
+
+    // Read entire file into memory (radio files are typically 3-10MB, fine for memory)
+    let fileBuffer;
+    try {
+      fileBuffer = fs.readFileSync(filePath);
+    } catch (err) {
+      console.log(`  ⚠ Read error: ${err.message}`);
+      setTimeout(() => this._playNext(stationId), 1000);
+      return;
+    }
+
+    if (fileBuffer.length === 0) {
+      setTimeout(() => this._playNext(stationId), 500);
       return;
     }
 
     // Get station bitrate
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
-    const bitrate = (station?.bitrate || 128) * 1000; // bits per second
+    const bitrate = (station?.bitrate || 128) * 1000;
     const bytesPerSecond = bitrate / 8;
+    const chunkSize = Math.floor(bytesPerSecond / 10); // 10 chunks per second
+    const intervalMs = 100; // send a chunk every 100ms
 
-    // Set now playing
+    // NOW set metadata and log history (file confirmed valid)
     this.streamEngine.setNowPlaying(stationId, {
       title: track.title || track.original_name,
       artist: track.artist || 'Unknown',
@@ -149,7 +143,6 @@ class AutoDJ {
       media_id: track.id,
     });
 
-    // Log to play history
     this.db.prepare(`
       INSERT INTO play_history (station_id, media_id, title, artist, listeners)
       VALUES (?, ?, ?, ?, ?)
@@ -171,60 +164,35 @@ class AutoDJ {
       },
     });
 
-    console.log(`  ♪ Now playing on ${station?.name || stationId}: ${track.artist} - ${track.title || track.original_name}`);
+    console.log(`  ♪ ${station?.name}: ${track.artist || 'Unknown'} — ${track.title || track.original_name}`);
 
-    // Stream the file at the correct bitrate
-    this._streamFile(stationId, filePath, bytesPerSecond);
-  }
+    // Stream the file buffer at bitrate pace
+    session.fileBuffer = fileBuffer;
+    session.bufferOffset = 0;
 
-  /**
-   * Stream an MP3 file to the station at a controlled bitrate
-   */
-  _streamFile(stationId, filePath, bytesPerSecond) {
-    const session = this.sessions.get(stationId);
-    if (!session || !session.active) return;
+    session.interval = setInterval(() => {
+      if (!session.active) {
+        clearInterval(session.interval);
+        return;
+      }
 
-    const stream = fs.createReadStream(filePath, { highWaterMark: CHUNK_SIZE });
-    session.currentStream = stream;
+      const start = session.bufferOffset;
+      const end = Math.min(start + chunkSize, fileBuffer.length);
 
-    let bytesSent = 0;
-    const startTime = Date.now();
+      if (start >= fileBuffer.length) {
+        // Track finished — move to next
+        clearInterval(session.interval);
+        session.interval = null;
+        session.fileBuffer = null;
+        // Small gap between tracks
+        setTimeout(() => this._playNext(stationId), 800);
+        return;
+      }
 
-    // Interval to control pacing — send chunks at bitrate speed
-    const msPerChunk = (CHUNK_SIZE / bytesPerSecond) * 1000;
-
-    stream.on('readable', () => {
-      const pump = () => {
-        if (!session.active) { stream.destroy(); return; }
-
-        const chunk = stream.read(CHUNK_SIZE);
-        if (chunk === null) return; // wait for more data or end
-
-        this.streamEngine.pushAudio(stationId, chunk);
-        bytesSent += chunk.length;
-
-        // Calculate when next chunk should be sent
-        const elapsed = Date.now() - startTime;
-        const expectedTime = (bytesSent / bytesPerSecond) * 1000;
-        const delay = Math.max(0, expectedTime - elapsed);
-
-        session.timer = setTimeout(pump, delay);
-      };
-
-      pump();
-    });
-
-    stream.on('end', () => {
-      session.currentStream = null;
-      // Small gap then next track
-      session.timer = setTimeout(() => this._playNext(stationId), 500);
-    });
-
-    stream.on('error', (err) => {
-      console.error(`  ✗ Stream error: ${err.message}`);
-      session.currentStream = null;
-      session.timer = setTimeout(() => this._playNext(stationId), 1000);
-    });
+      const chunk = fileBuffer.subarray(start, end);
+      this.streamEngine.pushAudio(stationId, chunk);
+      session.bufferOffset = end;
+    }, intervalMs);
   }
 }
 

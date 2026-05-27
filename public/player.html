@@ -4,47 +4,94 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CiryaCast Player</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Inter', system-ui, sans-serif;
-    background: #0d0d14;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: #0a0a12;
     color: #fff;
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-font-smoothing: antialiased;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Background gradients */
+  body::before {
+    content: '';
+    position: absolute;
+    top: -30%;
+    left: -20%;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,77,255,0.1) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  body::after {
+    content: '';
+    position: absolute;
+    bottom: -30%;
+    right: -15%;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,72,188,0.06) 0%, transparent 70%);
+    pointer-events: none;
   }
 
   .player-wrap {
-    width: 400px;
-    max-width: 90vw;
+    position: relative;
+    z-index: 1;
+    width: 420px;
+    max-width: 92vw;
     text-align: center;
   }
 
-  .brand {
-    font-size: 12px;
-    font-weight: 600;
-    color: #7C4DFF;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 32px;
+  /* Header with TMC logo */
+  .player-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 36px;
   }
 
+  .player-header img {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: contain;
+  }
+
+  .player-header span {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Album art */
   .art-container {
     width: 200px;
     height: 200px;
-    margin: 0 auto 28px;
-    border-radius: 20px;
+    margin: 0 auto 32px;
+    border-radius: 24px;
     background: linear-gradient(135deg, #7C4DFF 0%, #FF48BC 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 64px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 20px 60px rgba(124,77,255,0.25);
   }
 
   .art-container::before {
@@ -52,49 +99,62 @@
     position: absolute;
     width: 300%;
     height: 300%;
-    background: conic-gradient(from 0deg, transparent, rgba(255,255,255,0.05), transparent);
-    animation: spin 12s linear infinite;
+    background: conic-gradient(from 0deg, transparent, rgba(255,255,255,0.06), transparent);
+    animation: spin 10s linear infinite;
+  }
+
+  .art-container.playing::before {
+    animation: spin 4s linear infinite;
   }
 
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .art-container .art-icon { position: relative; z-index: 1; }
+  .art-container svg {
+    position: relative;
+    z-index: 1;
+    width: 56px;
+    height: 56px;
+    color: rgba(255,255,255,0.9);
+  }
+
+  /* Track info */
+  .station-name {
+    font-size: 12px;
+    color: #7C4DFF;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
 
   .track-title {
     font-size: 22px;
-    font-weight: 800;
+    font-weight: 900;
+    letter-spacing: -0.5px;
     margin-bottom: 4px;
     min-height: 30px;
   }
 
   .track-artist {
     font-size: 15px;
-    color: #8888a0;
+    color: #7a7a9a;
     font-weight: 500;
-    margin-bottom: 6px;
+    margin-bottom: 24px;
   }
 
-  .track-album {
-    font-size: 12px;
-    color: #5555670;
-    margin-bottom: 28px;
-  }
-
-  .station-name {
-    font-size: 13px;
-    color: #8888a0;
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-
+  /* Listeners badge */
   .listeners-badge {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     font-size: 12px;
     font-weight: 600;
     color: #00C853;
-    margin-bottom: 24px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(0,200,83,0.08);
+    border: 1px solid rgba(0,200,83,0.15);
+    margin-bottom: 28px;
   }
 
   .listeners-dot {
@@ -103,60 +163,15 @@
     border-radius: 50%;
     background: #00C853;
     box-shadow: 0 0 8px rgba(0,200,83,0.5);
+    animation: pulse 2s ease-in-out infinite;
   }
 
-  .play-btn {
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    background: #7C4DFF;
-    border: none;
-    color: #fff;
-    font-size: 28px;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 20px;
-    box-shadow: 0 4px 24px rgba(124,77,255,0.35);
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 
-  .play-btn:hover {
-    transform: scale(1.06);
-    box-shadow: 0 6px 32px rgba(124,77,255,0.45);
-  }
-
-  .play-btn.playing { background: #FF48BC; box-shadow: 0 4px 24px rgba(255,72,188,0.35); }
-  .play-btn.playing:hover { box-shadow: 0 6px 32px rgba(255,72,188,0.45); }
-
-  .volume-wrap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    justify-content: center;
-  }
-
-  .volume-wrap svg { width: 18px; height: 18px; color: #8888a0; }
-
-  input[type="range"] {
-    -webkit-appearance: none;
-    width: 120px;
-    height: 4px;
-    border-radius: 2px;
-    background: #2a2a3a;
-    outline: none;
-  }
-
-  input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #7C4DFF;
-    cursor: pointer;
-  }
-
+  /* Visualizer */
   .visualizer {
     display: flex;
     align-items: flex-end;
@@ -170,25 +185,103 @@
     width: 4px;
     border-radius: 2px;
     background: linear-gradient(to top, #7C4DFF, #FF48BC);
-    transition: height 0.15s;
+    transition: height 0.12s ease;
+    opacity: 0.6;
   }
 
-  .footer-link {
-    margin-top: 32px;
+  .vis-bar.active { opacity: 1; }
+
+  /* Play button */
+  .play-btn {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: #7C4DFF;
+    border: none;
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+    box-shadow: 0 4px 24px rgba(124,77,255,0.35);
+  }
+
+  .play-btn svg { width: 28px; height: 28px; }
+
+  .play-btn:hover {
+    transform: scale(1.06);
+    box-shadow: 0 8px 36px rgba(124,77,255,0.45);
+  }
+
+  .play-btn.playing {
+    background: linear-gradient(135deg, #FF48BC, #7C4DFF);
+    box-shadow: 0 4px 24px rgba(255,72,188,0.35);
+  }
+  .play-btn.playing:hover {
+    box-shadow: 0 8px 36px rgba(255,72,188,0.45);
+  }
+
+  /* Volume */
+  .volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .volume-wrap svg { width: 18px; height: 18px; color: #7a7a9a; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 120px;
+    height: 4px;
+    border-radius: 2px;
+    background: #1a1a28;
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #7C4DFF;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(124,77,255,0.3);
+  }
+
+  /* Footer */
+  .player-footer {
+    margin-top: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     font-size: 11px;
-    color: #555;
+    color: #3a3a50;
   }
 
-  .footer-link a { color: #7C4DFF; text-decoration: none; font-weight: 600; }
+  .player-footer a {
+    color: #5a5a7a;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.15s;
+  }
+  .player-footer a:hover { color: #7C4DFF; }
 </style>
 </head>
 <body>
 
 <div class="player-wrap">
-  <div class="brand">CiryaCast</div>
+  <div class="player-header">
+    <img src="https://i.postimg.cc/bv1y0KCx/TMC-logo.png" alt="TMC">
+    <span>CiryaCast</span>
+  </div>
 
-  <div class="art-container">
-    <span class="art-icon">&#127925;</span>
+  <div class="art-container" id="art-container">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
   </div>
 
   <div class="station-name" id="station-name">Loading...</div>
@@ -197,20 +290,26 @@
 
   <div class="listeners-badge" id="listeners-badge">
     <div class="listeners-dot"></div>
-    <span id="listener-count">0</span> listening
+    <span><span id="listener-count">0</span> listening</span>
   </div>
 
   <div class="visualizer" id="visualizer"></div>
 
-  <button class="play-btn" id="play-btn" onclick="togglePlay()">&#9654;</button>
+  <button class="play-btn" id="play-btn" onclick="togglePlay()">
+    <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+  </button>
 
   <div class="volume-wrap">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
     <input type="range" id="volume" min="0" max="100" value="80" oninput="setVolume(this.value)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
   </div>
 
-  <div class="footer-link">
-    Powered by <a href="/">CiryaCast</a> — <a href="https://tmc.gg" target="_blank">TMC</a>
+  <div class="player-footer">
+    <span>Powered by</span>
+    <a href="/">CiryaCast</a>
+    <span>&middot;</span>
+    <a href="https://tmc.gg" target="_blank">The Mishra Corporation</a>
   </div>
 </div>
 
@@ -224,7 +323,7 @@
 
   // Create visualizer bars
   const visEl = document.getElementById('visualizer');
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 24; i++) {
     const bar = document.createElement('div');
     bar.className = 'vis-bar';
     bar.style.height = '4px';
@@ -234,20 +333,24 @@
 
   function togglePlay() {
     const btn = document.getElementById('play-btn');
+    const art = document.getElementById('art-container');
     if (playing) {
       audio.pause();
       audio.src = '';
       playing = false;
-      btn.innerHTML = '&#9654;';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>';
       btn.classList.remove('playing');
-      visBars.forEach(b => b.style.height = '4px');
+      art.classList.remove('playing');
+      visBars.forEach(b => { b.style.height = '4px'; b.classList.remove('active'); });
     } else {
       audio.src = `/listen/${stationId}/radio.mp3`;
       audio.volume = document.getElementById('volume').value / 100;
       audio.play().catch(() => {});
       playing = true;
-      btn.innerHTML = '&#9209;';
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="3" width="5" height="18"/><rect x="14" y="3" width="5" height="18"/></svg>';
       btn.classList.add('playing');
+      art.classList.add('playing');
+      visBars.forEach(b => b.classList.add('active'));
       animateVis();
     }
   }
@@ -261,7 +364,7 @@
     visBars.forEach(b => {
       b.style.height = (4 + Math.random() * 28) + 'px';
     });
-    setTimeout(() => requestAnimationFrame(animateVis), 150);
+    setTimeout(() => requestAnimationFrame(animateVis), 120);
   }
 
   // Poll now playing
@@ -293,6 +396,10 @@
     if (type === 'nowplaying' && data.stationId === stationId) {
       document.getElementById('track-title').textContent = data.title || '—';
       document.getElementById('track-artist').textContent = data.artist || '—';
+    }
+    if (type === 'track_change' && data.stationId === stationId) {
+      document.getElementById('track-title').textContent = data.track?.title || '—';
+      document.getElementById('track-artist').textContent = data.track?.artist || '—';
     }
     if (type === 'listeners' && data.stationId === stationId) {
       document.getElementById('listener-count').textContent = data.count;

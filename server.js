@@ -37,7 +37,6 @@ app.use('/media', express.static(path.join(__dirname, 'media')));
 app.use('/api', api);
 
 // ── Audio stream endpoint ──
-// GET /listen/:stationId/radio.mp3
 app.get('/listen/:stationId/radio.mp3', (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
   if (!station) return res.status(404).send('Station not found');
@@ -55,50 +54,45 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
   });
 
   streamEngine.addListener(station.id, res);
-
-  req.on('close', () => {
-    streamEngine.removeListener(station.id, res);
-  });
+  req.on('close', () => streamEngine.removeListener(station.id, res));
 });
 
-// ── Now Playing API (public) ──
+// ── Now Playing API (public — no auth) ──
 app.get('/api/nowplaying', (req, res) => {
   const stations = db.prepare('SELECT * FROM stations').all();
-  const result = stations.map(s => {
-    const np = streamEngine.getNowPlaying(s.id);
-    const listeners = streamEngine.getListenerCount(s.id);
-    return {
-      station: { id: s.id, name: s.name, description: s.description, genre: s.genre },
-      now_playing: np,
-      listeners: { current: listeners },
-      live: streamEngine.isLive(s.id),
-      listen_url: `/listen/${s.id}/radio.mp3`,
-    };
-  });
+  const result = stations.map(s => ({
+    station: { id: s.id, name: s.name, description: s.description, genre: s.genre },
+    now_playing: streamEngine.getNowPlaying(s.id),
+    listeners: { current: streamEngine.getListenerCount(s.id) },
+    live: streamEngine.isLive(s.id),
+    listen_url: `/listen/${s.id}/radio.mp3`,
+  }));
   res.json(result);
 });
 
 app.get('/api/nowplaying/:stationId', (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
   if (!station) return res.status(404).json({ error: 'Station not found' });
-
-  const np = streamEngine.getNowPlaying(station.id);
-  const listeners = streamEngine.getListenerCount(station.id);
   res.json({
     station: { id: station.id, name: station.name, description: station.description, genre: station.genre },
-    now_playing: np,
-    listeners: { current: listeners },
+    now_playing: streamEngine.getNowPlaying(station.id),
+    listeners: { current: streamEngine.getListenerCount(station.id) },
     live: streamEngine.isLive(station.id),
     listen_url: `/listen/${station.id}/radio.mp3`,
   });
 });
 
-// ── Public player page ──
+// ── Public player page (no auth) ──
 app.get('/player/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));
 });
 
-// ── SPA fallback ──
+// ── Login page ──
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// ── Dashboard (SPA fallback) ──
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -108,17 +102,17 @@ server.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗
   ║         CiryaCast v1.0.0                 ║
-  ║   Lightweight Radio Station Platform     ║
+  ║   The Mishra Corporation                 ║
   ║                                          ║
-  ║   Dashboard:  http://localhost:${PORT}      ║
-  ║   API:        http://localhost:${PORT}/api  ║
+  ║   Dashboard:  http://localhost:${PORT}       ║
+  ║   Login:      http://localhost:${PORT}/login ║
+  ║   API:        http://localhost:${PORT}/api   ║
   ╚══════════════════════════════════════════╝
   `);
 
-  // Auto-start AutoDJ for all active stations
   const stations = db.prepare('SELECT * FROM stations WHERE autodj_enabled = 1').all();
   stations.forEach(s => {
-    console.log(`  ▶ Starting AutoDJ for "${s.name}"`);
+    console.log(`  ▶ AutoDJ starting: "${s.name}"`);
     autoDJ.start(s.id);
   });
 });

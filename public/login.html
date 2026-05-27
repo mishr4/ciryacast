@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CiryaCast — Sign In</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #0a0a12;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    overflow: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    top: -40%;
+    left: -20%;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(124,77,255,0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  body::after {
+    content: '';
+    position: absolute;
+    bottom: -30%;
+    right: -15%;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,72,188,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .login-wrap {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    width: 380px;
+    max-width: 90vw;
+  }
+
+  .logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .logo-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .logo-text h1 {
+    font-size: 24px;
+    font-weight: 800;
+    text-align: left;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-text p {
+    font-size: 11px;
+    color: #666;
+    text-align: left;
+    font-weight: 500;
+  }
+
+  .login-card {
+    background: #13131d;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 20px;
+    padding: 40px 32px;
+    margin-top: 32px;
+  }
+
+  .login-card h2 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .login-card p {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 28px;
+    line-height: 1.5;
+  }
+
+  .sso-mount {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .btn-sso {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 24px;
+    border-radius: 14px;
+    background: #7C4DFF;
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 4px 20px rgba(124,77,255,0.3);
+  }
+
+  .btn-sso:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 28px rgba(124,77,255,0.4);
+  }
+
+  .btn-sso svg { width: 20px; height: 20px; }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0;
+  }
+
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255,255,255,0.06);
+  }
+
+  .divider span {
+    font-size: 11px;
+    color: #555;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .status-msg {
+    font-size: 13px;
+    color: #555;
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .status-msg.success {
+    color: #00C853;
+    background: rgba(0,200,83,0.06);
+    border-color: rgba(0,200,83,0.12);
+  }
+
+  .status-msg.error {
+    color: #FF2A2A;
+    background: rgba(255,42,42,0.06);
+    border-color: rgba(255,42,42,0.12);
+  }
+
+  .tmc-footer {
+    margin-top: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 11px;
+    color: #444;
+  }
+
+  .tmc-footer img { height: 14px; opacity: 0.4; }
+  .tmc-footer a { color: #666; text-decoration: none; }
+  .tmc-footer a:hover { color: #999; }
+
+  .user-card {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    background: rgba(124,77,255,0.06);
+    border: 1px solid rgba(124,77,255,0.12);
+    border-radius: 14px;
+    margin-bottom: 16px;
+    text-align: left;
+  }
+
+  .user-card.show { display: flex; }
+
+  .user-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 800;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .user-info h3 { font-size: 15px; font-weight: 700; }
+  .user-info p { font-size: 12px; color: #888; }
+
+  .badge {
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .badge-staff { background: rgba(124,77,255,0.15); color: #7C4DFF; }
+  .badge-founder { background: rgba(255,72,188,0.15); color: #FF48BC; }
+  .badge-plus { background: rgba(14,215,255,0.15); color: #0ED7FF; }
+  .badge-member { background: rgba(255,255,255,0.08); color: #888; }
+
+  .btn-enter {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    background: #00C853;
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    box-shadow: 0 4px 20px rgba(0,200,83,0.25);
+    text-decoration: none;
+    text-align: center;
+  }
+
+  .btn-enter:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(0,200,83,0.35); }
+</style>
+</head>
+<body>
+
+<div class="login-wrap">
+  <div class="logo-row">
+    <div class="logo-icon">CC</div>
+    <div class="logo-text">
+      <h1>CiryaCast</h1>
+      <p>The Mishra Corporation</p>
+    </div>
+  </div>
+
+  <div class="login-card">
+    <h2>Sign in to continue</h2>
+    <p>Use your Cirya account to access the CiryaCast dashboard.</p>
+
+    <!-- User card (shown after login) -->
+    <div class="user-card" id="user-card">
+      <div class="user-avatar" id="user-avatar">?</div>
+      <div class="user-info">
+        <h3 id="user-name">—</h3>
+        <p id="user-handle">—</p>
+      </div>
+      <span class="badge" id="user-badge"></span>
+    </div>
+
+    <div id="login-area">
+      <!-- CiryaSSO mount point -->
+      <div class="sso-mount">
+        <div data-cirya-sso></div>
+      </div>
+
+      <button class="btn-sso" id="btn-sso" onclick="doSignIn()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Sign in with Cirya
+      </button>
+    </div>
+
+    <a class="btn-enter" id="btn-enter" href="/" style="display:none">Enter Dashboard</a>
+
+    <div id="status-area" style="margin-top:16px"></div>
+  </div>
+
+  <div class="tmc-footer">
+    <span>Powered by</span>
+    <a href="https://tmc.gg" target="_blank">TMC</a>
+    <span>&middot;</span>
+    <a href="https://cirya.co" target="_blank">Cirya</a>
+  </div>
+</div>
+
+<script>
+  window.ciryaSsoConfig = {
+    theme: 'dark',
+    position: 'inline',
+    showWhenSignedIn: false,
+  };
+</script>
+<script src="https://cirya.co/sso-sdk.js?v=3" async></script>
+<script>
+  function doSignIn() {
+    if (window.CiryaSSO) {
+      CiryaSSO.signIn(window.location.origin + '/login');
+    } else {
+      showStatus('CiryaSSO is loading, try again in a moment...', 'error');
+    }
+  }
+
+  function showStatus(msg, type) {
+    document.getElementById('status-area').innerHTML =
+      `<div class="status-msg ${type || ''}">${msg}</div>`;
+  }
+
+  function showUser(user) {
+    document.getElementById('user-card').classList.add('show');
+    document.getElementById('user-name').textContent = user.display_name || user.cirya_handle || 'User';
+    document.getElementById('user-handle').textContent = user.cirya_handle ? '@' + user.cirya_handle : user.email || '';
+
+    const avatar = document.getElementById('user-avatar');
+    if (user.avatar_url) {
+      avatar.innerHTML = `<img src="${user.avatar_url}" alt="">`;
+    } else {
+      avatar.textContent = (user.display_name || '?')[0].toUpperCase();
+    }
+
+    const badge = document.getElementById('user-badge');
+    const status = user.status || 'Member';
+    badge.textContent = status;
+    badge.className = 'badge badge-' + status.toLowerCase();
+
+    document.getElementById('login-area').style.display = 'none';
+    document.getElementById('btn-enter').style.display = 'block';
+
+    // Store auth in sessionStorage
+    sessionStorage.setItem('ciryacast_user', JSON.stringify(user));
+  }
+
+  // Check for existing session
+  async function checkAuth() {
+    if (window.CiryaSSO) {
+      const user = await CiryaSSO.user();
+      if (user) {
+        showUser(user);
+        showStatus('Signed in successfully!', 'success');
+        return;
+      }
+    }
+
+    // Check sessionStorage fallback
+    const stored = sessionStorage.getItem('ciryacast_user');
+    if (stored) {
+      try {
+        showUser(JSON.parse(stored));
+      } catch {}
+    }
+  }
+
+  // Listen for CiryaSSO events
+  function initSSO() {
+    if (window.CiryaSSO) {
+      CiryaSSO.on('signin', (user) => {
+        showUser(user);
+        showStatus('Signed in successfully!', 'success');
+      });
+      checkAuth();
+    } else {
+      setTimeout(initSSO, 500);
+    }
+  }
+
+  initSSO();
+</script>
+</body>
+</html>
