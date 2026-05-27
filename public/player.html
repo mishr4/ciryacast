@@ -327,7 +327,7 @@
 <audio id="audio" preload="none"></audio>
 
 <script>
-  const stationId = window.location.pathname.split('/')[2];
+  let stationId = window.location.pathname.split('/')[2];
   const audio = document.getElementById('audio');
   let playing = false;
   let visBars = [];
@@ -427,6 +427,20 @@
   async function refreshNP() {
     try {
       const res = await fetch(`/api/nowplaying/${stationId}`);
+      if (res.status === 404) {
+        // Station not found — try to find any station
+        const allRes = await fetch('/api/nowplaying');
+        const all = await allRes.json();
+        if (Array.isArray(all) && all.length > 0) {
+          stationId = all[0].station.id;
+          // Update URL without reload
+          history.replaceState(null, '', `/player/${stationId}`);
+          updateNowPlaying(all[0]);
+          return;
+        }
+        document.getElementById('station-name').textContent = 'No stations available';
+        return;
+      }
       const data = await res.json();
       updateNowPlaying(data);
     } catch {}

@@ -96,6 +96,13 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
 });
 
 // ── Public player page (no auth) ──
+app.get('/player', (req, res) => {
+  // Redirect to first station's player
+  const station = db.prepare('SELECT id FROM stations LIMIT 1').get();
+  if (station) return res.redirect(`/player/${station.id}`);
+  res.sendFile(path.join(__dirname, 'public', 'player.html'));
+});
+
 app.get('/player/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));
 });
