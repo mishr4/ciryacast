@@ -71,7 +71,31 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS song_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    station_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    artist TEXT NOT NULL,
+    album TEXT DEFAULT '',
+    artwork_url TEXT DEFAULT '',
+    tm_track_id TEXT DEFAULT '',
+    media_id TEXT,
+    requested_by TEXT DEFAULT 'Listener',
+    status TEXT DEFAULT 'pending',
+    created_at TEXT DEFAULT (datetime('now')),
+    played_at TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_requests_station_status
+    ON song_requests(station_id, status);
 `);
+
+// ── Migrations: add columns if missing ──
+try { db.exec('ALTER TABLE media ADD COLUMN artwork_url TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE media ADD COLUMN tm_track_id TEXT DEFAULT ""'); } catch {}
 
 // ── Seed default station if none exist ──
 const count = db.prepare('SELECT COUNT(*) as c FROM stations').get();

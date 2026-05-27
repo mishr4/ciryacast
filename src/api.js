@@ -362,6 +362,208 @@ router.get('/stats', (req, res) => {
   });
 });
 
+// ════════════════════════════════════
+// TYPICALMEDIA SEARCH (proxy to avoid CORS)
+// ════════════════════════════════════
+
+router.get('/search', async (req, res) => {
+  const q = req.query.q;
+  if (!q || q.length < 2) return res.json([]);
+
+  try {
+    const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(q)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const data = await resp.json();
+    // Normalize: TypicalMedia returns array of track objects
+    // Each has: title, artist, album, artwork, id, duration, etc.
+    res.json(data);
+  } catch (e) {
+    console.log('  ⚠ TypicalMedia search error:', e.message);
+    res.json([]);
+  }
+});
+
+// ════════════════════════════════════
+// SONG REQUESTS
+// ════════════════════════════════════
+
+// Submit a song request (public — from player page)
+router.post('/stations/:id/requests', (req, res) => {
+  const db = req.app.get('db');
+  const stationId = req.params.id;
+  const { title, artist, album, artwork_url, tm_track_id, requested_by } = req.body;
+
+  if (!title || !artist) {
+    return res.status(400).json({ error: 'Title and artist are required' });
+  }
+
+  // Check station exists
+  const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(stationId);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  // Rate limit: max 1 request per IP per 30 seconds
+  // (simple approach — in production use Redis)
+  const recentReq = db.prepare(`
+    SELECT id FROM song_requests
+    WHERE station_id = ? AND requested_by = ? AND status = 'pending'
+      AND datetime(created_at) > datetime('now', '-30 seconds')
+  `).get(stationId, requested_by || 'Listener');
+
+  if (recentReq) {
+    return res.status(429).json({ error: 'Please wait before requesting another song' });
+  }
+
+  // Try to find a matching media file in the station's library
+  let media_id = null;
+  const mediaMatch = db.prepare(`
+    SELECT id FROM media
+    WHERE station_id = ?
+      AND (LOWER(title) LIKE ? OR LOWER(original_name) LIKE ?)
+      AND (LOWER(artist) LIKE ? OR artist = 'Unknown')
+    LIMIT 1
+  `).get(
+    stationId,
+    `%${title.toLowerCase()}%`,
+    `%${title.toLowerCase()}%`,
+    `%${artist.toLowerCase()}%`
+  );
+  if (mediaMatch) media_id = mediaMatch.id;
+
+  const result = db.prepare(`
+    INSERT INTO song_requests (station_id, title, artist, album, artwork_url, tm_track_id, media_id, requested_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(stationId, title, artist, album || '', artwork_url || '', tm_track_id || '', media_id, requested_by || 'Listener');
+
+  req.app.get('broadcast')('song_request', {
+    stationId,
+    title,
+    artist,
+    media_id,
+    matched: !!media_id,
+  });
+
+  res.status(201).json({
+    id: result.lastInsertRowid,
+    matched: !!media_id,
+    message: media_id ? 'Song found in library — queued!' : 'Requested — not in library yet',
+  });
+});
+
+// Get pending requests for a station
+router.get('/stations/:id/requests', (req, res) => {
+  const db = req.app.get('db');
+  const status = req.query.status || 'pending';
+  const limit = parseInt(req.query.limit) || 50;
+
+  const requests = db.prepare(`
+    SELECT * FROM song_requests
+    WHERE station_id = ? AND status = ?
+    ORDER BY created_at ASC
+    LIMIT ?
+  `).all(req.params.id, status, limit);
+
+  res.json(requests);
+});
+
+// Mark a request as played/skipped (dashboard action)
+router.patch('/requests/:id', (req, res) => {
+  const db = req.app.get('db');
+  const { status } = req.body; // 'played', 'skipped', 'pending'
+  if (!['played', 'skipped', 'pending'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+
+  db.prepare(`
+    UPDATE song_requests SET status = ?, played_at = CASE WHEN ? = 'played' THEN datetime('now') ELSE played_at END
+    WHERE id = ?
+  `).run(status, status, req.params.id);
+
+  res.json({ ok: true });
+});
+
+// ════════════════════════════════════
+// METADATA ENRICHMENT (TypicalMedia)
+// ════════════════════════════════════
+
+router.post('/media/:id/enrich', async (req, res) => {
+  const db = req.app.get('db');
+  const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+  if (!media) return res.status(404).json({ error: 'Media not found' });
+
+  const query = `${media.artist !== 'Unknown' ? media.artist + ' ' : ''}${media.title}`;
+  try {
+    const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const results = await resp.json();
+
+    if (Array.isArray(results) && results.length > 0) {
+      const track = results[0];
+      // Update with enriched metadata
+      db.prepare(`
+        UPDATE media SET
+          title = COALESCE(?, title),
+          artist = COALESCE(?, artist),
+          album = COALESCE(?, album),
+          artwork_url = COALESCE(?, artwork_url),
+          tm_track_id = COALESCE(?, tm_track_id)
+        WHERE id = ?
+      `).run(
+        track.title || null,
+        track.artist || null,
+        track.album || null,
+        track.artwork || track.artwork_url || track.image || null,
+        String(track.id || '') || null,
+        req.params.id
+      );
+
+      const updated = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+      return res.json({ enriched: true, media: updated });
+    }
+
+    res.json({ enriched: false, message: 'No matches found' });
+  } catch (e) {
+    console.log('  ⚠ Enrich error:', e.message);
+    res.status(500).json({ error: 'Enrichment failed: ' + e.message });
+  }
+});
+
+// Bulk enrich all media for a station
+router.post('/stations/:id/enrich', async (req, res) => {
+  const db = req.app.get('db');
+  const media = db.prepare(
+    "SELECT * FROM media WHERE station_id = ? AND (artwork_url IS NULL OR artwork_url = '')"
+  ).all(req.params.id);
+
+  let enriched = 0;
+  for (const m of media) {
+    const query = `${m.artist !== 'Unknown' ? m.artist + ' ' : ''}${m.title}`;
+    try {
+      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const results = await resp.json();
+
+      if (Array.isArray(results) && results.length > 0) {
+        const track = results[0];
+        db.prepare(`
+          UPDATE media SET
+            artwork_url = COALESCE(?, artwork_url),
+            tm_track_id = COALESCE(?, tm_track_id)
+          WHERE id = ?
+        `).run(
+          track.artwork || track.artwork_url || track.image || null,
+          String(track.id || '') || null,
+          m.id
+        );
+        enriched++;
+      }
+      // Rate limit: small delay between API calls
+      await new Promise(r => setTimeout(r, 200));
+    } catch {}
+  }
+
+  res.json({ total: media.length, enriched });
+});
+
 // ── Global multer error handler ──
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {

@@ -101,7 +101,38 @@ class AutoDJ {
       return;
     }
 
-    const track = session.queue[session.queueIndex++];
+    // ── Check song request queue first ──
+    let track = null;
+    let requestId = null;
+    const pendingReq = this.db.prepare(`
+      SELECT sr.*, m.filename, m.original_name, m.duration, m.size, m.artwork_url
+      FROM song_requests sr
+      JOIN media m ON m.id = sr.media_id
+      WHERE sr.station_id = ? AND sr.status = 'pending' AND sr.media_id IS NOT NULL
+      ORDER BY sr.created_at ASC
+      LIMIT 1
+    `).get(stationId);
+
+    if (pendingReq) {
+      // Play the requested track
+      track = {
+        id: pendingReq.media_id,
+        title: pendingReq.title,
+        artist: pendingReq.artist,
+        album: pendingReq.album || '',
+        filename: pendingReq.filename,
+        original_name: pendingReq.original_name,
+        duration: pendingReq.duration,
+        artwork_url: pendingReq.artwork_url || '',
+      };
+      requestId = pendingReq.id;
+      // Mark request as played
+      this.db.prepare("UPDATE song_requests SET status = 'played', played_at = datetime('now') WHERE id = ?").run(requestId);
+      console.log(`  ★ Request played: ${track.artist} — ${track.title}`);
+    } else {
+      track = session.queue[session.queueIndex++];
+    }
+
     const filePath = path.join(MEDIA_DIR, track.filename);
 
     // Check file exists BEFORE doing anything
@@ -141,6 +172,8 @@ class AutoDJ {
       album: track.album || '',
       duration: track.duration || 0,
       media_id: track.id,
+      artwork_url: track.artwork_url || '',
+      is_request: !!requestId,
     });
 
     this.db.prepare(`

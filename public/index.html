@@ -29,6 +29,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
       <span>Media</span>
     </button>
+    <button class="nav-item" data-view="requests">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span>Requests</span>
+    </button>
     <button class="nav-item" data-view="history">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>History</span>
@@ -143,6 +147,48 @@
             </div>
             <h3>No media yet</h3>
             <p>Upload some audio files to get started</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Requests View -->
+    <div class="view" id="view-requests">
+      <div id="request-station-selector" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <select id="request-station-select" class="select-input"></select>
+        <button class="btn btn-primary btn-sm" onclick="enrichAllMedia()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          Enrich All Metadata
+        </button>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">Pending Requests</div>
+          <span class="badge badge-purple" id="request-count">0</span>
+        </div>
+        <div id="requests-pending-list">
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </div>
+            <h3>No pending requests</h3>
+            <p>Song requests from listeners will appear here</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Request History</div>
+        </div>
+        <div id="requests-history-list">
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <h3>No past requests</h3>
+            <p>Played and skipped requests show up here</p>
           </div>
         </div>
       </div>

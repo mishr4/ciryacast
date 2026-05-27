@@ -97,8 +97,10 @@ class StreamEngine {
       album: meta.album || '',
       duration: meta.duration || 0,
       art: meta.art || null,
+      artwork_url: meta.artwork_url || '',
       started_at: new Date().toISOString(),
       media_id: meta.media_id || null,
+      is_request: meta.is_request || false,
     };
 
     this.broadcast('nowplaying', {

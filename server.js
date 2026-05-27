@@ -80,12 +80,18 @@ app.get('/api/nowplaying', (req, res) => {
 app.get('/api/nowplaying/:stationId', (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
   if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  const pendingRequests = db.prepare(
+    "SELECT id, title, artist, requested_by FROM song_requests WHERE station_id = ? AND status = 'pending' ORDER BY created_at ASC LIMIT 5"
+  ).all(station.id);
+
   res.json({
     station: { id: station.id, name: station.name, description: station.description, genre: station.genre },
     now_playing: streamEngine.getNowPlaying(station.id),
     listeners: { current: streamEngine.getListenerCount(station.id) },
     live: streamEngine.isLive(station.id),
     listen_url: `/listen/${station.id}/radio.mp3`,
+    request_queue: pendingRequests,
   });
 });
 
