@@ -494,10 +494,12 @@
         }
 
         searchResults.innerHTML = tracks.slice(0, 10).map((t, i) => {
-          const art = t.artwork || t.artwork_url || t.image || '';
+          const art = t.album_art || '';
           const title = t.title || t.name || 'Unknown';
-          const artist = t.artist || t.artists || 'Unknown';
-          const album = t.album || '';
+          const artist = t.artist || 'Unknown';
+          const album = t.album_name || '';
+          const tmId = t.deezer_id || t.spotify_id || '';
+          const dur = t.duration_sec || 0;
           return `
             <div class="search-result" data-index="${i}"
               onclick='requestSong(${JSON.stringify({
@@ -505,7 +507,8 @@
                 artist: typeof artist === 'string' ? artist : String(artist),
                 album: album,
                 artwork_url: art,
-                tm_track_id: String(t.id || ''),
+                tm_track_id: String(tmId),
+                duration: dur,
               }).replace(/'/g, "&#39;")})'
             >
               <div class="sr-art">
@@ -536,7 +539,7 @@
     searchResults.classList.remove('show');
     searchInput.value = `${track.artist} — ${track.title}`;
 
-    showRequestMsg('Submitting request...', 'info');
+    showRequestMsg('Downloading & queuing...', 'info');
 
     try {
       const res = await fetch(`/api/stations/${stationId}/requests`, {
@@ -551,10 +554,12 @@
       const data = await res.json();
 
       if (res.ok) {
-        if (data.matched) {
-          showRequestMsg('Song found in library — queued!', 'success');
+        if (data.downloaded) {
+          showRequestMsg('Song downloaded & queued! 🎵', 'success');
+        } else if (data.matched) {
+          showRequestMsg('Song already in library — queued!', 'success');
         } else {
-          showRequestMsg('Requested! Song not in library yet.', 'info');
+          showRequestMsg('Song unavailable for download', 'error');
         }
         searchInput.value = '';
         refreshNP();

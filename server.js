@@ -29,16 +29,18 @@ app.set('autoDJ', autoDJ);
 app.set('broadcast', broadcast);
 
 // ── Ensure directories exist ──
+// Use RAILWAY_VOLUME_MOUNT_PATH if available for persistent storage
 const fs = require('fs');
-const mediaDir = path.join(__dirname, 'media');
-const dataDir = path.join(__dirname, 'data');
+const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+const mediaDir = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, 'media');
+const dataDir = VOLUME ? path.join(VOLUME, 'data') : path.join(__dirname, 'data');
 if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 // ── Middleware ──
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/media', express.static(path.join(__dirname, 'media')));
+app.use('/media', express.static(mediaDir));
 
 // ── API routes ──
 app.use('/api', api);

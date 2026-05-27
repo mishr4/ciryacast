@@ -5,7 +5,8 @@ const fs = require('fs');
 const { v4: uuid } = require('uuid');
 
 const router = express.Router();
-const MEDIA_DIR = path.join(__dirname, '..', 'media');
+const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+const MEDIA_DIR = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, '..', 'media');
 
 // ── Pre-load music-metadata (ESM module, cache the promise) ──
 let mmLib = null;
@@ -388,10 +389,11 @@ router.get('/search', async (req, res) => {
 // ════════════════════════════════════
 
 // Submit a song request (public — from player page)
-router.post('/stations/:id/requests', (req, res) => {
+// Auto-downloads the song from TypicalMedia if not in library
+router.post('/stations/:id/requests', async (req, res) => {
   const db = req.app.get('db');
   const stationId = req.params.id;
-  const { title, artist, album, artwork_url, tm_track_id, requested_by } = req.body;
+  const { title, artist, album, artwork_url, tm_track_id, requested_by, duration } = req.body;
 
   if (!title || !artist) {
     return res.status(400).json({ error: 'Title and artist are required' });
@@ -402,7 +404,6 @@ router.post('/stations/:id/requests', (req, res) => {
   if (!station) return res.status(404).json({ error: 'Station not found' });
 
   // Rate limit: max 1 request per IP per 30 seconds
-  // (simple approach — in production use Redis)
   const recentReq = db.prepare(`
     SELECT id FROM song_requests
     WHERE station_id = ? AND requested_by = ? AND status = 'pending'
@@ -413,7 +414,7 @@ router.post('/stations/:id/requests', (req, res) => {
     return res.status(429).json({ error: 'Please wait before requesting another song' });
   }
 
-  // Try to find a matching media file in the station's library
+  // 1) Check if we already have this song in the library
   let media_id = null;
   const mediaMatch = db.prepare(`
     SELECT id FROM media
@@ -428,6 +429,59 @@ router.post('/stations/:id/requests', (req, res) => {
     `%${artist.toLowerCase()}%`
   );
   if (mediaMatch) media_id = mediaMatch.id;
+
+  // 2) If not in library and we have a TypicalMedia track ID — download it
+  if (!media_id && tm_track_id) {
+    try {
+      console.log(`  ⬇ Downloading: ${artist} — ${title} (TM ID: ${tm_track_id})`);
+      const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${tm_track_id}`;
+      const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(60000) });
+
+      if (streamRes.ok) {
+        const buffer = Buffer.from(await streamRes.arrayBuffer());
+
+        if (buffer.length > 10000) { // Sanity check — at least 10KB
+          const filename = `${uuid()}.mp3`;
+          const filePath = path.join(MEDIA_DIR, filename);
+          fs.writeFileSync(filePath, buffer);
+
+          const mediaId = uuid();
+          db.prepare(`
+            INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            mediaId, stationId, filename,
+            `${artist} - ${title}.mp3`,
+            title, artist, album || '', duration || 0,
+            buffer.length, 'audio/mpeg',
+            artwork_url || '', tm_track_id
+          );
+
+          // Add to default playlist
+          const defaultPlaylist = db.prepare(
+            'SELECT id FROM playlists WHERE station_id = ? AND is_default = 1'
+          ).get(stationId);
+          if (defaultPlaylist) {
+            const mo = db.prepare('SELECT MAX(sort_order) as m FROM playlist_items WHERE playlist_id = ?').get(defaultPlaylist.id);
+            db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
+              uuid(), defaultPlaylist.id, mediaId, (mo?.m || 0) + 1
+            );
+          }
+
+          media_id = mediaId;
+          console.log(`  ✓ Downloaded: ${artist} — ${title} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+
+          req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
+        } else {
+          console.log(`  ⚠ Download too small (${buffer.length} bytes), skipping`);
+        }
+      } else {
+        console.log(`  ⚠ Stream returned ${streamRes.status}`);
+      }
+    } catch (e) {
+      console.log(`  ⚠ Download failed: ${e.message}`);
+    }
+  }
 
   const result = db.prepare(`
     INSERT INTO song_requests (station_id, title, artist, album, artwork_url, tm_track_id, media_id, requested_by)
@@ -445,7 +499,10 @@ router.post('/stations/:id/requests', (req, res) => {
   res.status(201).json({
     id: result.lastInsertRowid,
     matched: !!media_id,
-    message: media_id ? 'Song found in library — queued!' : 'Requested — not in library yet',
+    downloaded: !!media_id && !mediaMatch,
+    message: media_id
+      ? (mediaMatch ? 'Song found in library — queued!' : 'Song downloaded & queued!')
+      : 'Requested — download unavailable',
   });
 });
 
@@ -498,7 +555,7 @@ router.post('/media/:id/enrich', async (req, res) => {
 
     if (Array.isArray(results) && results.length > 0) {
       const track = results[0];
-      // Update with enriched metadata
+      // Update with enriched metadata (TypicalMedia fields: album_art, album_name, deezer_id)
       db.prepare(`
         UPDATE media SET
           title = COALESCE(?, title),
@@ -510,9 +567,9 @@ router.post('/media/:id/enrich', async (req, res) => {
       `).run(
         track.title || null,
         track.artist || null,
-        track.album || null,
-        track.artwork || track.artwork_url || track.image || null,
-        String(track.id || '') || null,
+        track.album_name || null,
+        track.album_art || null,
+        track.deezer_id || track.spotify_id || null,
         req.params.id
       );
 
@@ -546,12 +603,18 @@ router.post('/stations/:id/enrich', async (req, res) => {
         const track = results[0];
         db.prepare(`
           UPDATE media SET
+            title = COALESCE(?, title),
+            artist = COALESCE(?, artist),
+            album = COALESCE(?, album),
             artwork_url = COALESCE(?, artwork_url),
             tm_track_id = COALESCE(?, tm_track_id)
           WHERE id = ?
         `).run(
-          track.artwork || track.artwork_url || track.image || null,
-          String(track.id || '') || null,
+          track.title || null,
+          track.artist || null,
+          track.album_name || null,
+          track.album_art || null,
+          track.deezer_id || track.spotify_id || null,
           m.id
         );
         enriched++;

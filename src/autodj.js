@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const MEDIA_DIR = path.join(__dirname, '..', 'media');
+const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+const MEDIA_DIR = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, '..', 'media');
 
 /**
  * AutoDJ — reads MP3 files from a station's playlist and streams
