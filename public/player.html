@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CiryaCast Player</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #0d0d14;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .player-wrap {
+    width: 400px;
+    max-width: 90vw;
+    text-align: center;
+  }
+
+  .brand {
+    font-size: 12px;
+    font-weight: 600;
+    color: #7C4DFF;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+
+  .art-container {
+    width: 200px;
+    height: 200px;
+    margin: 0 auto 28px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, #7C4DFF 0%, #FF48BC 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 64px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .art-container::before {
+    content: '';
+    position: absolute;
+    width: 300%;
+    height: 300%;
+    background: conic-gradient(from 0deg, transparent, rgba(255,255,255,0.05), transparent);
+    animation: spin 12s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .art-container .art-icon { position: relative; z-index: 1; }
+
+  .track-title {
+    font-size: 22px;
+    font-weight: 800;
+    margin-bottom: 4px;
+    min-height: 30px;
+  }
+
+  .track-artist {
+    font-size: 15px;
+    color: #8888a0;
+    font-weight: 500;
+    margin-bottom: 6px;
+  }
+
+  .track-album {
+    font-size: 12px;
+    color: #5555670;
+    margin-bottom: 28px;
+  }
+
+  .station-name {
+    font-size: 13px;
+    color: #8888a0;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .listeners-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #00C853;
+    margin-bottom: 24px;
+  }
+
+  .listeners-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00C853;
+    box-shadow: 0 0 8px rgba(0,200,83,0.5);
+  }
+
+  .play-btn {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: #7C4DFF;
+    border: none;
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    box-shadow: 0 4px 24px rgba(124,77,255,0.35);
+  }
+
+  .play-btn:hover {
+    transform: scale(1.06);
+    box-shadow: 0 6px 32px rgba(124,77,255,0.45);
+  }
+
+  .play-btn.playing { background: #FF48BC; box-shadow: 0 4px 24px rgba(255,72,188,0.35); }
+  .play-btn.playing:hover { box-shadow: 0 6px 32px rgba(255,72,188,0.45); }
+
+  .volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .volume-wrap svg { width: 18px; height: 18px; color: #8888a0; }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 120px;
+    height: 4px;
+    border-radius: 2px;
+    background: #2a2a3a;
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #7C4DFF;
+    cursor: pointer;
+  }
+
+  .visualizer {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    height: 32px;
+    margin-bottom: 28px;
+  }
+
+  .vis-bar {
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to top, #7C4DFF, #FF48BC);
+    transition: height 0.15s;
+  }
+
+  .footer-link {
+    margin-top: 32px;
+    font-size: 11px;
+    color: #555;
+  }
+
+  .footer-link a { color: #7C4DFF; text-decoration: none; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="player-wrap">
+  <div class="brand">CiryaCast</div>
+
+  <div class="art-container">
+    <span class="art-icon">&#127925;</span>
+  </div>
+
+  <div class="station-name" id="station-name">Loading...</div>
+  <div class="track-title" id="track-title">—</div>
+  <div class="track-artist" id="track-artist">—</div>
+
+  <div class="listeners-badge" id="listeners-badge">
+    <div class="listeners-dot"></div>
+    <span id="listener-count">0</span> listening
+  </div>
+
+  <div class="visualizer" id="visualizer"></div>
+
+  <button class="play-btn" id="play-btn" onclick="togglePlay()">&#9654;</button>
+
+  <div class="volume-wrap">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+    <input type="range" id="volume" min="0" max="100" value="80" oninput="setVolume(this.value)">
+  </div>
+
+  <div class="footer-link">
+    Powered by <a href="/">CiryaCast</a> — <a href="https://tmc.gg" target="_blank">TMC</a>
+  </div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+  const stationId = window.location.pathname.split('/')[2];
+  const audio = document.getElementById('audio');
+  let playing = false;
+  let visBars = [];
+
+  // Create visualizer bars
+  const visEl = document.getElementById('visualizer');
+  for (let i = 0; i < 20; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'vis-bar';
+    bar.style.height = '4px';
+    visEl.appendChild(bar);
+    visBars.push(bar);
+  }
+
+  function togglePlay() {
+    const btn = document.getElementById('play-btn');
+    if (playing) {
+      audio.pause();
+      audio.src = '';
+      playing = false;
+      btn.innerHTML = '&#9654;';
+      btn.classList.remove('playing');
+      visBars.forEach(b => b.style.height = '4px');
+    } else {
+      audio.src = `/listen/${stationId}/radio.mp3`;
+      audio.volume = document.getElementById('volume').value / 100;
+      audio.play().catch(() => {});
+      playing = true;
+      btn.innerHTML = '&#9209;';
+      btn.classList.add('playing');
+      animateVis();
+    }
+  }
+
+  function setVolume(v) {
+    audio.volume = v / 100;
+  }
+
+  function animateVis() {
+    if (!playing) return;
+    visBars.forEach(b => {
+      b.style.height = (4 + Math.random() * 28) + 'px';
+    });
+    setTimeout(() => requestAnimationFrame(animateVis), 150);
+  }
+
+  // Poll now playing
+  async function refreshNP() {
+    try {
+      const res = await fetch(`/api/nowplaying/${stationId}`);
+      const data = await res.json();
+
+      document.getElementById('station-name').textContent = data.station.name;
+      document.title = `${data.station.name} — CiryaCast`;
+
+      if (data.now_playing) {
+        document.getElementById('track-title').textContent = data.now_playing.title || '—';
+        document.getElementById('track-artist').textContent = data.now_playing.artist || '—';
+      }
+
+      document.getElementById('listener-count').textContent = data.listeners.current;
+    } catch {}
+  }
+
+  refreshNP();
+  setInterval(refreshNP, 5000);
+
+  // WebSocket for instant updates
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = (e) => {
+    const { type, data } = JSON.parse(e.data);
+    if (type === 'nowplaying' && data.stationId === stationId) {
+      document.getElementById('track-title').textContent = data.title || '—';
+      document.getElementById('track-artist').textContent = data.artist || '—';
+    }
+    if (type === 'listeners' && data.stationId === stationId) {
+      document.getElementById('listener-count').textContent = data.count;
+    }
+  };
+  ws.onclose = () => setTimeout(() => location.reload(), 5000);
+</script>
+</body>
+</html>
