@@ -354,32 +354,81 @@ if (uploadArea && fileInput) {
 async function handleFiles(files) {
   if (!currentStationId) return alert('Select a station first');
 
-  const form = new FormData();
-  for (const f of files) form.append('files', f);
+  const fileArr = Array.from(files);
+  const totalFiles = fileArr.length;
+
+  // Upload in batches of 20 to avoid timeout issues
+  const BATCH_SIZE = 20;
+  const batches = [];
+  for (let i = 0; i < fileArr.length; i += BATCH_SIZE) {
+    batches.push(fileArr.slice(i, i + BATCH_SIZE));
+  }
 
   uploadArea.innerHTML = `
-    <div class="upload-icon" style="color:var(--accent)">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px;animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"/></svg>
+    <div class="upload-icon" style="color:#7C4DFF">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
     </div>
-    <p>Uploading ${files.length} file${files.length > 1 ? 's' : ''}...</p>
+    <p><strong>Uploading ${totalFiles} file${totalFiles > 1 ? 's' : ''}...</strong></p>
+    <p class="upload-hint">Batch 1 of ${batches.length}</p>
   `;
 
+  let uploaded = 0;
+  let failed = 0;
+
   try {
-    await fetch(`/api/stations/${currentStationId}/media`, {
-      method: 'POST',
-      body: form,
-    });
+    for (let b = 0; b < batches.length; b++) {
+      const form = new FormData();
+      for (const f of batches[b]) form.append('files', f);
+
+      uploadArea.querySelector('.upload-hint').textContent =
+        `Batch ${b + 1} of ${batches.length} — ${uploaded} uploaded so far`;
+
+      const res = await fetch(`/api/stations/${currentStationId}/media`, {
+        method: 'POST',
+        body: form,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        uploaded += data.length;
+      } else {
+        failed += batches[b].length;
+        console.error('Upload batch failed:', await res.text());
+      }
+    }
+
+    const msg = failed > 0
+      ? `Uploaded ${uploaded} files (${failed} failed)`
+      : `Successfully uploaded ${uploaded} files!`;
+
     uploadArea.innerHTML = `
-      <div class="upload-icon" style="color:var(--accent)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <div class="upload-icon" style="color:${failed > 0 ? '#FF2A2A' : '#00C853'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
-      <p><strong>Drop audio files here</strong> or click to browse</p>
-      <p class="upload-hint">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>`;
+      <p><strong>${msg}</strong></p>
+      <p class="upload-hint">Drop more files or click to browse</p>`;
+
+    setTimeout(() => {
+      resetUploadArea();
+    }, 3000);
+
     refreshMedia();
     refreshDashboard();
-  } catch {
-    uploadArea.innerHTML = '<p style="color:var(--red)">Upload failed — try again</p>';
+  } catch (e) {
+    console.error('Upload error:', e);
+    uploadArea.innerHTML = `<p style="color:#FF2A2A"><strong>Upload failed</strong> — ${e.message || 'try again'}</p>`;
+    setTimeout(resetUploadArea, 3000);
   }
+}
+
+function resetUploadArea() {
+  if (!uploadArea) return;
+  uploadArea.innerHTML = `
+    <div class="upload-icon" style="color:#7C4DFF">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    </div>
+    <p><strong>Drop audio files here</strong> or click to browse</p>
+    <p class="upload-hint">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>`;
 }
 
 // ── History ──

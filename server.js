@@ -28,8 +28,15 @@ app.set('streamEngine', streamEngine);
 app.set('autoDJ', autoDJ);
 app.set('broadcast', broadcast);
 
+// ── Ensure directories exist ──
+const fs = require('fs');
+const mediaDir = path.join(__dirname, 'media');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
 // ── Middleware ──
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/media', express.static(path.join(__dirname, 'media')));
 

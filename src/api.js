@@ -7,9 +7,32 @@ const { v4: uuid } = require('uuid');
 const router = express.Router();
 const MEDIA_DIR = path.join(__dirname, '..', 'media');
 
+// ── Pre-load music-metadata (ESM module, cache the promise) ──
+let mmLib = null;
+const getMetadataParser = async () => {
+  if (!mmLib) {
+    try {
+      mmLib = await import('music-metadata');
+    } catch (err) {
+      console.log('  ⚠ music-metadata not available:', err.message);
+      mmLib = false;
+    }
+  }
+  return mmLib || null;
+};
+
+// Eagerly load on startup
+getMetadataParser();
+
 // ── Multer config for file uploads ──
 const storage = multer.diskStorage({
-  destination: MEDIA_DIR,
+  destination: (req, file, cb) => {
+    // Ensure media dir exists
+    if (!fs.existsSync(MEDIA_DIR)) {
+      fs.mkdirSync(MEDIA_DIR, { recursive: true });
+    }
+    cb(null, MEDIA_DIR);
+  },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     cb(null, `${uuid()}${ext}`);
@@ -18,12 +41,15 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+  limits: {
+    fileSize: 100 * 1024 * 1024,  // 100MB per file
+    files: 200,                     // up to 200 files at once
+  },
   fileFilter: (req, file, cb) => {
-    const allowed = ['.mp3', '.ogg', '.flac', '.wav', '.m4a', '.aac'];
+    const allowed = ['.mp3', '.ogg', '.flac', '.wav', '.m4a', '.aac', '.wma'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) cb(null, true);
-    else cb(new Error('Only audio files are allowed'));
+    else cb(null, false); // silently skip non-audio (don't error, just skip)
   },
 });
 
@@ -145,61 +171,102 @@ router.get('/stations/:id/media', (req, res) => {
   res.json(media);
 });
 
-router.post('/stations/:id/media', upload.array('files', 20), async (req, res) => {
-  const db = req.app.get('db');
-  const stationId = req.params.id;
+// Upload with multer error handling wrapper
+router.post('/stations/:id/media', (req, res) => {
+  const uploadHandler = upload.array('files', 200);
 
-  // Verify station exists
-  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
-  if (!station) return res.status(404).json({ error: 'Station not found' });
-
-  const results = [];
-
-  for (const file of req.files) {
-    const id = uuid();
-    let title = path.parse(file.originalname).name;
-    let artist = 'Unknown';
-    let album = '';
-    let duration = 0;
-
-    // Try to parse metadata
-    try {
-      const mm = await import('music-metadata');
-      const metadata = await mm.parseFile(file.path);
-      if (metadata.common.title) title = metadata.common.title;
-      if (metadata.common.artist) artist = metadata.common.artist;
-      if (metadata.common.album) album = metadata.common.album;
-      if (metadata.format.duration) duration = metadata.format.duration;
-    } catch {
-      // Metadata parsing failed — that's fine, use filename
+  uploadHandler(req, res, async (err) => {
+    if (err) {
+      console.log('  ⚠ Upload error:', err.message);
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'File too large (max 100MB per file)' });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+          return res.status(413).json({ error: 'Too many files (max 200 per upload)' });
+        }
+        return res.status(400).json({ error: `Upload error: ${err.message}` });
+      }
+      return res.status(500).json({ error: `Upload failed: ${err.message}` });
     }
 
-    db.prepare(`
-      INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, stationId, file.filename, file.originalname, title, artist, album, duration, file.size, file.mimetype);
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No audio files received' });
+    }
 
-    // Auto-add to default playlist
+    const db = req.app.get('db');
+    const stationId = req.params.id;
+
+    // Verify station exists
+    const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+    if (!station) return res.status(404).json({ error: 'Station not found' });
+
+    // Get default playlist once
     const defaultPlaylist = db.prepare(
       'SELECT id FROM playlists WHERE station_id = ? AND is_default = 1'
     ).get(stationId);
 
+    let maxOrder = 0;
     if (defaultPlaylist) {
-      const maxOrder = db.prepare(
+      const mo = db.prepare(
         'SELECT MAX(sort_order) as m FROM playlist_items WHERE playlist_id = ?'
       ).get(defaultPlaylist.id);
-
-      db.prepare(`
-        INSERT INTO playlist_items (id, playlist_id, media_id, sort_order)
-        VALUES (?, ?, ?, ?)
-      `).run(uuid(), defaultPlaylist.id, id, (maxOrder?.m || 0) + 1);
+      maxOrder = mo?.m || 0;
     }
 
-    results.push({ id, title, artist, album, duration, filename: file.filename, size: file.size });
-  }
+    // Get metadata parser (cached)
+    const mm = await getMetadataParser();
 
-  req.app.get('broadcast')('media_uploaded', { stationId, count: results.length });
-  res.status(201).json(results);
+    const results = [];
+    const insertMedia = db.prepare(`
+      INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertPlaylistItem = defaultPlaylist ? db.prepare(`
+      INSERT INTO playlist_items (id, playlist_id, media_id, sort_order)
+      VALUES (?, ?, ?, ?)
+    `) : null;
+
+    for (const file of req.files) {
+      const id = uuid();
+      let title = path.parse(file.originalname).name;
+      let artist = 'Unknown';
+      let album = '';
+      let duration = 0;
+
+      // Try to parse metadata
+      if (mm) {
+        try {
+          const metadata = await mm.parseFile(file.path);
+          if (metadata.common.title) title = metadata.common.title;
+          if (metadata.common.artist) artist = metadata.common.artist;
+          if (metadata.common.album) album = metadata.common.album;
+          if (metadata.format.duration) duration = Math.round(metadata.format.duration);
+        } catch (e) {
+          // Metadata parsing failed — use filename, that's fine
+          console.log(`  ⚠ Metadata parse failed for ${file.originalname}: ${e.message}`);
+        }
+      }
+
+      try {
+        insertMedia.run(id, stationId, file.filename, file.originalname, title, artist, album, duration, file.size, file.mimetype);
+
+        // Auto-add to default playlist
+        if (insertPlaylistItem) {
+          maxOrder++;
+          insertPlaylistItem.run(uuid(), defaultPlaylist.id, id, maxOrder);
+        }
+
+        results.push({ id, title, artist, album, duration, filename: file.filename, size: file.size });
+        console.log(`  ✓ Uploaded: ${title} — ${artist} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+      } catch (e) {
+        console.log(`  ⚠ DB insert failed for ${file.originalname}: ${e.message}`);
+      }
+    }
+
+    req.app.get('broadcast')('media_uploaded', { stationId, count: results.length });
+    res.status(201).json(results);
+  });
 });
 
 router.delete('/media/:id', (req, res) => {
@@ -211,7 +278,7 @@ router.delete('/media/:id', (req, res) => {
   const fp = path.join(MEDIA_DIR, media.filename);
   try { fs.unlinkSync(fp); } catch {}
 
-  // Delete from DB (cascade will remove playlist_items)
+  // Delete from DB
   db.prepare('DELETE FROM playlist_items WHERE media_id = ?').run(req.params.id);
   db.prepare('DELETE FROM media WHERE id = ?').run(req.params.id);
 
@@ -228,7 +295,6 @@ router.get('/stations/:id/playlists', (req, res) => {
     'SELECT * FROM playlists WHERE station_id = ? ORDER BY created_at'
   ).all(req.params.id);
 
-  // Add item count
   const result = playlists.map(p => {
     const count = db.prepare(
       'SELECT COUNT(*) as c FROM playlist_items WHERE playlist_id = ?'
@@ -294,6 +360,19 @@ router.get('/stats', (req, res) => {
     total_media: totalMedia,
     total_played: totalPlayed,
   });
+});
+
+// ── Global multer error handler ──
+router.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.log('  ⚠ Multer error:', err.code, err.message);
+    return res.status(400).json({ error: `Upload error: ${err.message}` });
+  }
+  if (err) {
+    console.log('  ⚠ API error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+  next();
 });
 
 module.exports = router;
