@@ -350,6 +350,8 @@
   let playing = false;
   let visBars = [];
   let searchTimeout = null;
+  let currentMediaId = null;  // track current song to detect real changes
+  let lastElapsed = 0;        // client-side elapsed interpolation
 
   // ── Visualizer ──
   const visEl = document.getElementById('visualizer');
@@ -388,6 +390,20 @@
 
   function setVolume(v) { audio.volume = v / 100; }
 
+  // Reconnect the audio stream (forces client to get fresh audio from server)
+  function reconnectStream() {
+    if (!playing) return;
+    const vol = audio.volume;
+    audio.pause();
+    audio.src = '';
+    // Small delay to let the server buffer the new track's first chunks
+    setTimeout(() => {
+      audio.src = `/listen/${stationId}/radio.mp3`;
+      audio.volume = vol;
+      audio.play().catch(() => {});
+    }, 300);
+  }
+
   function animateVis() {
     if (!playing) return;
     visBars.forEach(b => { b.style.height = (4 + Math.random() * 24) + 'px'; });
@@ -395,7 +411,8 @@
   }
 
   // ── Now Playing ──
-  function updateNowPlaying(data) {
+  let _npTrackChanged = false;
+  function updateNowPlaying(data, forceReconnect) {
     if (!data) return;
     const np = data.now_playing;
     const art = document.getElementById('art-container');
@@ -405,24 +422,40 @@
     document.title = `${data.station.name} — CiryaCast`;
 
     if (np) {
+      // Detect real track change (different media_id)
+      const newMediaId = np.media_id || null;
+      if (newMediaId && newMediaId !== currentMediaId) {
+        _npTrackChanged = true;
+        currentMediaId = newMediaId;
+        lastElapsed = np.elapsed || 0;
+        // Reconnect stream so client hears the new track immediately
+        if (forceReconnect) reconnectStream();
+      }
+
       document.getElementById('track-title').textContent = np.title || '—';
       document.getElementById('track-artist').textContent = np.artist || '—';
       document.getElementById('track-album').textContent = np.album || '';
 
-      // Artwork
-      if (np.artwork_url) {
+      // Artwork — only update if changed to avoid flicker
+      const currentArt = art.querySelector('img')?.src || '';
+      if (np.artwork_url && !currentArt.includes(np.artwork_url)) {
         art.innerHTML = `<img src="${np.artwork_url}" alt="">`;
-      } else {
+      } else if (!np.artwork_url && currentArt) {
         art.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
       }
 
-      // Progress bar
+      // Progress bar — use server elapsed, don't let it go backwards
       const progressWrap = document.getElementById('progress-wrap');
       if (np.duration > 0) {
         progressWrap.style.display = 'block';
         const elapsed = np.elapsed || 0;
-        const progress = Math.min(100, (elapsed / np.duration) * 100);
-        document.getElementById('progress-elapsed').textContent = fmtDur(elapsed);
+        // Only accept elapsed if it moves forward OR track changed (reset)
+        if (elapsed >= lastElapsed || _npTrackChanged) {
+          lastElapsed = elapsed;
+          _npTrackChanged = false;
+        }
+        const progress = Math.min(100, (lastElapsed / np.duration) * 100);
+        document.getElementById('progress-elapsed').textContent = fmtDur(lastElapsed);
         document.getElementById('progress-duration').textContent = fmtDur(np.duration);
         document.getElementById('progress-fill').style.width = progress + '%';
       } else {
@@ -456,48 +489,73 @@
     }
   }
 
-  async function refreshNP() {
+  async function refreshNP(forceReconnect) {
     try {
       const res = await fetch(`/api/nowplaying/${stationId}`);
       if (res.status === 404) {
-        // Station not found — try to find any station
         const allRes = await fetch('/api/nowplaying');
         const all = await allRes.json();
         if (Array.isArray(all) && all.length > 0) {
           stationId = all[0].station.id;
-          // Update URL without reload
           history.replaceState(null, '', `/player/${stationId}`);
-          updateNowPlaying(all[0]);
+          updateNowPlaying(all[0], forceReconnect);
           return;
         }
         document.getElementById('station-name').textContent = 'No stations available';
         return;
       }
       const data = await res.json();
-      updateNowPlaying(data);
+      updateNowPlaying(data, forceReconnect);
     } catch {}
   }
 
   refreshNP();
-  // Refresh every 2s for smooth progress bar
-  setInterval(refreshNP, 2000);
+
+  // Client-side elapsed tick every 1s for smooth progress (no backtracking)
+  setInterval(() => {
+    lastElapsed += 1;
+    const elapsedEl = document.getElementById('progress-elapsed');
+    const fillEl = document.getElementById('progress-fill');
+    const durEl = document.getElementById('progress-duration');
+    if (elapsedEl && fillEl) {
+      elapsedEl.textContent = fmtDur(lastElapsed);
+      // Parse duration from the display text
+      const durText = durEl?.textContent || '0:00';
+      const durParts = durText.split(':');
+      const dur = (parseInt(durParts[0]) || 0) * 60 + (parseInt(durParts[1]) || 0);
+      if (dur > 0) {
+        fillEl.style.width = Math.min(100, (lastElapsed / dur) * 100) + '%';
+      }
+    }
+  }, 1000);
+
+  // Sync with server every 3s (just for metadata, not progress driving)
+  setInterval(refreshNP, 3000);
 
   // ── WebSocket ──
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onmessage = (e) => {
-    const { type, data } = JSON.parse(e.data);
-    if ((type === 'nowplaying' || type === 'track_change') && data.stationId === stationId) {
-      refreshNP(); // Full refresh to get artwork + queue
-    }
-    if (type === 'listeners' && data.stationId === stationId) {
-      document.getElementById('listener-count').textContent = data.count;
-    }
-    if (type === 'song_request' && data.stationId === stationId) {
-      refreshNP(); // Refresh queue
-    }
-  };
-  ws.onclose = () => setTimeout(() => location.reload(), 5000);
+  let ws;
+  function connectPlayerWS() {
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (e) => {
+      const { type, data } = JSON.parse(e.data);
+      if (type === 'track_change' && data.stationId === stationId) {
+        // Track changed — reconnect stream so we hear the new song immediately
+        refreshNP(true);
+      }
+      if (type === 'nowplaying' && data.stationId === stationId) {
+        refreshNP(false); // Metadata update only (e.g., artwork enriched)
+      }
+      if (type === 'listeners' && data.stationId === stationId) {
+        document.getElementById('listener-count').textContent = data.count;
+      }
+      if (type === 'song_request' && data.stationId === stationId) {
+        refreshNP(false);
+      }
+    };
+    ws.onclose = () => setTimeout(connectPlayerWS, 3000);
+  }
+  connectPlayerWS();
 
   // ── Song Request Search ──
   const searchInput = document.getElementById('search-input');
