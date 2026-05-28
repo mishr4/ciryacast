@@ -5,310 +5,152 @@ const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 const MEDIA_DIR = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, '..', 'media');
 
 /**
- * AutoDJ — reads MP3 files from a station's playlist and streams
- * them as raw bytes to the StreamEngine at the correct bitrate.
+ * AutoDJ — clock-based MP3 streamer.
  *
- * Pure Node.js — no ffmpeg, no Liquidsoap.
+ * Instead of setInterval (which drifts), uses a setTimeout loop that
+ * checks wall-clock time to decide how many bytes to send each tick.
+ * This self-corrects for timing jitter and keeps the stream at exactly
+ * the right bitrate.
  */
 class AutoDJ {
   constructor(db, streamEngine, broadcast) {
     this.db = db;
     this.streamEngine = streamEngine;
     this.broadcast = broadcast;
-    // stationId -> { active, interval, queue, queueIndex }
     this.sessions = new Map();
   }
 
+  /* ── Public API ───────────────────────────────────── */
+
   start(stationId) {
     if (this.sessions.has(stationId)) return;
-
     const session = {
       active: true,
-      interval: null,
+      timer: null,
       queue: [],
       queueIndex: 0,
-      fileBuffer: null,
-      bufferOffset: 0,
-      priorityQueue: [],  // tracks queued via "Add to Queue"
-      playNowId: null,    // media ID to play immediately (skip current)
+      // Current track streaming state
+      buf: null,        // file buffer
+      offset: 0,        // bytes sent so far
+      startedAt: 0,     // hrtime when streaming began (ms)
+      bytesPerMs: 0,    // target bytes per millisecond
+      // Queue features
+      priorityQueue: [],
+      playNowId: null,
     };
     this.sessions.set(stationId, session);
     this._buildQueue(stationId);
-    this._playNext(stationId);
+    this._next(stationId);
   }
 
   stop(stationId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return;
-    session.active = false;
-    if (session.interval) clearInterval(session.interval);
+    const s = this.sessions.get(stationId);
+    if (!s) return;
+    s.active = false;
+    if (s.timer) { clearTimeout(s.timer); s.timer = null; }
     this.sessions.delete(stationId);
   }
 
   skip(stationId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return;
-    if (session.interval) clearInterval(session.interval);
-    session.interval = null;
-    session.fileBuffer = null;
-    this._playNext(stationId);
+    const s = this.sessions.get(stationId);
+    if (!s) return;
+    this._cancelTimer(s);
+    this._next(stationId);
   }
 
-  isRunning(stationId) {
-    return this.sessions.has(stationId);
-  }
+  isRunning(id) { return this.sessions.has(id); }
 
-  /**
-   * Play a specific track immediately (skip current track)
-   */
   playNow(stationId, mediaId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return false;
-    session.playNowId = mediaId;
-    // Stop current playback and trigger next (which will pick up playNowId)
-    if (session.interval) clearInterval(session.interval);
-    session.interval = null;
-    session.fileBuffer = null;
-    this._playNext(stationId);
+    const s = this.sessions.get(stationId);
+    if (!s) return false;
+    s.playNowId = mediaId;
+    this._cancelTimer(s);
+    this._next(stationId);
     return true;
   }
 
-  /**
-   * Add a track to the front of the priority queue (plays after current track)
-   */
   queueNext(stationId, mediaId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return false;
-    session.priorityQueue.push(mediaId);
+    const s = this.sessions.get(stationId);
+    if (!s) return false;
+    s.priorityQueue.push(mediaId);
     return true;
   }
 
-  /**
-   * Get the current priority queue for a station
-   */
   getQueue(stationId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return [];
-    return session.priorityQueue.map(id => {
-      const m = this.db.prepare('SELECT id, title, artist, album, duration, artwork_url FROM media WHERE id = ?').get(id);
+    const s = this.sessions.get(stationId);
+    if (!s) return [];
+    return s.priorityQueue.map(id => {
+      const m = this.db.prepare(
+        'SELECT id, title, artist, album, duration, artwork_url FROM media WHERE id = ?'
+      ).get(id);
       return m || { id, title: 'Unknown', artist: 'Unknown' };
     });
   }
 
-  /**
-   * Auto-enrich a track with artwork from TypicalMedia (runs in background)
-   */
-  async _autoEnrich(track) {
-    try {
-      const query = `${track.artist} ${track.title}`;
-      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      const results = await resp.json();
-      if (Array.isArray(results) && results.length > 0) {
-        const t = results[0];
-        if (t.album_art) {
-          this.db.prepare(`
-            UPDATE media SET artwork_url = ?, tm_track_id = COALESCE(?, tm_track_id)
-            WHERE id = ? AND (artwork_url IS NULL OR artwork_url = '')
-          `).run(t.album_art, t.deezer_id || null, track.id);
-          track.artwork_url = t.album_art;
-          // Update the live now-playing with the artwork
-          const sessions = [...this.sessions.entries()];
-          for (const [sid, sess] of sessions) {
-            const np = this.streamEngine.getNowPlaying(sid);
-            if (np && np.media_id === track.id) {
-              np.artwork_url = t.album_art;
-              this.broadcast('nowplaying', { stationId: sid, ...np });
-            }
-          }
-          console.log(`  🎨 Auto-enriched: ${track.artist} — ${track.title}`);
-        }
-      }
-    } catch {}
+  /* ── Internals ────────────────────────────────────── */
+
+  _cancelTimer(s) {
+    if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+    s.buf = null;
+    s.offset = 0;
   }
 
-  /**
-   * Strip ID3v2 header from start of MP3 buffer (prevents glitches between tracks)
-   */
-  _stripID3(buf) {
-    // ID3v2 header: "ID3" + version(2) + flags(1) + size(4 syncsafe bytes)
-    if (buf.length >= 10 && buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {
-      const size = (buf[6] << 21) | (buf[7] << 14) | (buf[8] << 7) | buf[9];
-      const headerSize = 10 + size;
-      if (headerSize < buf.length) {
-        return buf.subarray(headerSize);
-      }
-    }
-    return buf;
-  }
+  /** Pick the next track and start streaming it */
+  _next(stationId) {
+    const s = this.sessions.get(stationId);
+    if (!s || !s.active) return;
+    this._cancelTimer(s);
 
-  /**
-   * Find the first MP3 sync word (0xFF 0xE0+ mask) to ensure clean frame boundary
-   */
-  _findFirstFrame(buf) {
-    for (let i = 0; i < Math.min(buf.length - 1, 8192); i++) {
-      if (buf[i] === 0xFF && (buf[i + 1] & 0xE0) === 0xE0) {
-        return i > 0 ? buf.subarray(i) : buf;
-      }
-    }
-    return buf;
-  }
-
-  _buildQueue(stationId) {
-    const session = this.sessions.get(stationId);
-    if (!session) return;
-
-    // Get all media for this station via playlists
-    let media = this.db.prepare(`
-      SELECT DISTINCT m.* FROM media m
-      JOIN playlist_items pi ON pi.media_id = m.id
-      JOIN playlists p ON p.id = pi.playlist_id
-      WHERE p.station_id = ?
-    `).all(stationId);
-
-    // Fallback: all media for station
-    if (media.length === 0) {
-      media = this.db.prepare('SELECT * FROM media WHERE station_id = ?').all(stationId);
-    }
-
-    // Shuffle
-    session.queue = media.sort(() => Math.random() - 0.5);
-    session.queueIndex = 0;
-  }
-
-  _playNext(stationId) {
-    const session = this.sessions.get(stationId);
-    if (!session || !session.active) return;
-
-    // Clean up previous interval
-    if (session.interval) {
-      clearInterval(session.interval);
-      session.interval = null;
-    }
-
-    // Rebuild queue if empty or exhausted
-    if (session.queue.length === 0 || session.queueIndex >= session.queue.length) {
+    // Rebuild queue if needed
+    if (!s.queue.length || s.queueIndex >= s.queue.length) {
       this._buildQueue(stationId);
     }
-
-    if (session.queue.length === 0) {
-      // No media — wait 10 seconds and retry
-      session.interval = setTimeout(() => {
-        session.interval = null;
-        this._playNext(stationId);
-      }, 10000);
+    if (!s.queue.length) {
+      // No media — retry in 5s
+      console.log(`  ⏸ ${stationId}: no media, retrying in 5s`);
+      s.timer = setTimeout(() => this._next(stationId), 5000);
       return;
     }
 
-    // ── Priority: 1) playNow, 2) priorityQueue, 3) song requests, 4) regular queue ──
-    let track = null;
-    let requestId = null;
-
-    // 1) Play Now — immediate override
-    if (session.playNowId) {
-      const m = this.db.prepare('SELECT * FROM media WHERE id = ?').get(session.playNowId);
-      session.playNowId = null;
-      if (m) {
-        track = m;
-        console.log(`  ⚡ Play Now: ${track.artist} — ${track.title}`);
-      }
-    }
-
-    // 2) Priority Queue — manually queued tracks
-    if (!track && session.priorityQueue.length > 0) {
-      const mediaId = session.priorityQueue.shift();
-      const m = this.db.prepare('SELECT * FROM media WHERE id = ?').get(mediaId);
-      if (m) {
-        track = m;
-        console.log(`  ▶ Queue: ${track.artist} — ${track.title}`);
-      }
-    }
-
-    // 3) Song request queue
+    // ── Pick track: playNow > priorityQueue > requests > shuffle ──
+    const track = this._pickTrack(stationId, s);
     if (!track) {
-      const pendingReq = this.db.prepare(`
-        SELECT sr.*, m.filename, m.original_name, m.duration, m.size, m.artwork_url
-        FROM song_requests sr
-        JOIN media m ON m.id = sr.media_id
-        WHERE sr.station_id = ? AND sr.status = 'pending' AND sr.media_id IS NOT NULL
-        ORDER BY sr.created_at ASC
-        LIMIT 1
-      `).get(stationId);
-
-      if (pendingReq) {
-        track = {
-          id: pendingReq.media_id,
-          title: pendingReq.title,
-          artist: pendingReq.artist,
-          album: pendingReq.album || '',
-          filename: pendingReq.filename,
-          original_name: pendingReq.original_name,
-          duration: pendingReq.duration,
-          artwork_url: pendingReq.artwork_url || '',
-        };
-        requestId = pendingReq.id;
-        this.db.prepare("UPDATE song_requests SET status = 'played', played_at = datetime('now') WHERE id = ?").run(requestId);
-        console.log(`  ★ Request played: ${track.artist} — ${track.title}`);
-      }
+      s.timer = setTimeout(() => this._next(stationId), 2000);
+      return;
     }
 
-    // 4) Regular shuffle queue
-    if (!track) {
-      track = session.queue[session.queueIndex++];
-    }
-
+    // Read + prepare file
     const filePath = path.join(MEDIA_DIR, track.filename);
-
-    // Check file exists BEFORE doing anything
     if (!fs.existsSync(filePath)) {
-      console.log(`  ⚠ Missing: ${track.original_name}, skipping`);
-      // Small delay to prevent rapid loop if all files missing
-      setTimeout(() => this._playNext(stationId), 500);
+      console.log(`  ⚠ Missing: ${track.original_name || track.title}, skip`);
+      setTimeout(() => this._next(stationId), 200);
       return;
     }
 
-    // Read entire file into memory (radio files are typically 3-10MB, fine for memory)
-    let fileBuffer;
-    try {
-      fileBuffer = fs.readFileSync(filePath);
-    } catch (err) {
-      console.log(`  ⚠ Read error: ${err.message}`);
-      setTimeout(() => this._playNext(stationId), 1000);
+    let buf;
+    try { buf = fs.readFileSync(filePath); } catch (e) {
+      console.log(`  ⚠ Read error: ${e.message}`);
+      setTimeout(() => this._next(stationId), 500);
+      return;
+    }
+    if (buf.length < 1000) {
+      setTimeout(() => this._next(stationId), 200);
       return;
     }
 
-    if (fileBuffer.length === 0) {
-      setTimeout(() => this._playNext(stationId), 500);
+    // Strip ID3v2 header + align to first MP3 frame
+    buf = stripID3(buf);
+    buf = alignFrame(buf);
+    if (buf.length < 500) {
+      setTimeout(() => this._next(stationId), 200);
       return;
     }
 
-    // Strip ID3v2 tags and align to first MP3 frame (prevents glitches between tracks)
-    fileBuffer = this._stripID3(fileBuffer);
-    fileBuffer = this._findFirstFrame(fileBuffer);
-
-    if (fileBuffer.length === 0) {
-      setTimeout(() => this._playNext(stationId), 500);
-      return;
-    }
-
-    // Get station bitrate
+    // Station bitrate
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
-    const bitrate = (station?.bitrate || 128) * 1000;
-    const bytesPerSecond = bitrate / 8;
-    // Stream at exactly 1.0x real-time bitrate — like Icecast/Shoutcast.
-    // The 1MB burst-on-connect in StreamEngine gives new listeners initial buffer.
-    // Exact-rate means the client's audio buffer stays small (~2-4s), so
-    // skips take effect almost immediately instead of draining 20+ seconds.
-    const CHUNKS_PER_SEC = 5;
-    const chunkSize = Math.floor(bytesPerSecond / CHUNKS_PER_SEC);
-    const intervalMs = Math.floor(1000 / CHUNKS_PER_SEC); // 200ms
+    const bps = ((station?.bitrate || 128) * 1000) / 8; // bytes per second
 
-    // Auto-enrich artwork from TypicalMedia if missing
-    if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
-      this._autoEnrich(track).catch(() => {});
-    }
-
-    // NOW set metadata and log history (file confirmed valid)
+    // Set metadata + history
     this.streamEngine.setNowPlaying(stationId, {
       title: track.title || track.original_name,
       artist: track.artist || 'Unknown',
@@ -316,59 +158,179 @@ class AutoDJ {
       duration: track.duration || 0,
       media_id: track.id,
       artwork_url: track.artwork_url || '',
-      is_request: !!requestId,
+      is_request: !!track._requestId,
     });
 
-    this.db.prepare(`
-      INSERT INTO play_history (station_id, media_id, title, artist, listeners)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      stationId, track.id,
-      track.title || track.original_name,
-      track.artist || 'Unknown',
-      this.streamEngine.getListenerCount(stationId)
-    );
+    this.db.prepare(
+      'INSERT INTO play_history (station_id, media_id, title, artist, listeners) VALUES (?,?,?,?,?)'
+    ).run(stationId, track.id, track.title || track.original_name,
+          track.artist || 'Unknown', this.streamEngine.getListenerCount(stationId));
 
     this.broadcast('track_change', {
       stationId,
-      track: {
-        id: track.id,
-        title: track.title || track.original_name,
-        artist: track.artist || 'Unknown',
-        album: track.album || '',
-        duration: track.duration,
-      },
+      track: { id: track.id, title: track.title || track.original_name,
+               artist: track.artist || 'Unknown', album: track.album || '',
+               duration: track.duration },
     });
 
     console.log(`  ♪ ${station?.name}: ${track.artist || 'Unknown'} — ${track.title || track.original_name}`);
 
-    // Stream the file buffer at bitrate pace
-    session.fileBuffer = fileBuffer;
-    session.bufferOffset = 0;
+    // Auto-enrich artwork in background
+    if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
+      this._autoEnrich(track).catch(() => {});
+    }
 
-    session.interval = setInterval(() => {
-      if (!session.active) {
-        clearInterval(session.interval);
-        return;
-      }
+    // ── Start clock-based streaming ──
+    s.buf = buf;
+    s.offset = 0;
+    s.startedAt = Date.now();
+    s.bytesPerMs = bps / 1000;
 
-      const start = session.bufferOffset;
-      const end = Math.min(start + chunkSize, fileBuffer.length);
-
-      if (start >= fileBuffer.length) {
-        // Track finished — move to next with minimal gap
-        clearInterval(session.interval);
-        session.interval = null;
-        session.fileBuffer = null;
-        setImmediate(() => this._playNext(stationId));
-        return;
-      }
-
-      const chunk = fileBuffer.subarray(start, end);
-      this.streamEngine.pushAudio(stationId, chunk);
-      session.bufferOffset = end;
-    }, intervalMs);
+    this._tick(stationId);
   }
+
+  /**
+   * Clock-based tick: calculates how many bytes *should* have been sent
+   * by now based on wall-clock time, then sends the difference.
+   * Self-corrects for any timing jitter.
+   */
+  _tick(stationId) {
+    const s = this.sessions.get(stationId);
+    if (!s || !s.active || !s.buf) return;
+
+    const elapsed = Date.now() - s.startedAt;
+    const targetOffset = Math.floor(elapsed * s.bytesPerMs);
+    const toSend = Math.min(targetOffset - s.offset, s.buf.length - s.offset);
+
+    if (toSend > 0) {
+      const chunk = s.buf.subarray(s.offset, s.offset + toSend);
+      this.streamEngine.pushAudio(stationId, chunk);
+      s.offset += toSend;
+    }
+
+    if (s.offset >= s.buf.length) {
+      // Track done → next
+      s.buf = null;
+      s.timer = setTimeout(() => this._next(stationId), 0);
+      return;
+    }
+
+    // Schedule next tick in 200ms
+    s.timer = setTimeout(() => this._tick(stationId), 200);
+  }
+
+  _pickTrack(stationId, s) {
+    let track = null;
+
+    // 1) Play Now
+    if (s.playNowId) {
+      track = this.db.prepare('SELECT * FROM media WHERE id = ?').get(s.playNowId);
+      s.playNowId = null;
+      if (track) { console.log(`  ⚡ Play Now: ${track.artist} — ${track.title}`); return track; }
+    }
+
+    // 2) Priority Queue
+    while (!track && s.priorityQueue.length) {
+      const id = s.priorityQueue.shift();
+      track = this.db.prepare('SELECT * FROM media WHERE id = ?').get(id);
+      if (track) { console.log(`  ▶ Queue: ${track.artist} — ${track.title}`); return track; }
+    }
+
+    // 3) Song requests
+    const req = this.db.prepare(`
+      SELECT sr.*, m.filename, m.original_name, m.duration, m.size, m.artwork_url
+      FROM song_requests sr JOIN media m ON m.id = sr.media_id
+      WHERE sr.station_id = ? AND sr.status = 'pending' AND sr.media_id IS NOT NULL
+      ORDER BY sr.created_at ASC LIMIT 1
+    `).get(stationId);
+    if (req) {
+      this.db.prepare("UPDATE song_requests SET status='played', played_at=datetime('now') WHERE id=?").run(req.id);
+      console.log(`  ★ Request: ${req.artist} — ${req.title}`);
+      return {
+        id: req.media_id, title: req.title, artist: req.artist,
+        album: req.album || '', filename: req.filename,
+        original_name: req.original_name, duration: req.duration,
+        artwork_url: req.artwork_url || '', _requestId: req.id,
+      };
+    }
+
+    // 4) Shuffle queue
+    if (s.queueIndex < s.queue.length) {
+      return s.queue[s.queueIndex++];
+    }
+    return null;
+  }
+
+  _buildQueue(stationId) {
+    const s = this.sessions.get(stationId);
+    if (!s) return;
+
+    let media = this.db.prepare(`
+      SELECT DISTINCT m.* FROM media m
+      JOIN playlist_items pi ON pi.media_id = m.id
+      JOIN playlists p ON p.id = pi.playlist_id
+      WHERE p.station_id = ?
+    `).all(stationId);
+
+    if (!media.length) {
+      media = this.db.prepare('SELECT * FROM media WHERE station_id = ?').all(stationId);
+    }
+
+    // Fisher-Yates shuffle
+    for (let i = media.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [media[i], media[j]] = [media[j], media[i]];
+    }
+
+    s.queue = media;
+    s.queueIndex = 0;
+  }
+
+  async _autoEnrich(track) {
+    try {
+      const q = `${track.artist} ${track.title}`;
+      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(q)}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const results = await resp.json();
+      if (Array.isArray(results) && results.length > 0 && results[0].album_art) {
+        const t = results[0];
+        this.db.prepare(`
+          UPDATE media SET artwork_url = ?, tm_track_id = COALESCE(?, tm_track_id)
+          WHERE id = ? AND (artwork_url IS NULL OR artwork_url = '')
+        `).run(t.album_art, t.deezer_id || null, track.id);
+        track.artwork_url = t.album_art;
+        // Update live now-playing
+        for (const [sid] of this.sessions) {
+          const np = this.streamEngine.getNowPlaying(sid);
+          if (np && np.media_id === track.id) {
+            np.artwork_url = t.album_art;
+            this.broadcast('nowplaying', { stationId: sid, ...np });
+          }
+        }
+        console.log(`  🎨 Enriched: ${track.artist} — ${track.title}`);
+      }
+    } catch {}
+  }
+}
+
+/* ── MP3 helpers ── */
+
+function stripID3(buf) {
+  if (buf.length >= 10 && buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {
+    const size = (buf[6] << 21) | (buf[7] << 14) | (buf[8] << 7) | buf[9];
+    const end = 10 + size;
+    if (end < buf.length) return buf.subarray(end);
+  }
+  return buf;
+}
+
+function alignFrame(buf) {
+  for (let i = 0; i < Math.min(buf.length - 1, 8192); i++) {
+    if (buf[i] === 0xFF && (buf[i + 1] & 0xE0) === 0xE0) {
+      return i > 0 ? buf.subarray(i) : buf;
+    }
+  }
+  return buf;
 }
 
 module.exports = { AutoDJ };

@@ -258,6 +258,41 @@
   .queue-info span { color: #777; }
   .queue-by { font-size: 10px; color: #aaa; }
 
+  /* Stream Link Card */
+  .stream-link-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px 20px;
+    box-shadow: 0 1px 21px rgba(0,0,0,0.08);
+    margin-bottom: 16px;
+  }
+  .stream-url-input {
+    flex: 1;
+    padding: 8px 12px;
+    background: #f5f5f5;
+    border: 1.5px solid rgba(0,0,0,0.06);
+    border-radius: 10px;
+    font-family: 'Instrument Sans', monospace;
+    font-size: 12px;
+    color: #333;
+    outline: none;
+    min-width: 0;
+  }
+  .stream-copy-btn {
+    padding: 8px 16px;
+    background: #7C4DFF;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .stream-copy-btn:hover { background: #6a3de8; }
+
   .player-footer {
     display: flex;
     align-items: center;
@@ -332,6 +367,16 @@
       <h4>Request Queue</h4>
       <div id="queue-list"></div>
     </div>
+  </div>
+
+  <!-- Direct Stream Link -->
+  <div class="stream-link-card" id="stream-link-card">
+    <div style="display:flex;align-items:center;gap:10px">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="2" style="width:18px;height:18px;flex-shrink:0"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <input type="text" id="stream-url" class="stream-url-input" readonly>
+      <button class="stream-copy-btn" id="stream-copy-btn" onclick="copyStreamUrl()">Copy</button>
+    </div>
+    <p style="font-size:11px;color:#999;margin-top:8px;text-align:center">Use this URL in VLC, foobar2000, or any media player</p>
   </div>
 
   <div class="player-footer">
@@ -498,6 +543,18 @@
       const data = await res.json();
       updateNowPlaying(data);
     } catch {}
+  }
+
+  // Set direct stream URL
+  const streamUrlInput = document.getElementById('stream-url');
+  streamUrlInput.value = `${location.origin}/listen/${stationId}/radio.mp3`;
+
+  function copyStreamUrl() {
+    navigator.clipboard.writeText(streamUrlInput.value).then(() => {
+      const btn = document.getElementById('stream-copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    });
   }
 
   refreshNP();

@@ -45,6 +45,11 @@ app.use('/media', express.static(mediaDir));
 // ── API routes ──
 app.use('/api', api);
 
+// ── Clean stream URL redirect ──
+app.get('/stream/:stationId', (req, res) => {
+  res.redirect(`/listen/${req.params.stationId}/radio.mp3`);
+});
+
 // ── Audio stream endpoint ──
 app.get('/listen/:stationId/radio.mp3', (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);

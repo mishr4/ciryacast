@@ -1,15 +1,13 @@
-const fs = require('fs');
-const path = require('path');
-
 /**
  * StreamEngine — manages audio streams for each station.
- * Buffers audio chunks and distributes them to connected HTTP listeners.
- * Works with raw MP3 frames piped in by the AutoDJ.
+ *
+ * Distributes MP3 chunks from the AutoDJ to connected HTTP listeners.
+ * Keeps a small ring buffer so new listeners get instant audio on connect.
  */
 class StreamEngine {
   constructor(broadcast) {
     this.broadcast = broadcast;
-    // stationId -> { listeners: Set<res>, nowPlaying: {}, buffer: Buffer[], live: bool }
+    // stationId -> StationState
     this.stations = new Map();
   }
 
@@ -18,35 +16,32 @@ class StreamEngine {
       this.stations.set(stationId, {
         listeners: new Set(),
         nowPlaying: null,
-        buffer: [],       // ring buffer of recent chunks for burst-on-connect
+        buffer: [],
         bufferSize: 0,
         live: false,
+        _elapsedTimer: null,
       });
     }
     return this.stations.get(stationId);
   }
 
-  /**
-   * Push a chunk of MP3 data to all listeners on a station
-   */
+  /** Push MP3 chunk to all listeners and ring buffer */
   pushAudio(stationId, chunk) {
-    const state = this._ensure(stationId);
+    const s = this._ensure(stationId);
 
-    // Add to ring buffer (keep ~256KB for burst-on-connect)
-    // 256KB at 128kbps = ~16s of audio — enough for smooth start
-    // without causing massive skip delays from over-buffering
-    state.buffer.push(chunk);
-    state.bufferSize += chunk.length;
-    while (state.bufferSize > 256 * 1024 && state.buffer.length > 1) {
-      state.bufferSize -= state.buffer.shift().length;
+    // Ring buffer: ~192KB ≈ 12s at 128kbps — enough for smooth connect,
+    // small enough that skips aren't delayed by stale data
+    s.buffer.push(chunk);
+    s.bufferSize += chunk.length;
+    while (s.bufferSize > 192 * 1024 && s.buffer.length > 1) {
+      s.bufferSize -= s.buffer.shift().length;
     }
 
-    // Write to all connected listeners
-    for (const res of state.listeners) {
+    // Deliver to every connected listener
+    for (const res of s.listeners) {
       try {
-        const ok = res.write(chunk);
-        if (!ok) {
-          // Backpressure — listener too slow, drop them
+        if (!res.write(chunk)) {
+          // Backpressure — slow client, disconnect
           this.removeListener(stationId, res);
         }
       } catch {
@@ -55,96 +50,70 @@ class StreamEngine {
     }
   }
 
-  /**
-   * Add an HTTP response as a listener
-   */
+  /** Add an HTTP response as a stream listener */
   addListener(stationId, res) {
-    const state = this._ensure(stationId);
-    state.listeners.add(res);
+    const s = this._ensure(stationId);
+    s.listeners.add(res);
 
-    // Burst: send buffered audio so playback starts faster
-    for (const chunk of state.buffer) {
+    // Burst: send recent audio so playback starts instantly
+    for (const chunk of s.buffer) {
       try { res.write(chunk); } catch { break; }
     }
 
-    this.broadcast('listeners', {
-      stationId,
-      count: state.listeners.size,
-    });
+    this.broadcast('listeners', { stationId, count: s.listeners.size });
   }
 
-  /**
-   * Remove a listener
-   */
+  /** Remove a listener cleanly */
   removeListener(stationId, res) {
-    const state = this.stations.get(stationId);
-    if (!state) return;
-    state.listeners.delete(res);
+    const s = this.stations.get(stationId);
+    if (!s) return;
+    if (!s.listeners.has(res)) return; // already removed
+    s.listeners.delete(res);
     try { res.end(); } catch {}
-
-    this.broadcast('listeners', {
-      stationId,
-      count: state.listeners.size,
-    });
+    this.broadcast('listeners', { stationId, count: s.listeners.size });
   }
 
-  /**
-   * Clear the ring buffer (used on track change so listeners get new audio faster)
-   */
-  clearBuffer(stationId) {
-    const state = this.stations.get(stationId);
-    if (!state) return;
-    state.buffer = [];
-    state.bufferSize = 0;
-  }
-
-  /**
-   * Set now-playing metadata
-   */
+  /** Set now-playing metadata and start elapsed timer */
   setNowPlaying(stationId, meta) {
-    const state = this._ensure(stationId);
-    state.nowPlaying = {
+    const s = this._ensure(stationId);
+    const startedAt = Date.now();
+
+    s.nowPlaying = {
       title: meta.title || 'Unknown',
       artist: meta.artist || 'Unknown',
       album: meta.album || '',
       duration: meta.duration || 0,
-      art: meta.art || null,
       artwork_url: meta.artwork_url || '',
-      started_at: new Date().toISOString(),
+      started_at: new Date(startedAt).toISOString(),
       elapsed: 0,
       media_id: meta.media_id || null,
       is_request: meta.is_request || false,
     };
-    // Track elapsed time
-    if (state._elapsedTimer) clearInterval(state._elapsedTimer);
-    state._elapsedTimer = setInterval(() => {
-      if (state.nowPlaying) state.nowPlaying.elapsed = Math.floor((Date.now() - new Date(state.nowPlaying.started_at).getTime()) / 1000);
+
+    if (s._elapsedTimer) clearInterval(s._elapsedTimer);
+    s._elapsedTimer = setInterval(() => {
+      if (s.nowPlaying) {
+        s.nowPlaying.elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      }
     }, 1000);
 
-    this.broadcast('nowplaying', {
-      stationId,
-      ...state.nowPlaying,
-    });
+    this.broadcast('nowplaying', { stationId, ...s.nowPlaying });
   }
 
   getNowPlaying(stationId) {
-    const state = this.stations.get(stationId);
-    return state?.nowPlaying || null;
+    return this.stations.get(stationId)?.nowPlaying || null;
   }
 
   getListenerCount(stationId) {
-    const state = this.stations.get(stationId);
-    return state?.listeners.size || 0;
+    return this.stations.get(stationId)?.listeners.size || 0;
   }
 
   isLive(stationId) {
-    const state = this.stations.get(stationId);
-    return state?.live || false;
+    return this.stations.get(stationId)?.live || false;
   }
 
   setLive(stationId, live) {
-    const state = this._ensure(stationId);
-    state.live = live;
+    this._ensure(stationId).live = live;
   }
 }
 
