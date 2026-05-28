@@ -295,12 +295,13 @@ class AutoDJ {
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
     const bitrate = (station?.bitrate || 128) * 1000;
     const bytesPerSecond = bitrate / 8;
-    // Stream at 1.15x real-time so client buffer stays ahead of playback.
-    // Larger chunks (4/sec) reduce overhead vs tiny chunks (10/sec).
-    const SPEED_MULT = 1.15;
-    const CHUNKS_PER_SEC = 4;
-    const chunkSize = Math.floor((bytesPerSecond * SPEED_MULT) / CHUNKS_PER_SEC);
-    const intervalMs = Math.floor(1000 / CHUNKS_PER_SEC); // 250ms
+    // Stream at exactly 1.0x real-time bitrate — like Icecast/Shoutcast.
+    // The 1MB burst-on-connect in StreamEngine gives new listeners initial buffer.
+    // Exact-rate means the client's audio buffer stays small (~2-4s), so
+    // skips take effect almost immediately instead of draining 20+ seconds.
+    const CHUNKS_PER_SEC = 5;
+    const chunkSize = Math.floor(bytesPerSecond / CHUNKS_PER_SEC);
+    const intervalMs = Math.floor(1000 / CHUNKS_PER_SEC); // 200ms
 
     // Auto-enrich artwork from TypicalMedia if missing
     if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
@@ -345,15 +346,6 @@ class AutoDJ {
     session.fileBuffer = fileBuffer;
     session.bufferOffset = 0;
 
-    // Trim ~0.5s from end of file for gapless transition (avoids trailing silence)
-    const trimBytes = Math.floor(bytesPerSecond * 0.5);
-    const effectiveLength = Math.max(fileBuffer.length - trimBytes, chunkSize);
-
-    // Send an initial burst (2 chunks) for faster start after track switch
-    const burstEnd = Math.min(chunkSize * 2, effectiveLength);
-    this.streamEngine.pushAudio(stationId, fileBuffer.subarray(0, burstEnd));
-    session.bufferOffset = burstEnd;
-
     session.interval = setInterval(() => {
       if (!session.active) {
         clearInterval(session.interval);
@@ -361,9 +353,9 @@ class AutoDJ {
       }
 
       const start = session.bufferOffset;
-      const end = Math.min(start + chunkSize, effectiveLength);
+      const end = Math.min(start + chunkSize, fileBuffer.length);
 
-      if (start >= effectiveLength) {
+      if (start >= fileBuffer.length) {
         // Track finished — move to next with minimal gap
         clearInterval(session.interval);
         session.interval = null;
