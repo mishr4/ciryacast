@@ -307,9 +307,6 @@ class AutoDJ {
       this._autoEnrich(track).catch(() => {});
     }
 
-    // Clear old audio from the stream buffer so listeners hear the new track sooner
-    this.streamEngine.clearBuffer(stationId);
-
     // NOW set metadata and log history (file confirmed valid)
     this.streamEngine.setNowPlaying(stationId, {
       title: track.title || track.original_name,
@@ -367,11 +364,11 @@ class AutoDJ {
       const end = Math.min(start + chunkSize, effectiveLength);
 
       if (start >= effectiveLength) {
-        // Track finished — move to next immediately (gapless)
+        // Track finished — move to next with minimal gap
         clearInterval(session.interval);
         session.interval = null;
         session.fileBuffer = null;
-        this._playNext(stationId);
+        setImmediate(() => this._playNext(stationId));
         return;
       }
 
