@@ -121,8 +121,9 @@
 
     <!-- Media View -->
     <div class="view" id="view-media">
-      <div id="station-selector" style="margin-bottom:16px">
+      <div id="station-selector" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <select id="media-station-select" class="select-input"></select>
+        <span id="media-station-name" style="font-size:15px;font-weight:600;color:#333"></span>
       </div>
 
       <input type="file" id="file-input" multiple accept="audio/*" style="display:none">
