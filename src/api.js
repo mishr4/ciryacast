@@ -113,6 +113,25 @@ router.put('/stations/:id', (req, res) => {
   res.json(station);
 });
 
+router.get('/stations/:id', (req, res) => {
+  const db = req.app.get('db');
+  const streamEngine = req.app.get('streamEngine');
+  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  const mediaCount = db.prepare('SELECT COUNT(*) as c FROM media WHERE station_id = ?').get(req.params.id).c;
+  const playCount = db.prepare('SELECT COUNT(*) as c FROM play_history WHERE station_id = ?').get(req.params.id).c;
+
+  res.json({
+    ...station,
+    listeners: streamEngine.getListenerCount(station.id),
+    now_playing: streamEngine.getNowPlaying(station.id),
+    autodj_running: req.app.get('autoDJ').isRunning(station.id),
+    media_count: mediaCount,
+    play_count: playCount,
+  });
+});
+
 router.delete('/stations/:id', (req, res) => {
   const db = req.app.get('db');
   const autoDJ = req.app.get('autoDJ');
@@ -434,6 +453,7 @@ router.post('/stations/:id/requests', async (req, res) => {
   if (!media_id && tm_track_id) {
     try {
       console.log(`  ⬇ Downloading: ${artist} — ${title} (TM ID: ${tm_track_id})`);
+      if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
       const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${tm_track_id}`;
       const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(60000) });
 

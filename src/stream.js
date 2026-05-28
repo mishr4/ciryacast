@@ -99,9 +99,15 @@ class StreamEngine {
       art: meta.art || null,
       artwork_url: meta.artwork_url || '',
       started_at: new Date().toISOString(),
+      elapsed: 0,
       media_id: meta.media_id || null,
       is_request: meta.is_request || false,
     };
+    // Track elapsed time
+    if (state._elapsedTimer) clearInterval(state._elapsedTimer);
+    state._elapsedTimer = setInterval(() => {
+      if (state.nowPlaying) state.nowPlaying.elapsed = Math.floor((Date.now() - new Date(state.nowPlaying.started_at).getTime()) / 1000);
+    }, 1000);
 
     this.broadcast('nowplaying', {
       stationId,

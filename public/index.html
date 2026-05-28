@@ -138,7 +138,14 @@
       <div class="card">
         <div class="card-header">
           <div class="card-title">Media Library</div>
-          <span class="badge badge-purple" id="media-count">0 files</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <input type="text" id="media-search" placeholder="Search media..." style="padding:7px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none;width:180px" oninput="filterMedia(this.value)">
+            <button class="btn btn-primary btn-sm" onclick="enrichAllMedia()" title="Enrich metadata from TypicalMedia">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+              Enrich
+            </button>
+            <span class="badge badge-purple" id="media-count">0 files</span>
+          </div>
         </div>
         <div id="media-table-wrap">
           <div class="empty-state">
@@ -249,6 +256,48 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-new-station')">Cancel</button>
       <button class="btn btn-primary" onclick="createStation()">Create Station</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Station Modal -->
+<div class="modal-overlay" id="modal-edit-station">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Station Settings</h3>
+      <button class="modal-close" onclick="closeModal('modal-edit-station')">&times;</button>
+    </div>
+    <input type="hidden" id="edit-station-id">
+    <div class="form-group">
+      <label>Station Name</label>
+      <input type="text" id="edit-station-name">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input type="text" id="edit-station-desc">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Genre</label>
+        <input type="text" id="edit-station-genre">
+      </div>
+      <div class="form-group">
+        <label>Bitrate (kbps)</label>
+        <select id="edit-station-bitrate">
+          <option value="64">64</option>
+          <option value="96">96</option>
+          <option value="128">128</option>
+          <option value="192">192</option>
+          <option value="256">256</option>
+          <option value="320">320</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="deleteStation(document.getElementById('edit-station-id').value);closeModal('modal-edit-station')">Delete Station</button>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit-station')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveStation()">Save</button>
     </div>
   </div>
 </div>

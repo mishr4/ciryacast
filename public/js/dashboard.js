@@ -5,14 +5,11 @@
     window.location.href = '/login';
     return;
   }
-
-  // Show user info in sidebar
   try {
     const u = JSON.parse(user);
     const nameEl = document.getElementById('sidebar-username');
     const handleEl = document.getElementById('sidebar-handle');
     const avatarEl = document.getElementById('sidebar-avatar');
-
     if (nameEl) nameEl.textContent = u.display_name || u.cirya_handle || 'User';
     if (handleEl) handleEl.textContent = u.cirya_handle ? '@' + u.cirya_handle : u.email || '';
     if (avatarEl) {
@@ -27,30 +24,40 @@
 
 function signOut() {
   sessionStorage.removeItem('ciryacast_user');
-  if (window.CiryaSSO) {
-    CiryaSSO.signOut();
-  }
+  if (window.CiryaSSO) CiryaSSO.signOut();
   window.location.href = '/login';
 }
 
 // ── State ──
 let stations = [];
 let currentStationId = null;
+let allMedia = []; // cached for search filtering
 let ws = null;
+
+// ── API helper ──
+async function api(path, opts = {}) {
+  try {
+    const res = await fetch(`/api${path}`, {
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
+      ...opts,
+    });
+    if (!res.ok) { console.error(`API ${path} → ${res.status}`); return null; }
+    return await res.json();
+  } catch (e) { console.error(`API ${path} failed:`, e); return null; }
+}
 
 // ── WebSocket ──
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-
   ws.onmessage = (e) => {
     const { type, data } = JSON.parse(e.data);
     if (type === 'nowplaying' || type === 'track_change') refreshDashboard();
-    if (type === 'listeners') updateListenerCount(data.stationId, data.count);
+    if (type === 'listeners') refreshDashboard();
     if (type === 'media_uploaded') { refreshMedia(); refreshDashboard(); }
     if (type === 'station_created' || type === 'station_deleted') { loadStations(); refreshDashboard(); }
+    if (type === 'song_request') refreshRequests();
   };
-
   ws.onclose = () => setTimeout(connectWS, 3000);
 }
 
@@ -59,18 +66,14 @@ document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-
     const view = btn.dataset.view;
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     document.getElementById(`view-${view}`).classList.add('active');
     document.getElementById('view-title').textContent = btn.querySelector('span')?.textContent || 'Dashboard';
-
     if (view === 'media') refreshMedia();
     if (view === 'history') refreshHistory();
     if (view === 'stations') loadStations();
     if (view === 'requests') refreshRequests();
-
-    // Close mobile sidebar
     closeMobileSidebar();
   });
 });
@@ -79,42 +82,13 @@ document.querySelectorAll('.nav-item').forEach(btn => {
 const mobileMenuBtn = document.getElementById('mobile-menu-btn');
 const sidebar = document.querySelector('.sidebar');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
+if (mobileMenuBtn) mobileMenuBtn.addEventListener('click', () => { sidebar.classList.toggle('open'); sidebarOverlay.classList.toggle('show'); });
+if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeMobileSidebar);
+function closeMobileSidebar() { sidebar.classList.remove('open'); sidebarOverlay.classList.remove('show'); }
 
-if (mobileMenuBtn) {
-  mobileMenuBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('open');
-    sidebarOverlay.classList.toggle('show');
-  });
-}
-
-if (sidebarOverlay) {
-  sidebarOverlay.addEventListener('click', closeMobileSidebar);
-}
-
-function closeMobileSidebar() {
-  sidebar.classList.remove('open');
-  sidebarOverlay.classList.remove('show');
-}
-
-// ── API helpers ──
-async function api(path, opts = {}) {
-  try {
-    const res = await fetch(`/api${path}`, {
-      headers: { 'Content-Type': 'application/json', ...opts.headers },
-      ...opts,
-    });
-    if (!res.ok) {
-      console.error(`API ${path} returned ${res.status}`);
-      return null;
-    }
-    return await res.json();
-  } catch (e) {
-    console.error(`API ${path} failed:`, e);
-    return null;
-  }
-}
-
-// ── Dashboard ──
+// ════════════════════════════════════
+// DASHBOARD
+// ════════════════════════════════════
 async function refreshDashboard() {
   try {
     const stats = await api('/stats');
@@ -124,25 +98,19 @@ async function refreshDashboard() {
       document.getElementById('stat-media').textContent = stats.total_media;
       document.getElementById('stat-played').textContent = stats.total_played;
     }
-
     const data = await api('/stations');
     if (data) stations = data;
     renderDashboardStations();
     populateStationSelect();
-  } catch (e) {
-    console.error('Dashboard refresh error:', e);
-  }
+  } catch (e) { console.error('Dashboard refresh error:', e); }
 }
 
 function renderDashboardStations() {
   const el = document.getElementById('dashboard-stations');
-  if (stations.length === 0) {
+  if (!stations || stations.length === 0) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-      </div>
-      <h3>No stations yet</h3>
-      <p>Create your first station to get started</p>
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg></div>
+      <h3>No stations yet</h3><p>Create your first station to get started</p>
     </div>`;
     return;
   }
@@ -150,19 +118,36 @@ function renderDashboardStations() {
   el.innerHTML = stations.map(s => {
     const np = s.now_playing;
     const running = s.autodj_running;
+    const artUrl = np?.artwork_url || '';
+    const elapsed = np?.elapsed || 0;
+    const duration = np?.duration || 0;
+    const progress = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0;
 
     return `
       <div class="card now-playing-card" style="margin-bottom:16px">
         <div class="np-info">
-          <div class="np-art">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <div class="np-art" ${artUrl ? `style="background:none"` : ''}>
+            ${artUrl
+              ? `<img src="${esc(artUrl)}" style="width:100%;height:100%;object-fit:cover;border-radius:14px">`
+              : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`
+            }
           </div>
           <div class="np-meta" style="flex:1">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
               <h3>${esc(s.name)}</h3>
               <span class="badge ${running ? 'badge-green' : 'badge-red'}">${running ? 'ON AIR' : 'OFFLINE'}</span>
+              ${np?.is_request ? '<span class="badge badge-purple">REQUEST</span>' : ''}
             </div>
-            ${np ? `<p>${esc(np.artist)} — ${esc(np.title)}</p>` : '<p>Nothing playing</p>'}
+            ${np ? `<p style="font-size:14px;color:#444">${esc(np.artist)} — ${esc(np.title)}</p>` : '<p style="color:#999">Nothing playing</p>'}
+            ${np && duration > 0 ? `
+              <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+                <span style="font-size:11px;color:#999;font-weight:500;min-width:36px">${formatDuration(elapsed)}</span>
+                <div style="flex:1;height:4px;background:#eee;border-radius:2px;overflow:hidden">
+                  <div style="width:${progress}%;height:100%;background:linear-gradient(90deg,#7C4DFF,#FF48BC);border-radius:2px;transition:width 1s linear"></div>
+                </div>
+                <span style="font-size:11px;color:#999;font-weight:500;min-width:36px;text-align:right">${formatDuration(duration)}</span>
+              </div>
+            ` : ''}
           </div>
           <div class="station-meta">
             <div class="listeners">${s.listeners}</div>
@@ -184,6 +169,10 @@ function renderDashboardStations() {
                 Start AutoDJ
               </button>`
           }
+          <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Settings
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="copyListenUrl('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             Copy URL
@@ -198,28 +187,22 @@ function renderDashboardStations() {
   }).join('');
 }
 
-function updateListenerCount(stationId, count) {
-  refreshDashboard();
-}
-
-// ── Stations ──
+// ════════════════════════════════════
+// STATIONS
+// ════════════════════════════════════
 async function loadStations() {
-  stations = await api('/stations');
+  const data = await api('/stations');
+  if (data) stations = data;
   const el = document.getElementById('stations-list');
-
-  if (stations.length === 0) {
+  if (!stations || stations.length === 0) {
     el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-      </div>
-      <h3>No stations</h3>
-      <p>Create your first station to get started</p>
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg></div>
+      <h3>No stations</h3><p>Create your first station to get started</p>
     </div>`;
     return;
   }
-
   el.innerHTML = stations.map(s => `
-    <div class="station-card">
+    <div class="station-card" onclick="editStation('${s.id}')" style="cursor:pointer">
       <div class="station-dot ${s.autodj_running ? 'live' : 'offline'}"></div>
       <div class="station-info">
         <h3>${esc(s.name)}</h3>
@@ -229,7 +212,6 @@ async function loadStations() {
         <div class="listeners">${s.listeners}</div>
         <div class="listeners-label">listeners</div>
       </div>
-      <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteStation('${s.id}')">Delete</button>
     </div>
   `).join('');
 }
@@ -237,7 +219,6 @@ async function loadStations() {
 async function createStation() {
   const name = document.getElementById('input-station-name').value.trim();
   if (!name) return;
-
   await api('/stations', {
     method: 'POST',
     body: JSON.stringify({
@@ -247,31 +228,57 @@ async function createStation() {
       bitrate: parseInt(document.getElementById('input-station-bitrate').value),
     }),
   });
-
   closeModal('modal-new-station');
   document.getElementById('input-station-name').value = '';
   document.getElementById('input-station-desc').value = '';
   refreshDashboard();
 }
 
+function editStation(id) {
+  const s = stations.find(st => st.id === id);
+  if (!s) return;
+  document.getElementById('edit-station-id').value = s.id;
+  document.getElementById('edit-station-name').value = s.name;
+  document.getElementById('edit-station-desc').value = s.description || '';
+  document.getElementById('edit-station-genre').value = s.genre || 'Various';
+  document.getElementById('edit-station-bitrate').value = String(s.bitrate || 128);
+  showModal('modal-edit-station');
+}
+
+async function saveStation() {
+  const id = document.getElementById('edit-station-id').value;
+  await api(`/stations/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      name: document.getElementById('edit-station-name').value,
+      description: document.getElementById('edit-station-desc').value,
+      genre: document.getElementById('edit-station-genre').value,
+      bitrate: parseInt(document.getElementById('edit-station-bitrate').value),
+    }),
+  });
+  closeModal('modal-edit-station');
+  refreshDashboard();
+  loadStations();
+}
+
 async function deleteStation(id) {
-  if (!confirm('Delete this station and all its media?')) return;
+  if (!confirm('Delete this station and all its media? This cannot be undone.')) return;
   await api(`/stations/${id}`, { method: 'DELETE' });
   refreshDashboard();
   loadStations();
 }
 
-// ── AutoDJ Controls ──
+// ════════════════════════════════════
+// AUTODJ CONTROLS
+// ════════════════════════════════════
 async function startAutoDJ(id) {
   await api(`/stations/${id}/autodj/start`, { method: 'POST' });
   refreshDashboard();
 }
-
 async function stopAutoDJ(id) {
   await api(`/stations/${id}/autodj/stop`, { method: 'POST' });
   refreshDashboard();
 }
-
 async function skipTrack(id) {
   await api(`/stations/${id}/autodj/skip`, { method: 'POST' });
 }
@@ -287,50 +294,71 @@ function copyListenUrl(id) {
   }
 }
 
-// ── Media ──
+// ════════════════════════════════════
+// MEDIA
+// ════════════════════════════════════
 function populateStationSelect() {
+  if (!stations || stations.length === 0) return;
   const sel = document.getElementById('media-station-select');
   sel.innerHTML = stations.map(s =>
     `<option value="${s.id}" ${s.id === currentStationId ? 'selected' : ''}>${esc(s.name)}</option>`
   ).join('');
-  if (stations.length > 0 && !currentStationId) currentStationId = stations[0].id;
+  if (!currentStationId) currentStationId = stations[0].id;
   sel.onchange = () => { currentStationId = sel.value; refreshMedia(); };
 }
 
 async function refreshMedia() {
-  if (!currentStationId && stations.length > 0) currentStationId = stations[0].id;
+  if (!currentStationId && stations?.length > 0) currentStationId = stations[0].id;
   if (!currentStationId) return;
 
-  const media = await api(`/stations/${currentStationId}/media`) || [];
-  document.getElementById('media-count').textContent = `${media.length} files`;
+  allMedia = await api(`/stations/${currentStationId}/media`) || [];
+  renderMediaTable(allMedia);
+}
 
+function filterMedia(q) {
+  if (!q) return renderMediaTable(allMedia);
+  const lower = q.toLowerCase();
+  const filtered = allMedia.filter(m =>
+    (m.title || '').toLowerCase().includes(lower) ||
+    (m.artist || '').toLowerCase().includes(lower) ||
+    (m.album || '').toLowerCase().includes(lower) ||
+    (m.original_name || '').toLowerCase().includes(lower)
+  );
+  renderMediaTable(filtered);
+}
+
+function renderMediaTable(media) {
+  document.getElementById('media-count').textContent = `${media.length} files`;
   if (media.length === 0) {
     document.getElementById('media-table-wrap').innerHTML = `
       <div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-        </div>
-        <h3>No media yet</h3>
-        <p>Upload some audio files to get started</p>
+        <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+        <h3>No media yet</h3><p>Upload some audio files to get started</p>
       </div>`;
     return;
   }
-
   document.getElementById('media-table-wrap').innerHTML = `
     <table class="media-table">
-      <thead>
-        <tr>
-          <th>Title</th>
-          <th>Artist</th>
-          <th>Album</th>
-          <th>Duration</th>
-          <th>Size</th>
-          <th></th>
-        </tr>
-      </thead>
+      <thead><tr>
+        <th style="width:40px"></th>
+        <th>Title</th>
+        <th>Artist</th>
+        <th>Album</th>
+        <th>Duration</th>
+        <th>Size</th>
+        <th></th>
+      </tr></thead>
       <tbody>
         ${media.map(m => `
           <tr>
+            <td style="padding:8px">
+              ${m.artwork_url
+                ? `<img src="${esc(m.artwork_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">`
+                : `<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#7C4DFF,#FF48BC);display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width:16px;height:16px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                  </div>`
+              }
+            </td>
             <td class="title-cell">${esc(m.title || m.original_name)}</td>
             <td class="dim">${esc(m.artist)}</td>
             <td class="dim">${esc(m.album)}</td>
@@ -352,7 +380,9 @@ async function deleteMedia(id) {
   refreshDashboard();
 }
 
-// ── Upload ──
+// ════════════════════════════════════
+// UPLOAD
+// ════════════════════════════════════
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
 const uploadStatus = document.getElementById('upload-status');
@@ -362,16 +392,8 @@ if (uploadArea && fileInput) {
   uploadArea.addEventListener('click', () => { if (!uploading) fileInput.click(); });
   uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); if (!uploading) uploadArea.classList.add('dragover'); });
   uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-  uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('dragover');
-    if (!uploading) handleFiles(e.dataTransfer.files);
-  });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length > 0 && !uploading) {
-      handleFiles(fileInput.files);
-    }
-  });
+  uploadArea.addEventListener('drop', (e) => { e.preventDefault(); uploadArea.classList.remove('dragover'); if (!uploading) handleFiles(e.dataTransfer.files); });
+  fileInput.addEventListener('change', () => { if (fileInput.files.length > 0 && !uploading) handleFiles(fileInput.files); });
 }
 
 function showUploadStatus(msg, type) {
@@ -379,17 +401,13 @@ function showUploadStatus(msg, type) {
   uploadStatus.style.display = 'block';
   const colors = { info: '#7C4DFF', success: '#00C853', error: '#FF2A2A' };
   const bgs = { info: '#f0eaff', success: '#e8f5e9', error: '#fce4ec' };
-  uploadStatus.innerHTML = `<div style="padding:14px 18px;border-radius:14px;background:${bgs[type] || bgs.info};color:${colors[type] || colors.info};font-size:14px;font-weight:600;margin-bottom:16px">${msg}</div>`;
+  uploadStatus.innerHTML = `<div style="padding:14px 18px;border-radius:14px;background:${bgs[type]||bgs.info};color:${colors[type]||colors.info};font-size:14px;font-weight:600;margin-bottom:16px">${msg}</div>`;
 }
-
-function hideUploadStatus() {
-  if (uploadStatus) uploadStatus.style.display = 'none';
-}
+function hideUploadStatus() { if (uploadStatus) uploadStatus.style.display = 'none'; }
 
 async function handleFiles(files) {
   if (!currentStationId) return alert('Select a station first');
   if (uploading) return;
-
   const fileArr = Array.from(files);
   const totalFiles = fileArr.length;
   if (totalFiles === 0) return;
@@ -398,85 +416,52 @@ async function handleFiles(files) {
   uploadArea.style.opacity = '0.5';
   uploadArea.style.pointerEvents = 'none';
 
-  // Upload one file at a time to avoid timeouts on Railway
   const BATCH_SIZE = 5;
   const batches = [];
-  for (let i = 0; i < fileArr.length; i += BATCH_SIZE) {
-    batches.push(fileArr.slice(i, i + BATCH_SIZE));
-  }
+  for (let i = 0; i < fileArr.length; i += BATCH_SIZE) batches.push(fileArr.slice(i, i + BATCH_SIZE));
 
-  let uploaded = 0;
-  let failed = 0;
-
+  let uploaded = 0, failed = 0;
   showUploadStatus(`Uploading 0 / ${totalFiles} files...`, 'info');
 
   for (let b = 0; b < batches.length; b++) {
     const batch = batches[b];
     const form = new FormData();
     for (const f of batch) form.append('files', f);
-
-    showUploadStatus(`Uploading ${uploaded} / ${totalFiles} files... (batch ${b + 1}/${batches.length})`, 'info');
+    showUploadStatus(`Uploading ${uploaded} / ${totalFiles} files... (batch ${b+1}/${batches.length})`, 'info');
 
     try {
-      const res = await fetch(`/api/stations/${currentStationId}/media`, {
-        method: 'POST',
-        body: form,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        uploaded += data.length;
-      } else {
-        failed += batch.length;
-        let errMsg = 'Unknown error';
-        try { errMsg = (await res.json()).error || errMsg; } catch { try { errMsg = await res.text(); } catch {} }
-        console.error(`Upload batch ${b + 1} failed (${res.status}):`, errMsg);
-      }
-    } catch (e) {
-      failed += batch.length;
-      console.error(`Upload batch ${b + 1} network error:`, e);
-    }
+      const res = await fetch(`/api/stations/${currentStationId}/media`, { method: 'POST', body: form });
+      if (res.ok) { uploaded += (await res.json()).length; }
+      else { failed += batch.length; }
+    } catch { failed += batch.length; }
   }
 
-  // Done
   uploading = false;
   uploadArea.style.opacity = '1';
   uploadArea.style.pointerEvents = 'auto';
-  fileInput.value = ''; // reset file input so same files can be re-selected
+  fileInput.value = '';
 
-  if (failed === 0) {
-    showUploadStatus(`Successfully uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}!`, 'success');
-  } else if (uploaded > 0) {
-    showUploadStatus(`Uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}, ${failed} failed. Try uploading failed files again.`, 'error');
-  } else {
-    showUploadStatus(`Upload failed — ${failed} file${failed !== 1 ? 's' : ''} could not be uploaded. Check file format and try smaller batches.`, 'error');
-  }
+  if (failed === 0) showUploadStatus(`Successfully uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}!`, 'success');
+  else if (uploaded > 0) showUploadStatus(`Uploaded ${uploaded}, ${failed} failed.`, 'error');
+  else showUploadStatus(`Upload failed — ${failed} file${failed !== 1 ? 's' : ''} could not be uploaded.`, 'error');
 
   setTimeout(hideUploadStatus, 8000);
-
   refreshMedia();
   refreshDashboard();
 }
 
-// ── History ──
+// ════════════════════════════════════
+// HISTORY
+// ════════════════════════════════════
 async function refreshHistory() {
-  const sid = currentStationId || (stations[0]?.id);
+  const sid = currentStationId || stations?.[0]?.id;
   if (!sid) return;
-
   const history = await api(`/stations/${sid}/history?limit=50`) || [];
   const el = document.getElementById('history-list');
-
   if (history.length === 0) {
-    el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      </div>
-      <h3>No history yet</h3>
-      <p>Tracks will appear here as they play</p>
-    </div>`;
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><h3>No history yet</h3><p>Tracks will appear here as they play</p></div>`;
     return;
   }
-
   el.innerHTML = history.map((h, i) => `
     <div class="history-item">
       <div class="history-num">${i + 1}</div>
@@ -489,10 +474,12 @@ async function refreshHistory() {
   `).join('');
 }
 
-// ── Requests ──
+// ════════════════════════════════════
+// REQUESTS
+// ════════════════════════════════════
 function populateRequestStationSelect() {
   const sel = document.getElementById('request-station-select');
-  if (!sel) return;
+  if (!sel || !stations) return;
   sel.innerHTML = stations.map(s =>
     `<option value="${s.id}" ${s.id === currentStationId ? 'selected' : ''}>${esc(s.name)}</option>`
   ).join('');
@@ -500,24 +487,17 @@ function populateRequestStationSelect() {
 }
 
 async function refreshRequests() {
-  const sid = currentStationId || (stations[0]?.id);
+  const sid = currentStationId || stations?.[0]?.id;
   if (!sid) return;
   populateRequestStationSelect();
 
-  // Fetch pending requests
   try {
     const pending = await api(`/stations/${sid}/requests?status=pending`) || [];
     const pendingEl = document.getElementById('requests-pending-list');
     document.getElementById('request-count').textContent = pending.length;
 
     if (pending.length === 0) {
-      pendingEl.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </div>
-        <h3>No pending requests</h3>
-        <p>Song requests from listeners will appear here</p>
-      </div>`;
+      pendingEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>No pending requests</h3><p>Song requests from listeners will appear here</p></div>`;
     } else {
       pendingEl.innerHTML = pending.map((r, i) => `
         <div class="history-item" style="align-items:center">
@@ -525,7 +505,7 @@ async function refreshRequests() {
           ${r.artwork_url ? `<img src="${esc(r.artwork_url)}" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : ''}
           <div class="history-meta" style="flex:1">
             <h4>${esc(r.title)}</h4>
-            <p>${esc(r.artist)}${r.requested_by ? ' &middot; by ' + esc(r.requested_by) : ''}${r.media_id ? '' : ' &middot; <span style="color:#FF6B00">No match</span>'}</p>
+            <p>${esc(r.artist)}${r.requested_by ? ' &middot; by ' + esc(r.requested_by) : ''}${r.media_id ? ' &middot; <span style="color:#00C853">Matched</span>' : ' &middot; <span style="color:#FF6B00">No match</span>'}</p>
           </div>
           <div style="display:flex;gap:6px">
             <button class="btn btn-danger btn-sm" onclick="updateRequest('${r.id}','skipped')" title="Skip">
@@ -535,11 +515,8 @@ async function refreshRequests() {
         </div>
       `).join('');
     }
-  } catch (e) {
-    console.error('Failed to load requests:', e);
-  }
+  } catch (e) { console.error('Failed to load requests:', e); }
 
-  // Fetch played/skipped requests
   try {
     const played = await api(`/stations/${sid}/requests?status=played`) || [];
     const skipped = await api(`/stations/${sid}/requests?status=skipped`) || [];
@@ -547,13 +524,7 @@ async function refreshRequests() {
     const histEl = document.getElementById('requests-history-list');
 
     if (history.length === 0) {
-      histEl.innerHTML = `<div class="empty-state">
-        <div class="empty-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        </div>
-        <h3>No past requests</h3>
-        <p>Played and skipped requests show up here</p>
-      </div>`;
+      histEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><h3>No past requests</h3><p>Played and skipped requests show up here</p></div>`;
     } else {
       histEl.innerHTML = history.map(r => `
         <div class="history-item">
@@ -566,9 +537,7 @@ async function refreshRequests() {
         </div>
       `).join('');
     }
-  } catch (e) {
-    console.error('Failed to load request history:', e);
-  }
+  } catch (e) { console.error('Failed to load request history:', e); }
 }
 
 async function updateRequest(id, status) {
@@ -577,39 +546,33 @@ async function updateRequest(id, status) {
 }
 
 async function enrichAllMedia() {
-  const sid = currentStationId || (stations[0]?.id);
+  const sid = currentStationId || stations?.[0]?.id;
   if (!sid) return;
   const btn = event.target.closest('.btn');
   const orig = btn.innerHTML;
   btn.innerHTML = 'Enriching...';
   btn.disabled = true;
-
   try {
     const res = await api(`/stations/${sid}/enrich`, { method: 'POST' });
-    btn.innerHTML = `Done! ${res.enriched || 0} enriched`;
+    btn.innerHTML = `Done! ${res?.enriched || 0} enriched`;
+    refreshMedia();
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
-  } catch (e) {
+  } catch {
     btn.innerHTML = 'Error';
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 2000);
   }
 }
 
-// ── Modals ──
-function showNewStationModal() {
-  document.getElementById('modal-new-station').classList.add('show');
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.remove('show');
-}
+// ════════════════════════════════════
+// MODALS
+// ════════════════════════════════════
+function showNewStationModal() { showModal('modal-new-station'); }
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 
 document.querySelectorAll('.modal-overlay').forEach(m => {
-  m.addEventListener('click', (e) => {
-    if (e.target === m) m.classList.remove('show');
-  });
+  m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('show'); });
 });
-
-// Escape key closes modals
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-overlay.show').forEach(m => m.classList.remove('show'));
@@ -617,13 +580,10 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ── Utilities ──
-function esc(s) {
-  if (!s) return '';
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
+// ════════════════════════════════════
+// UTILITIES
+// ════════════════════════════════════
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function formatDuration(sec) {
   if (!sec) return '--:--';
@@ -640,6 +600,7 @@ function formatBytes(b) {
 }
 
 function timeAgo(dateStr) {
+  if (!dateStr) return '';
   const d = new Date(dateStr + 'Z');
   const diff = (Date.now() - d.getTime()) / 1000;
   if (diff < 60) return 'just now';
@@ -648,6 +609,14 @@ function timeAgo(dateStr) {
   return Math.floor(diff / 86400) + 'd ago';
 }
 
-// ── Init ──
+// ════════════════════════════════════
+// INIT
+// ════════════════════════════════════
 try { connectWS(); } catch (e) { console.error('WS init error:', e); }
-refreshDashboard().catch(e => console.error('Init dashboard error:', e));
+refreshDashboard().catch(e => console.error('Init error:', e));
+
+// Auto-refresh now-playing every 2s for progress bar
+setInterval(() => {
+  const dashView = document.getElementById('view-dashboard');
+  if (dashView?.classList.contains('active')) refreshDashboard();
+}, 5000);
