@@ -127,6 +127,33 @@ class AutoDJ {
     } catch {}
   }
 
+  /**
+   * Strip ID3v2 header from start of MP3 buffer (prevents glitches between tracks)
+   */
+  _stripID3(buf) {
+    // ID3v2 header: "ID3" + version(2) + flags(1) + size(4 syncsafe bytes)
+    if (buf.length >= 10 && buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) {
+      const size = (buf[6] << 21) | (buf[7] << 14) | (buf[8] << 7) | buf[9];
+      const headerSize = 10 + size;
+      if (headerSize < buf.length) {
+        return buf.subarray(headerSize);
+      }
+    }
+    return buf;
+  }
+
+  /**
+   * Find the first MP3 sync word (0xFF 0xE0+ mask) to ensure clean frame boundary
+   */
+  _findFirstFrame(buf) {
+    for (let i = 0; i < Math.min(buf.length - 1, 8192); i++) {
+      if (buf[i] === 0xFF && (buf[i + 1] & 0xE0) === 0xE0) {
+        return i > 0 ? buf.subarray(i) : buf;
+      }
+    }
+    return buf;
+  }
+
   _buildQueue(stationId) {
     const session = this.sessions.get(stationId);
     if (!session) return;
@@ -255,6 +282,15 @@ class AutoDJ {
       return;
     }
 
+    // Strip ID3v2 tags and align to first MP3 frame (prevents glitches between tracks)
+    fileBuffer = this._stripID3(fileBuffer);
+    fileBuffer = this._findFirstFrame(fileBuffer);
+
+    if (fileBuffer.length === 0) {
+      setTimeout(() => this._playNext(stationId), 500);
+      return;
+    }
+
     // Get station bitrate
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
     const bitrate = (station?.bitrate || 128) * 1000;
@@ -270,6 +306,9 @@ class AutoDJ {
     if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
       this._autoEnrich(track).catch(() => {});
     }
+
+    // Clear old audio from the stream buffer so listeners hear the new track sooner
+    this.streamEngine.clearBuffer(stationId);
 
     // NOW set metadata and log history (file confirmed valid)
     this.streamEngine.setNowPlaying(stationId, {
@@ -309,6 +348,15 @@ class AutoDJ {
     session.fileBuffer = fileBuffer;
     session.bufferOffset = 0;
 
+    // Trim ~0.5s from end of file for gapless transition (avoids trailing silence)
+    const trimBytes = Math.floor(bytesPerSecond * 0.5);
+    const effectiveLength = Math.max(fileBuffer.length - trimBytes, chunkSize);
+
+    // Send an initial burst (2 chunks) for faster start after track switch
+    const burstEnd = Math.min(chunkSize * 2, effectiveLength);
+    this.streamEngine.pushAudio(stationId, fileBuffer.subarray(0, burstEnd));
+    session.bufferOffset = burstEnd;
+
     session.interval = setInterval(() => {
       if (!session.active) {
         clearInterval(session.interval);
@@ -316,14 +364,14 @@ class AutoDJ {
       }
 
       const start = session.bufferOffset;
-      const end = Math.min(start + chunkSize, fileBuffer.length);
+      const end = Math.min(start + chunkSize, effectiveLength);
 
-      if (start >= fileBuffer.length) {
-        // Track finished — move to next immediately
+      if (start >= effectiveLength) {
+        // Track finished — move to next immediately (gapless)
         clearInterval(session.interval);
         session.interval = null;
         session.fileBuffer = null;
-        setTimeout(() => this._playNext(stationId), 50);
+        this._playNext(stationId);
         return;
       }
 

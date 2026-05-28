@@ -87,6 +87,16 @@ class StreamEngine {
   }
 
   /**
+   * Clear the ring buffer (used on track change so listeners get new audio faster)
+   */
+  clearBuffer(stationId) {
+    const state = this.stations.get(stationId);
+    if (!state) return;
+    state.buffer = [];
+    state.bufferSize = 0;
+  }
+
+  /**
    * Set now-playing metadata
    */
   setNowPlaying(stationId, meta) {
