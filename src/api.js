@@ -179,6 +179,41 @@ router.post('/stations/:id/autodj/skip', (req, res) => {
   res.json({ ok: true });
 });
 
+// Play a specific track immediately (skip current, play this now)
+router.post('/stations/:id/play/:mediaId', (req, res) => {
+  const autoDJ = req.app.get('autoDJ');
+  const db = req.app.get('db');
+  const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.mediaId);
+  if (!media) return res.status(404).json({ error: 'Media not found' });
+
+  const ok = autoDJ.playNow(req.params.id, req.params.mediaId);
+  if (!ok) return res.status(400).json({ error: 'AutoDJ not running for this station' });
+
+  req.app.get('broadcast')('queue_update', { stationId: req.params.id });
+  res.json({ ok: true, message: `Now playing: ${media.title}` });
+});
+
+// Add a track to the priority queue (plays after current track)
+router.post('/stations/:id/queue/:mediaId', (req, res) => {
+  const autoDJ = req.app.get('autoDJ');
+  const db = req.app.get('db');
+  const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.mediaId);
+  if (!media) return res.status(404).json({ error: 'Media not found' });
+
+  const ok = autoDJ.queueNext(req.params.id, req.params.mediaId);
+  if (!ok) return res.status(400).json({ error: 'AutoDJ not running for this station' });
+
+  req.app.get('broadcast')('queue_update', { stationId: req.params.id });
+  res.json({ ok: true, message: `Queued: ${media.title}` });
+});
+
+// Get the current priority queue
+router.get('/stations/:id/queue', (req, res) => {
+  const autoDJ = req.app.get('autoDJ');
+  const queue = autoDJ.getQueue(req.params.id);
+  res.json(queue);
+});
+
 // ════════════════════════════════════
 // MEDIA
 // ════════════════════════════════════

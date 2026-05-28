@@ -29,6 +29,8 @@ class AutoDJ {
       queueIndex: 0,
       fileBuffer: null,
       bufferOffset: 0,
+      priorityQueue: [],  // tracks queued via "Add to Queue"
+      playNowId: null,    // media ID to play immediately (skip current)
     };
     this.sessions.set(stationId, session);
     this._buildQueue(stationId);
@@ -54,6 +56,43 @@ class AutoDJ {
 
   isRunning(stationId) {
     return this.sessions.has(stationId);
+  }
+
+  /**
+   * Play a specific track immediately (skip current track)
+   */
+  playNow(stationId, mediaId) {
+    const session = this.sessions.get(stationId);
+    if (!session) return false;
+    session.playNowId = mediaId;
+    // Stop current playback and trigger next (which will pick up playNowId)
+    if (session.interval) clearInterval(session.interval);
+    session.interval = null;
+    session.fileBuffer = null;
+    this._playNext(stationId);
+    return true;
+  }
+
+  /**
+   * Add a track to the front of the priority queue (plays after current track)
+   */
+  queueNext(stationId, mediaId) {
+    const session = this.sessions.get(stationId);
+    if (!session) return false;
+    session.priorityQueue.push(mediaId);
+    return true;
+  }
+
+  /**
+   * Get the current priority queue for a station
+   */
+  getQueue(stationId) {
+    const session = this.sessions.get(stationId);
+    if (!session) return [];
+    return session.priorityQueue.map(id => {
+      const m = this.db.prepare('SELECT id, title, artist, album, duration, artwork_url FROM media WHERE id = ?').get(id);
+      return m || { id, title: 'Unknown', artist: 'Unknown' };
+    });
   }
 
   _buildQueue(stationId) {
@@ -102,35 +141,60 @@ class AutoDJ {
       return;
     }
 
-    // ── Check song request queue first ──
+    // ── Priority: 1) playNow, 2) priorityQueue, 3) song requests, 4) regular queue ──
     let track = null;
     let requestId = null;
-    const pendingReq = this.db.prepare(`
-      SELECT sr.*, m.filename, m.original_name, m.duration, m.size, m.artwork_url
-      FROM song_requests sr
-      JOIN media m ON m.id = sr.media_id
-      WHERE sr.station_id = ? AND sr.status = 'pending' AND sr.media_id IS NOT NULL
-      ORDER BY sr.created_at ASC
-      LIMIT 1
-    `).get(stationId);
 
-    if (pendingReq) {
-      // Play the requested track
-      track = {
-        id: pendingReq.media_id,
-        title: pendingReq.title,
-        artist: pendingReq.artist,
-        album: pendingReq.album || '',
-        filename: pendingReq.filename,
-        original_name: pendingReq.original_name,
-        duration: pendingReq.duration,
-        artwork_url: pendingReq.artwork_url || '',
-      };
-      requestId = pendingReq.id;
-      // Mark request as played
-      this.db.prepare("UPDATE song_requests SET status = 'played', played_at = datetime('now') WHERE id = ?").run(requestId);
-      console.log(`  ★ Request played: ${track.artist} — ${track.title}`);
-    } else {
+    // 1) Play Now — immediate override
+    if (session.playNowId) {
+      const m = this.db.prepare('SELECT * FROM media WHERE id = ?').get(session.playNowId);
+      session.playNowId = null;
+      if (m) {
+        track = m;
+        console.log(`  ⚡ Play Now: ${track.artist} — ${track.title}`);
+      }
+    }
+
+    // 2) Priority Queue — manually queued tracks
+    if (!track && session.priorityQueue.length > 0) {
+      const mediaId = session.priorityQueue.shift();
+      const m = this.db.prepare('SELECT * FROM media WHERE id = ?').get(mediaId);
+      if (m) {
+        track = m;
+        console.log(`  ▶ Queue: ${track.artist} — ${track.title}`);
+      }
+    }
+
+    // 3) Song request queue
+    if (!track) {
+      const pendingReq = this.db.prepare(`
+        SELECT sr.*, m.filename, m.original_name, m.duration, m.size, m.artwork_url
+        FROM song_requests sr
+        JOIN media m ON m.id = sr.media_id
+        WHERE sr.station_id = ? AND sr.status = 'pending' AND sr.media_id IS NOT NULL
+        ORDER BY sr.created_at ASC
+        LIMIT 1
+      `).get(stationId);
+
+      if (pendingReq) {
+        track = {
+          id: pendingReq.media_id,
+          title: pendingReq.title,
+          artist: pendingReq.artist,
+          album: pendingReq.album || '',
+          filename: pendingReq.filename,
+          original_name: pendingReq.original_name,
+          duration: pendingReq.duration,
+          artwork_url: pendingReq.artwork_url || '',
+        };
+        requestId = pendingReq.id;
+        this.db.prepare("UPDATE song_requests SET status = 'played', played_at = datetime('now') WHERE id = ?").run(requestId);
+        console.log(`  ★ Request played: ${track.artist} — ${track.title}`);
+      }
+    }
+
+    // 4) Regular shuffle queue
+    if (!track) {
       track = session.queue[session.queueIndex++];
     }
 

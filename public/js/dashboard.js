@@ -57,6 +57,7 @@ function connectWS() {
     if (type === 'media_uploaded') { refreshMedia(); refreshDashboard(); }
     if (type === 'station_created' || type === 'station_deleted') { loadStations(); refreshDashboard(); }
     if (type === 'song_request') refreshRequests();
+    if (type === 'queue_update') refreshDashboard();
   };
   ws.onclose = () => setTimeout(connectWS, 3000);
 }
@@ -346,7 +347,7 @@ function renderMediaTable(media) {
         <th>Album</th>
         <th>Duration</th>
         <th>Size</th>
-        <th></th>
+        <th style="width:140px">Actions</th>
       </tr></thead>
       <tbody>
         ${media.map(m => `
@@ -364,14 +365,61 @@ function renderMediaTable(media) {
             <td class="dim">${esc(m.album)}</td>
             <td class="dim">${formatDuration(m.duration)}</td>
             <td class="dim">${formatBytes(m.size)}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="deleteMedia('${m.id}')">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button></td>
+            <td>
+              <div style="display:flex;gap:4px;align-items:center">
+                <button class="btn btn-ghost btn-sm" onclick="playNow('${m.id}')" title="Play Now">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="addToQueue('${m.id}')" title="Add to Queue">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                </button>
+                <button class="btn btn-danger btn-sm" onclick="deleteMedia('${m.id}')" title="Delete">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   `;
+}
+
+async function playNow(mediaId) {
+  if (!currentStationId) return;
+  const res = await api(`/stations/${currentStationId}/play/${mediaId}`, { method: 'POST' });
+  if (res?.ok) {
+    showToast('Playing now');
+    refreshDashboard();
+  } else {
+    showToast(res?.error || 'Failed — is AutoDJ running?', 'error');
+  }
+}
+
+async function addToQueue(mediaId) {
+  if (!currentStationId) return;
+  const res = await api(`/stations/${currentStationId}/queue/${mediaId}`, { method: 'POST' });
+  if (res?.ok) {
+    showToast('Added to queue');
+  } else {
+    showToast(res?.error || 'Failed — is AutoDJ running?', 'error');
+  }
+}
+
+function showToast(msg, type = 'success') {
+  let toast = document.getElementById('toast-msg');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast-msg';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:12px;font-size:13px;font-weight:600;z-index:9999;transition:opacity 0.3s;pointer-events:none;';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.background = type === 'error' ? '#fce4ec' : '#e8f5e9';
+  toast.style.color = type === 'error' ? '#c62828' : '#2e7d32';
+  toast.style.opacity = '1';
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
 }
 
 async function deleteMedia(id) {
