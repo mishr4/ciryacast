@@ -468,19 +468,22 @@ router.post('/stations/:id/requests', async (req, res) => {
     return res.status(429).json({ error: 'Please wait before requesting another song' });
   }
 
-  // 1) Check if we already have this song in the library
+  // 1) Check if we already have this exact song in the library
+  //    Use exact match (not fuzzy LIKE) to avoid false positives
   let media_id = null;
   const mediaMatch = db.prepare(`
     SELECT id FROM media
     WHERE station_id = ?
-      AND (LOWER(title) LIKE ? OR LOWER(original_name) LIKE ?)
-      AND (LOWER(artist) LIKE ? OR artist = 'Unknown')
+      AND (
+        (LOWER(title) = ? AND LOWER(artist) = ?)
+        OR (tm_track_id IS NOT NULL AND tm_track_id != '' AND tm_track_id = ?)
+      )
     LIMIT 1
   `).get(
     stationId,
-    `%${title.toLowerCase()}%`,
-    `%${title.toLowerCase()}%`,
-    `%${artist.toLowerCase()}%`
+    title.toLowerCase(),
+    artist.toLowerCase(),
+    tm_track_id || ''
   );
   if (mediaMatch) media_id = mediaMatch.id;
 
@@ -500,14 +503,32 @@ router.post('/stations/:id/requests', async (req, res) => {
           const filePath = path.join(MEDIA_DIR, filename);
           fs.writeFileSync(filePath, buffer);
 
+          // Parse actual file metadata to verify/correct what TypicalMedia reported
+          let actualTitle = title;
+          let actualArtist = artist;
+          let actualAlbum = album || '';
+          let actualDuration = duration || 0;
+          const mm = await getMetadataParser();
+          if (mm) {
+            try {
+              const meta = await mm.parseFile(filePath);
+              if (meta.common.title) actualTitle = meta.common.title;
+              if (meta.common.artist) actualArtist = meta.common.artist;
+              if (meta.common.album) actualAlbum = meta.common.album;
+              if (meta.format.duration) actualDuration = Math.round(meta.format.duration);
+            } catch (e) {
+              console.log(`  ⚠ Metadata parse on download: ${e.message}`);
+            }
+          }
+
           const mediaId = uuid();
           db.prepare(`
             INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(
             mediaId, stationId, filename,
-            `${artist} - ${title}.mp3`,
-            title, artist, album || '', duration || 0,
+            `${actualArtist} - ${actualTitle}.mp3`,
+            actualTitle, actualArtist, actualAlbum, actualDuration,
             buffer.length, 'audio/mpeg',
             artwork_url || '', tm_track_id
           );
