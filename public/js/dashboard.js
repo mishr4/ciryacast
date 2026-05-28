@@ -13,8 +13,9 @@
     if (nameEl) nameEl.textContent = u.display_name || u.cirya_handle || 'User';
     if (handleEl) handleEl.textContent = u.cirya_handle ? '@' + u.cirya_handle : u.email || '';
     if (avatarEl) {
-      if (u.avatar_url) {
-        avatarEl.innerHTML = `<img src="${u.avatar_url}" alt="">`;
+      const pic = u.avatar_url || u.profile_picture || u.photo_url || u.picture || '';
+      if (pic) {
+        avatarEl.innerHTML = `<img src="${pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`;
       } else {
         avatarEl.textContent = (u.display_name || '?')[0].toUpperCase();
       }

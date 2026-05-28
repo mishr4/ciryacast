@@ -95,6 +95,38 @@ class AutoDJ {
     });
   }
 
+  /**
+   * Auto-enrich a track with artwork from TypicalMedia (runs in background)
+   */
+  async _autoEnrich(track) {
+    try {
+      const query = `${track.artist} ${track.title}`;
+      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      const results = await resp.json();
+      if (Array.isArray(results) && results.length > 0) {
+        const t = results[0];
+        if (t.album_art) {
+          this.db.prepare(`
+            UPDATE media SET artwork_url = ?, tm_track_id = COALESCE(?, tm_track_id)
+            WHERE id = ? AND (artwork_url IS NULL OR artwork_url = '')
+          `).run(t.album_art, t.deezer_id || null, track.id);
+          track.artwork_url = t.album_art;
+          // Update the live now-playing with the artwork
+          const sessions = [...this.sessions.entries()];
+          for (const [sid, sess] of sessions) {
+            const np = this.streamEngine.getNowPlaying(sid);
+            if (np && np.media_id === track.id) {
+              np.artwork_url = t.album_art;
+              this.broadcast('nowplaying', { stationId: sid, ...np });
+            }
+          }
+          console.log(`  🎨 Auto-enriched: ${track.artist} — ${track.title}`);
+        }
+      }
+    } catch {}
+  }
+
   _buildQueue(stationId) {
     const session = this.sessions.get(stationId);
     if (!session) return;
@@ -227,8 +259,17 @@ class AutoDJ {
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
     const bitrate = (station?.bitrate || 128) * 1000;
     const bytesPerSecond = bitrate / 8;
-    const chunkSize = Math.floor(bytesPerSecond / 10); // 10 chunks per second
-    const intervalMs = 100; // send a chunk every 100ms
+    // Stream at 1.15x real-time so client buffer stays ahead of playback.
+    // Larger chunks (4/sec) reduce overhead vs tiny chunks (10/sec).
+    const SPEED_MULT = 1.15;
+    const CHUNKS_PER_SEC = 4;
+    const chunkSize = Math.floor((bytesPerSecond * SPEED_MULT) / CHUNKS_PER_SEC);
+    const intervalMs = Math.floor(1000 / CHUNKS_PER_SEC); // 250ms
+
+    // Auto-enrich artwork from TypicalMedia if missing
+    if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
+      this._autoEnrich(track).catch(() => {});
+    }
 
     // NOW set metadata and log history (file confirmed valid)
     this.streamEngine.setNowPlaying(stationId, {
@@ -278,12 +319,11 @@ class AutoDJ {
       const end = Math.min(start + chunkSize, fileBuffer.length);
 
       if (start >= fileBuffer.length) {
-        // Track finished — move to next
+        // Track finished — move to next immediately
         clearInterval(session.interval);
         session.interval = null;
         session.fileBuffer = null;
-        // Small gap between tracks
-        setTimeout(() => this._playNext(stationId), 800);
+        setTimeout(() => this._playNext(stationId), 50);
         return;
       }
 

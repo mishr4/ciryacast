@@ -32,10 +32,10 @@ class StreamEngine {
   pushAudio(stationId, chunk) {
     const state = this._ensure(stationId);
 
-    // Add to ring buffer (keep ~256KB for burst-on-connect)
+    // Add to ring buffer (keep ~1MB for burst-on-connect — smoother start)
     state.buffer.push(chunk);
     state.bufferSize += chunk.length;
-    while (state.bufferSize > 256 * 1024 && state.buffer.length > 1) {
+    while (state.bufferSize > 1024 * 1024 && state.buffer.length > 1) {
       state.bufferSize -= state.buffer.shift().length;
     }
 
