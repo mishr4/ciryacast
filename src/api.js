@@ -68,6 +68,7 @@ router.get('/stations', (req, res) => {
     listeners: streamEngine.getListenerCount(s.id),
     now_playing: streamEngine.getNowPlaying(s.id),
     autodj_running: req.app.get('autoDJ').isRunning(s.id),
+    live: streamEngine.isLive(s.id),
   }));
   res.json(result);
 });
@@ -701,6 +702,109 @@ router.post('/stations/:id/enrich', async (req, res) => {
   }
 
   res.json({ total: media.length, enriched });
+});
+
+// ════════════════════════════════════
+// DJ ACCOUNTS
+// ════════════════════════════════════
+
+// Generate a random stream key
+function generateStreamKey() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let key = '';
+  for (let i = 0; i < 24; i++) key += chars[Math.floor(Math.random() * chars.length)];
+  return key;
+}
+
+// List DJ accounts for a station
+router.get('/stations/:id/dj-accounts', (req, res) => {
+  const db = req.app.get('db');
+  const accounts = db.prepare(
+    'SELECT id, station_id, username, stream_key, display_name, is_active, created_at, last_connected FROM dj_accounts WHERE station_id = ? ORDER BY created_at'
+  ).all(req.params.id);
+  res.json(accounts);
+});
+
+// Create DJ account
+router.post('/stations/:id/dj-accounts', (req, res) => {
+  const db = req.app.get('db');
+  const { username, display_name } = req.body;
+  if (!username) return res.status(400).json({ error: 'Username is required' });
+
+  const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  // Check for duplicate username on this station
+  const existing = db.prepare('SELECT id FROM dj_accounts WHERE station_id = ? AND username = ?').get(req.params.id, username);
+  if (existing) return res.status(409).json({ error: 'Username already exists for this station' });
+
+  const id = uuid();
+  const streamKey = generateStreamKey();
+
+  db.prepare(
+    'INSERT INTO dj_accounts (id, station_id, username, stream_key, display_name) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, req.params.id, username, streamKey, display_name || username);
+
+  const account = db.prepare('SELECT * FROM dj_accounts WHERE id = ?').get(id);
+  res.status(201).json(account);
+});
+
+// Update DJ account
+router.put('/dj-accounts/:id', (req, res) => {
+  const db = req.app.get('db');
+  const { display_name, is_active } = req.body;
+
+  db.prepare(
+    'UPDATE dj_accounts SET display_name = COALESCE(?, display_name), is_active = COALESCE(?, is_active) WHERE id = ?'
+  ).run(display_name, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+
+  const account = db.prepare('SELECT * FROM dj_accounts WHERE id = ?').get(req.params.id);
+  if (!account) return res.status(404).json({ error: 'Account not found' });
+  res.json(account);
+});
+
+// Regenerate stream key
+router.post('/dj-accounts/:id/regenerate-key', (req, res) => {
+  const db = req.app.get('db');
+  const newKey = generateStreamKey();
+
+  const result = db.prepare('UPDATE dj_accounts SET stream_key = ? WHERE id = ?').run(newKey, req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Account not found' });
+
+  const account = db.prepare('SELECT * FROM dj_accounts WHERE id = ?').get(req.params.id);
+  res.json(account);
+});
+
+// Delete DJ account
+router.delete('/dj-accounts/:id', (req, res) => {
+  const db = req.app.get('db');
+  db.prepare('DELETE FROM dj_accounts WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Get live status for a station
+router.get('/stations/:id/live', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const liveSources = req.app.get('liveSources');
+  const live = liveSources?.has(req.params.id) || false;
+  const source = liveSources?.get(req.params.id);
+
+  res.json({
+    live,
+    dj: source ? (source.dj.display_name || source.dj.username) : null,
+    listeners: streamEngine.getListenerCount(req.params.id),
+  });
+});
+
+// Kick a live DJ (admin action)
+router.post('/stations/:id/live/kick', (req, res) => {
+  const liveSources = req.app.get('liveSources');
+  const source = liveSources?.get(req.params.id);
+  if (!source) return res.status(404).json({ error: 'No live DJ on this station' });
+
+  // Destroy the incoming request to force disconnect
+  try { source.req.destroy(); } catch {}
+  res.json({ ok: true, message: 'DJ kicked' });
 });
 
 // ── Global multer error handler ──

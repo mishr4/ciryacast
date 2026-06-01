@@ -71,6 +71,118 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
   req.on('close', () => streamEngine.removeListener(station.id, res));
 });
 
+// ── Live DJ Source Endpoint ──
+// Compatible with Mixxx, BUTT, and other Icecast source clients.
+// Connect with: PUT /live/:stationId  (or SOURCE /live/:stationId for legacy)
+// Auth: Basic auth → username + stream_key from dj_accounts table
+//
+// Pauses AutoDJ while live; resumes when DJ disconnects.
+// stationId → { req, djAccount }
+const liveSources = new Map();
+
+function authenticateDJ(req, stationId) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
+
+  let username, password;
+  if (authHeader.startsWith('Basic ')) {
+    const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+    const colon = decoded.indexOf(':');
+    username = colon >= 0 ? decoded.slice(0, colon) : decoded;
+    password = colon >= 0 ? decoded.slice(colon + 1) : '';
+  } else {
+    return null;
+  }
+
+  // "source" is the default Icecast username — match on stream_key only
+  const query = username === 'source'
+    ? db.prepare('SELECT * FROM dj_accounts WHERE station_id = ? AND stream_key = ? AND is_active = 1').get(stationId, password)
+    : db.prepare('SELECT * FROM dj_accounts WHERE station_id = ? AND username = ? AND stream_key = ? AND is_active = 1').get(stationId, username, password);
+
+  return query || null;
+}
+
+// Accept PUT (Icecast) and SOURCE (legacy Shoutcast) for live DJ audio
+app.put('/live/:stationId', handleLiveSource);
+app.post('/live/:stationId', handleLiveSource);
+
+function handleLiveSource(req, res) {
+  const stationId = req.params.stationId;
+  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+  if (!station) return res.status(404).send('Station not found');
+
+  const dj = authenticateDJ(req, stationId);
+  if (!dj) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="CiryaCast Live"');
+    return res.status(401).send('Unauthorized — check your stream key');
+  }
+
+  // Only one live source per station
+  if (liveSources.has(stationId)) {
+    return res.status(409).send('Another DJ is already live on this station');
+  }
+
+  console.log(`  🎙 LIVE: ${dj.display_name || dj.username} connected to "${station.name}"`);
+
+  // Pause AutoDJ
+  const wasRunning = autoDJ.isRunning(stationId);
+  if (wasRunning) autoDJ.stop(stationId);
+
+  // Mark station as live
+  streamEngine.setLive(stationId, true);
+  db.prepare('UPDATE dj_accounts SET last_connected = datetime("now") WHERE id = ?').run(dj.id);
+
+  // Set now-playing to DJ info
+  streamEngine.setNowPlaying(stationId, {
+    title: 'Live Broadcast',
+    artist: dj.display_name || dj.username,
+    album: '',
+    duration: 0,
+    media_id: null,
+    artwork_url: '',
+    is_live: true,
+  });
+
+  broadcast('live_start', { stationId, dj: dj.display_name || dj.username });
+
+  liveSources.set(stationId, { req, dj, wasRunning });
+
+  // Respond with 200 (Icecast expects this to start sending audio)
+  res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+
+  // Relay incoming audio to all listeners
+  req.on('data', (chunk) => {
+    streamEngine.pushAudio(stationId, chunk);
+  });
+
+  // DJ disconnects
+  req.on('close', () => {
+    console.log(`  🎙 OFFLINE: ${dj.display_name || dj.username} disconnected from "${station.name}"`);
+    liveSources.delete(stationId);
+    streamEngine.setLive(stationId, false);
+
+    broadcast('live_end', { stationId });
+
+    // Resume AutoDJ if it was running before
+    if (wasRunning) {
+      console.log(`  ▶ AutoDJ resuming: "${station.name}"`);
+      autoDJ.start(stationId);
+    }
+
+    res.end();
+  });
+
+  req.on('error', () => {
+    liveSources.delete(stationId);
+    streamEngine.setLive(stationId, false);
+    if (wasRunning) autoDJ.start(stationId);
+    broadcast('live_end', { stationId });
+  });
+}
+
+// Expose liveSources to API routes
+app.set('liveSources', liveSources);
+
 // ── Now Playing API (public — no auth) ──
 app.get('/api/nowplaying', (req, res) => {
   const stations = db.prepare('SELECT * FROM stations').all();

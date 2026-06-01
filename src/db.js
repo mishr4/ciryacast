@@ -97,6 +97,21 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_requests_station_status
     ON song_requests(station_id, status);
+
+  CREATE TABLE IF NOT EXISTS dj_accounts (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    stream_key TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_connected TEXT,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_dj_station
+    ON dj_accounts(station_id);
 `);
 
 // ── Migrations: add columns if missing ──

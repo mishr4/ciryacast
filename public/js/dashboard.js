@@ -59,6 +59,7 @@ function connectWS() {
     if (type === 'station_created' || type === 'station_deleted') { loadStations(); refreshDashboard(); }
     if (type === 'song_request') refreshRequests();
     if (type === 'queue_update') refreshDashboard();
+    if (type === 'live_start' || type === 'live_end') { refreshDashboard(); refreshDJs(); }
   };
   ws.onclose = () => setTimeout(connectWS, 3000);
 }
@@ -76,6 +77,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (view === 'history') refreshHistory();
     if (view === 'stations') loadStations();
     if (view === 'requests') refreshRequests();
+    if (view === 'djs') refreshDJs();
     closeMobileSidebar();
   });
 });
@@ -137,7 +139,10 @@ function renderDashboardStations() {
           <div class="np-meta" style="flex:1">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;flex-wrap:wrap">
               <h3>${esc(s.name)}</h3>
-              <span class="badge ${running ? 'badge-green' : 'badge-red'}">${running ? 'ON AIR' : 'OFFLINE'}</span>
+              ${s.live
+                ? '<span class="badge" style="background:#ff1744;color:#fff">🎙 LIVE</span>'
+                : `<span class="badge ${running ? 'badge-green' : 'badge-red'}">${running ? 'ON AIR' : 'OFFLINE'}</span>`
+              }
               ${np?.is_request ? '<span class="badge badge-purple">REQUEST</span>' : ''}
             </div>
             ${np ? `<p style="font-size:14px;color:#444">${esc(np.artist)} — ${esc(np.title)}</p>` : '<p style="color:#999">Nothing playing</p>'}
@@ -689,6 +694,140 @@ function timeAgo(dateStr) {
   if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
   if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
   return Math.floor(diff / 86400) + 'd ago';
+}
+
+// ════════════════════════════════════
+// DJs
+// ════════════════════════════════════
+function populateDJStationSelect() {
+  const sel = document.getElementById('dj-station-select');
+  if (!sel || !stations?.length) return;
+  sel.innerHTML = stations.map(s =>
+    `<option value="${s.id}" ${s.id === currentStationId ? 'selected' : ''}>${esc(s.name)}</option>`
+  ).join('');
+  sel.onchange = () => { currentStationId = sel.value; refreshDJs(); };
+}
+
+async function refreshDJs() {
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) return;
+  populateDJStationSelect();
+
+  // Set connection info
+  const serverUrl = document.getElementById('dj-server-url');
+  const mountPoint = document.getElementById('dj-mount-point');
+  if (serverUrl) serverUrl.value = location.host;
+  if (mountPoint) mountPoint.value = `/live/${sid}`;
+
+  // Check live status
+  const liveData = await api(`/stations/${sid}/live`);
+  const liveBadge = document.getElementById('live-status-badge');
+  if (liveBadge) {
+    if (liveData?.live) {
+      liveBadge.style.display = 'inline-flex';
+      liveBadge.style.background = '#ff1744';
+      liveBadge.style.color = '#fff';
+      liveBadge.textContent = `🎙 LIVE — ${liveData.dj}`;
+    } else {
+      liveBadge.style.display = 'none';
+    }
+  }
+
+  // Load accounts
+  const accounts = await api(`/stations/${sid}/dj-accounts`) || [];
+  document.getElementById('dj-count').textContent = accounts.length;
+  const el = document.getElementById('dj-accounts-list');
+
+  if (!accounts.length) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg></div>
+      <h3>No DJ accounts</h3><p>Create a DJ account to enable live broadcasting</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = `<table class="media-table">
+    <thead><tr>
+      <th>DJ</th><th>Username</th><th>Stream Key</th><th>Status</th><th>Last Live</th><th style="width:120px">Actions</th>
+    </tr></thead>
+    <tbody>${accounts.map(a => `
+      <tr>
+        <td class="title-cell">${esc(a.display_name || a.username)}</td>
+        <td class="dim" style="font-family:monospace;font-size:12px">${esc(a.username)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <code style="font-size:11px;background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all">${esc(a.stream_key)}</code>
+            <button class="btn btn-ghost btn-sm" onclick="regenDJKey('${a.id}')" title="Regenerate key" style="padding:4px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            </button>
+          </div>
+        </td>
+        <td><span class="badge ${a.is_active ? 'badge-green' : 'badge-red'}">${a.is_active ? 'Active' : 'Disabled'}</span></td>
+        <td class="dim">${a.last_connected ? timeAgo(a.last_connected) : 'Never'}</td>
+        <td>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="toggleDJ('${a.id}', ${a.is_active ? 0 : 1})" title="${a.is_active ? 'Disable' : 'Enable'}">
+              ${a.is_active ? '⏸' : '▶'}
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDJ('${a.id}')" title="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('')}</tbody>
+  </table>`;
+}
+
+async function createDJAccount() {
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) return;
+  const username = document.getElementById('input-dj-username').value.trim();
+  if (!username) return;
+  const displayName = document.getElementById('input-dj-displayname').value.trim();
+
+  const res = await api(`/stations/${sid}/dj-accounts`, {
+    method: 'POST',
+    body: JSON.stringify({ username, display_name: displayName }),
+  });
+
+  if (res?.id) {
+    closeModal('modal-new-dj');
+    document.getElementById('input-dj-username').value = '';
+    document.getElementById('input-dj-displayname').value = '';
+    showToast('DJ account created');
+    refreshDJs();
+  } else {
+    showToast(res?.error || 'Failed to create account', 'error');
+  }
+}
+
+async function regenDJKey(id) {
+  if (!confirm('Regenerate stream key? The DJ will need the new key to connect.')) return;
+  await api(`/dj-accounts/${id}/regenerate-key`, { method: 'POST' });
+  showToast('Stream key regenerated');
+  refreshDJs();
+}
+
+async function toggleDJ(id, active) {
+  await api(`/dj-accounts/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: !!active }) });
+  refreshDJs();
+}
+
+async function deleteDJ(id) {
+  if (!confirm('Delete this DJ account?')) return;
+  await api(`/dj-accounts/${id}`, { method: 'DELETE' });
+  showToast('DJ account deleted');
+  refreshDJs();
+}
+
+async function kickLiveDJ() {
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) return;
+  await api(`/stations/${sid}/live/kick`, { method: 'POST' });
+  showToast('DJ kicked');
+  refreshDJs();
+  refreshDashboard();
 }
 
 // ════════════════════════════════════
