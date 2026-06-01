@@ -223,17 +223,23 @@
           <span class="badge" id="live-status-badge" style="display:none">LIVE</span>
         </div>
         <div style="padding:0 0 8px">
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-            <div style="flex:1;min-width:200px">
-              <label style="font-size:11px;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px">Server / Host</label>
-              <input type="text" id="dj-server-url" class="select-input" readonly style="width:100%;font-size:12px;font-family:monospace">
-            </div>
-            <div style="flex:1;min-width:200px">
-              <label style="font-size:11px;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px">Mount Point</label>
-              <input type="text" id="dj-mount-point" class="select-input" readonly style="width:100%;font-size:12px;font-family:monospace">
-            </div>
+          <p style="font-size:12px;color:#666;margin-bottom:12px">Use these settings in <strong>BUTT</strong>, <strong>Mixxx</strong>, or any Icecast source client:</p>
+          <div style="display:grid;grid-template-columns:100px 1fr;gap:6px 12px;font-size:13px;align-items:center">
+            <span style="color:#777;font-weight:600">Type</span>
+            <span>Icecast</span>
+            <span style="color:#777;font-weight:600">Host</span>
+            <code id="dj-host" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
+            <span style="color:#777;font-weight:600">Port</span>
+            <code id="dj-port" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
+            <span style="color:#777;font-weight:600">Mount</span>
+            <code id="dj-mount" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
+            <span style="color:#777;font-weight:600">Username</span>
+            <code style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all">source</code>
+            <span style="color:#777;font-weight:600">Password</span>
+            <span style="color:#999;font-size:12px">Use the stream key from the account below</span>
+            <span style="color:#777;font-weight:600">Format</span>
+            <span>MP3</span>
           </div>
-          <p style="font-size:12px;color:#999">In Mixxx/BUTT: set server to the host, mount to the path, username to <code>source</code>, password to the stream key.</p>
         </div>
       </div>
 

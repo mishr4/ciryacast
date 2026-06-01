@@ -714,10 +714,14 @@ async function refreshDJs() {
   populateDJStationSelect();
 
   // Set connection info
-  const serverUrl = document.getElementById('dj-server-url');
-  const mountPoint = document.getElementById('dj-mount-point');
-  if (serverUrl) serverUrl.value = location.host;
-  if (mountPoint) mountPoint.value = `/live/${sid}`;
+  const hostEl = document.getElementById('dj-host');
+  const portEl = document.getElementById('dj-port');
+  const mountEl = document.getElementById('dj-mount');
+  const hostname = location.hostname;
+  const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+  if (hostEl) hostEl.textContent = hostname;
+  if (portEl) portEl.textContent = port;
+  if (mountEl) mountEl.textContent = `/live/${sid}`;
 
   // Check live status
   const liveData = await api(`/stations/${sid}/live`);
