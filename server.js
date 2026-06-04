@@ -229,6 +229,11 @@ app.get('/overlay/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'overlay.html'));
 });
 
+// ── Public stations directory ──
+app.get('/stations', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'stations.html'));
+});
+
 // ── Login page ──
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));

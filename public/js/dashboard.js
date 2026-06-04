@@ -233,9 +233,13 @@ function renderDashboardStations() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
             Player
           </a>
-          <a class="btn btn-ghost btn-sm" href="/overlay/${s.id}" target="_blank" title="OBS Stream Overlay">
+          <a class="btn btn-ghost btn-sm" href="/overlay/${s.id}" target="_blank" title="OBS Full Overlay">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            Overlay
+            OBS
+          </a>
+          <a class="btn btn-ghost btn-sm" href="/stations" target="_blank" title="Public stations page">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Public
           </a>
         </div>
       </div>

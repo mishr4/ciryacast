@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CiryaCast — Stations</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Instrument Sans', sans-serif;
+    background: linear-gradient(135deg, #fef6f0, #fdf2fd, #f0eaff, #fef6f0);
+    background-size: 400% 400%;
+    animation: bgMove 15s ease infinite;
+    color: #000;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  @keyframes bgMove {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .page-header {
+    text-align: center;
+    padding: 48px 20px 32px;
+  }
+  .logo-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .logo-row img { width: 40px; height: 40px; border-radius: 10px; object-fit: contain; }
+  .logo-row span { font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; }
+  .page-title { font-family: 'Lexend', sans-serif; font-size: 28px; font-weight: 600; margin-bottom: 6px; }
+  .page-sub { font-size: 15px; color: #777; }
+
+  .stations-grid {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 20px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .station-card {
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 1px 21px rgba(0,0,0,0.08);
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .station-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 28px rgba(0,0,0,0.12);
+  }
+
+  .station-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 28px;
+  }
+
+  .station-art {
+    width: 72px;
+    height: 72px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(124,77,255,0.2);
+  }
+  .station-art img { width: 100%; height: 100%; object-fit: cover; }
+  .station-art svg { width: 28px; height: 28px; color: rgba(255,255,255,0.8); }
+
+  .station-info { flex: 1; min-width: 0; }
+  .station-name { font-family: 'Lexend', sans-serif; font-size: 20px; font-weight: 600; margin-bottom: 3px; }
+  .station-desc { font-size: 14px; color: #777; margin-bottom: 6px; }
+  .station-meta-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .meta-badge {
+    font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+  }
+  .badge-live { background: #ff1744; color: #fff; animation: livePulse 2s ease infinite; }
+  .badge-online { background: #e8f5e9; color: #2e7d32; }
+  .badge-offline { background: #f5f5f5; color: #999; }
+  @keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+  .meta-text { font-size: 12px; color: #999; }
+
+  .station-np {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 28px;
+    background: #faf8ff;
+    border-top: 1px solid rgba(0,0,0,0.04);
+  }
+  .np-art {
+    width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .np-art img { width: 100%; height: 100%; object-fit: cover; }
+  .np-art svg { width: 18px; height: 18px; color: rgba(255,255,255,0.6); }
+  .np-text { flex: 1; min-width: 0; }
+  .np-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #7C4DFF; margin-bottom: 2px; }
+  .np-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-artist { font-size: 12px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .station-actions {
+    display: flex;
+    gap: 8px;
+    padding: 0 28px 20px;
+  }
+  .action-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 9px 20px; border-radius: 12px; font-family: inherit; font-size: 13px;
+    font-weight: 600; text-decoration: none; cursor: pointer; border: none;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .action-btn:hover { transform: translateY(-1px); }
+  .btn-listen { background: #000; color: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+  .btn-listen:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+  .btn-request { background: #f0eaff; color: #7C4DFF; }
+  .btn-stream { background: #f5f5f5; color: #555; }
+  .action-btn svg { width: 14px; height: 14px; }
+
+  .footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 11px;
+    color: #aaa;
+  }
+  .footer a { color: #777; text-decoration: none; font-weight: 600; }
+  .footer a:hover { color: #7C4DFF; }
+
+  .empty { text-align: center; padding: 60px 20px; color: #999; }
+  .empty h3 { font-family: 'Lexend', sans-serif; font-size: 20px; color: #333; margin-bottom: 8px; }
+
+  @media (max-width: 600px) {
+    .station-top { flex-direction: column; text-align: center; padding: 20px; }
+    .station-actions { justify-content: center; flex-wrap: wrap; padding: 0 20px 16px; }
+    .station-np { padding: 12px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="logo-row">
+    <img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="TMC">
+    <span>CiryaCast</span>
+  </div>
+  <h1 class="page-title">Stations</h1>
+  <p class="page-sub">Listen live on any station</p>
+</div>
+
+<div class="stations-grid" id="stations-grid">
+  <div class="empty">
+    <h3>Loading stations...</h3>
+  </div>
+</div>
+
+<div class="footer">
+  <span>Powered by</span>
+  <a href="https://tmc.gg" target="_blank">TMC</a>
+  <span>&middot;</span>
+  <a href="https://cirya.co" target="_blank">Cirya</a>
+</div>
+
+<script>
+  async function loadStations() {
+    try {
+      const res = await fetch('/api/nowplaying');
+      const stations = await res.json();
+      const grid = document.getElementById('stations-grid');
+
+      if (!stations || stations.length === 0) {
+        grid.innerHTML = '<div class="empty"><h3>No stations yet</h3><p>Check back soon</p></div>';
+        return;
+      }
+
+      grid.innerHTML = stations.map(s => {
+        const np = s.now_playing;
+        const live = s.live;
+        const hasNp = np && np.title && np.title !== 'Unknown';
+        const artUrl = np?.artwork_url || '';
+
+        return `
+          <div class="station-card">
+            <div class="station-top">
+              <div class="station-art">
+                ${artUrl
+                  ? `<img src="${esc(artUrl)}" alt="">`
+                  : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`
+                }
+              </div>
+              <div class="station-info">
+                <div class="station-name">${esc(s.station.name)}</div>
+                <div class="station-desc">${esc(s.station.description || s.station.genre || '')}</div>
+                <div class="station-meta-row">
+                  ${live
+                    ? '<span class="meta-badge badge-live">LIVE</span>'
+                    : hasNp
+                      ? '<span class="meta-badge badge-online">On Air</span>'
+                      : '<span class="meta-badge badge-offline">Offline</span>'
+                  }
+                  <span class="meta-text">${s.listeners.current} listener${s.listeners.current !== 1 ? 's' : ''}</span>
+                </div>
+              </div>
+            </div>
+
+            ${hasNp ? `
+              <div class="station-np">
+                <div class="np-art">
+                  ${artUrl
+                    ? `<img src="${esc(artUrl)}" alt="">`
+                    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`
+                  }
+                </div>
+                <div class="np-text">
+                  <div class="np-label">${live ? 'Live Now' : 'Now Playing'}</div>
+                  <div class="np-title">${esc(np.title)}</div>
+                  <div class="np-artist">${esc(np.artist)}</div>
+                </div>
+              </div>
+            ` : ''}
+
+            <div class="station-actions">
+              <a class="action-btn btn-listen" href="/player/${s.station.id}">
+                <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                Listen
+              </a>
+              <a class="action-btn btn-request" href="/player/${s.station.id}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                Request
+              </a>
+              <button class="action-btn btn-stream" onclick="copyUrl('${s.listen_url}', this)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                Stream URL
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+    } catch (e) {
+      document.getElementById('stations-grid').innerHTML = '<div class="empty"><h3>Failed to load</h3><p>Try refreshing</p></div>';
+    }
+  }
+
+  function copyUrl(path, btn) {
+    const url = location.origin + path;
+    navigator.clipboard.writeText(url).then(() => {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+      setTimeout(() => btn.innerHTML = orig, 2000);
+    });
+  }
+
+  function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  loadStations();
+  // Refresh every 10s
+  setInterval(loadStations, 10000);
+
+  // WebSocket for real-time
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = () => loadStations();
+  ws.onclose = () => setTimeout(() => location.reload(), 5000);
+</script>
+</body>
+</html>
