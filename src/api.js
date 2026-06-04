@@ -1026,6 +1026,42 @@ router.delete('/stations/:id/recordings/:recId', (req, res) => {
 // AZURACAST IMPORT
 // ════════════════════════════════════
 
+// Debug: probe AzuraCast API to see the actual response structure
+router.post('/stations/:id/import/azuracast/probe', async (req, res) => {
+  const { azuracast_url, api_key, azura_station_id } = req.body;
+  if (!azuracast_url || !api_key) return res.status(400).json({ error: 'url and api_key required' });
+
+  const baseUrl = azuracast_url.replace(/\/+$/, '');
+  const headers = { 'X-API-Key': api_key };
+  const sid = azura_station_id || 1;
+
+  const probe = {};
+  try {
+    // Try /files
+    const r1 = await fetch(`${baseUrl}/api/station/${sid}/files`, { headers, signal: AbortSignal.timeout(10000) });
+    probe.files_status = r1.status;
+    if (r1.ok) {
+      const data = await r1.json();
+      probe.files_count = Array.isArray(data) ? data.length : 'not array';
+      probe.files_sample = Array.isArray(data) ? data.slice(0, 2) : data;
+    }
+  } catch (e) { probe.files_error = e.message; }
+
+  try {
+    // Try /files/list
+    const r2 = await fetch(`${baseUrl}/api/station/${sid}/files/list`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowCount: 2, current: 1 }),
+      signal: AbortSignal.timeout(10000),
+    });
+    probe.files_list_status = r2.status;
+    if (r2.ok) probe.files_list_sample = await r2.json();
+  } catch (e) { probe.files_list_error = e.message; }
+
+  res.json(probe);
+});
+
 router.post('/stations/:id/import/azuracast', async (req, res) => {
   const db = req.app.get('db');
   const stationId = req.params.id;
