@@ -966,6 +966,205 @@ router.get('/users/:id/stations', (req, res) => {
   res.json(stations);
 });
 
+// ════════════════════════════════════
+// AZURACAST IMPORT
+// ════════════════════════════════════
+
+router.post('/stations/:id/import/azuracast', async (req, res) => {
+  const db = req.app.get('db');
+  const stationId = req.params.id;
+  const { azuracast_url, api_key, azura_station_id } = req.body;
+
+  if (!azuracast_url || !api_key || !azura_station_id) {
+    return res.status(400).json({ error: 'azuracast_url, api_key, and azura_station_id are required' });
+  }
+
+  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  const baseUrl = azuracast_url.replace(/\/+$/, '');
+  const headers = { 'X-API-Key': api_key };
+  const results = { media_imported: 0, media_skipped: 0, media_failed: 0, playlists_imported: 0 };
+
+  // Ensure media dir
+  if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+  // Get metadata parser
+  const mm = await getMetadataParser();
+
+  try {
+    // ── 1) Fetch playlists from AzuraCast ──
+    console.log(`  📥 AzuraCast import: fetching playlists from ${baseUrl}`);
+    const playlistMap = new Map(); // azura playlist id -> ciryacast playlist id
+
+    try {
+      const plRes = await fetch(`${baseUrl}/api/station/${azura_station_id}/playlists`, { headers, signal: AbortSignal.timeout(15000) });
+      if (plRes.ok) {
+        const playlists = await plRes.json();
+        for (const pl of playlists) {
+          // Check if playlist already exists by name
+          let existing = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND name = ?').get(stationId, pl.name);
+          if (!existing) {
+            const plId = uuid();
+            db.prepare('INSERT INTO playlists (id, station_id, name, weight) VALUES (?, ?, ?, ?)').run(
+              plId, stationId, pl.name, pl.weight || 1
+            );
+            existing = { id: plId };
+            results.playlists_imported++;
+            console.log(`    ✓ Playlist: ${pl.name}`);
+          }
+          playlistMap.set(pl.id, existing.id);
+        }
+      }
+    } catch (e) {
+      console.log(`    ⚠ Playlist fetch failed: ${e.message}`);
+    }
+
+    // Get or create default playlist
+    let defaultPlaylist = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
+    if (!defaultPlaylist) {
+      const dpId = uuid();
+      db.prepare('INSERT INTO playlists (id, station_id, name, is_default, weight) VALUES (?, ?, ?, 1, 1)').run(dpId, stationId, 'General Rotation');
+      defaultPlaylist = { id: dpId };
+    }
+
+    // ── 2) Fetch media files from AzuraCast ──
+    console.log(`  📥 AzuraCast import: fetching media list`);
+    let mediaList = [];
+    try {
+      const mRes = await fetch(`${baseUrl}/api/station/${azura_station_id}/files`, { headers, signal: AbortSignal.timeout(30000) });
+      if (mRes.ok) {
+        mediaList = await mRes.json();
+        console.log(`    Found ${mediaList.length} files`);
+      } else {
+        // Try alternate endpoint
+        const mRes2 = await fetch(`${baseUrl}/api/station/${azura_station_id}/files/list`, { headers, signal: AbortSignal.timeout(30000) });
+        if (mRes2.ok) mediaList = await mRes2.json();
+      }
+    } catch (e) {
+      console.log(`    ⚠ Media list failed: ${e.message}`);
+    }
+
+    // ── 3) Download each file ──
+    for (const file of mediaList) {
+      const title = file.title || file.song?.title || '';
+      const artist = file.artist || file.song?.artist || '';
+      const album = file.album || file.song?.album || '';
+
+      // Skip if we already have this exact track
+      const existing = db.prepare(
+        'SELECT id FROM media WHERE station_id = ? AND LOWER(title) = ? AND LOWER(artist) = ?'
+      ).get(stationId, title.toLowerCase(), artist.toLowerCase());
+
+      if (existing) {
+        results.media_skipped++;
+        continue;
+      }
+
+      // Try to download the file
+      try {
+        // AzuraCast file download endpoints (try multiple patterns)
+        const fileId = file.unique_id || file.id || file.media_id;
+        const downloadUrls = [
+          `${baseUrl}/api/station/${azura_station_id}/file/${fileId}/download`,
+          `${baseUrl}/api/station/${azura_station_id}/files/${fileId}`,
+          file.links?.download ? `${baseUrl}${file.links.download}` : null,
+        ].filter(Boolean);
+
+        let buffer = null;
+        for (const url of downloadUrls) {
+          try {
+            const dlRes = await fetch(url, { headers, signal: AbortSignal.timeout(60000) });
+            if (dlRes.ok) {
+              const ct = dlRes.headers.get('content-type') || '';
+              if (ct.includes('audio') || ct.includes('octet-stream') || dlRes.headers.get('content-length') > 10000) {
+                buffer = Buffer.from(await dlRes.arrayBuffer());
+                break;
+              }
+            }
+          } catch {}
+        }
+
+        if (!buffer || buffer.length < 5000) {
+          results.media_failed++;
+          continue;
+        }
+
+        // Save file
+        const filename = `${uuid()}.mp3`;
+        const filePath = path.join(MEDIA_DIR, filename);
+        fs.writeFileSync(filePath, buffer);
+
+        // Parse actual metadata from file
+        let actualTitle = title || 'Unknown';
+        let actualArtist = artist || 'Unknown';
+        let actualAlbum = album || '';
+        let duration = file.length || file.song?.length || 0;
+        let artworkUrl = file.art || file.song?.art || '';
+
+        if (mm) {
+          try {
+            const meta = await mm.parseFile(filePath);
+            if (meta.common.title) actualTitle = meta.common.title;
+            if (meta.common.artist) actualArtist = meta.common.artist;
+            if (meta.common.album) actualAlbum = meta.common.album;
+            if (meta.format.duration) duration = Math.round(meta.format.duration);
+          } catch {}
+        }
+
+        // Insert into DB
+        const mediaId = uuid();
+        db.prepare(`
+          INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          mediaId, stationId, filename,
+          `${actualArtist} - ${actualTitle}.mp3`,
+          actualTitle, actualArtist, actualAlbum,
+          duration, buffer.length, 'audio/mpeg', artworkUrl
+        );
+
+        // Add to appropriate playlist
+        const playlists = file.playlists || [];
+        let addedToPlaylist = false;
+        for (const pl of playlists) {
+          const ccPlId = playlistMap.get(pl.id || pl);
+          if (ccPlId) {
+            db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
+              uuid(), ccPlId, mediaId, 0
+            );
+            addedToPlaylist = true;
+          }
+        }
+        // Fallback: add to default playlist
+        if (!addedToPlaylist) {
+          db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
+            uuid(), defaultPlaylist.id, mediaId, 0
+          );
+        }
+
+        results.media_imported++;
+        console.log(`    ✓ ${actualArtist} — ${actualTitle} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+
+        // Small delay to avoid hammering the AzuraCast API
+        await new Promise(r => setTimeout(r, 300));
+      } catch (e) {
+        results.media_failed++;
+        console.log(`    ⚠ Failed: ${title} — ${e.message}`);
+      }
+    }
+
+    console.log(`  📥 Import complete: ${results.media_imported} imported, ${results.media_skipped} skipped, ${results.media_failed} failed, ${results.playlists_imported} playlists`);
+
+    req.app.get('broadcast')('media_uploaded', { stationId, count: results.media_imported });
+    res.json(results);
+
+  } catch (e) {
+    console.log(`  ⚠ Import error: ${e.message}`);
+    res.status(500).json({ error: `Import failed: ${e.message}`, ...results });
+  }
+});
+
 // ── Global multer error handler ──
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {

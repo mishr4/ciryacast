@@ -862,6 +862,57 @@ async function kickLiveDJ() {
 }
 
 // ════════════════════════════════════
+// AZURACAST IMPORT
+// ════════════════════════════════════
+async function startAzuraCastImport() {
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) return showToast('Select a station first', 'error');
+
+  const azuraUrl = document.getElementById('input-azura-url').value.trim();
+  const apiKey = document.getElementById('input-azura-apikey').value.trim();
+  const azuraStation = document.getElementById('input-azura-station').value.trim();
+
+  if (!azuraUrl || !apiKey || !azuraStation) {
+    return showToast('Fill in all fields', 'error');
+  }
+
+  const statusEl = document.getElementById('azura-import-status');
+  const btn = document.getElementById('btn-azura-import');
+  statusEl.style.display = 'block';
+  statusEl.innerHTML = '<div style="padding:12px;border-radius:12px;background:#f0eaff;color:#7C4DFF;font-size:13px;font-weight:600">Importing... this may take a while for large libraries.</div>';
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+
+  try {
+    const res = await fetch(`/api/stations/${sid}/import/azuracast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        azuracast_url: azuraUrl,
+        api_key: apiKey,
+        azura_station_id: azuraStation,
+      }),
+    });
+    const data = await res.json();
+
+    if (res.ok) {
+      statusEl.innerHTML = `<div style="padding:12px;border-radius:12px;background:#e8f5e9;color:#2e7d32;font-size:13px;font-weight:600">
+        Done! ${data.media_imported} imported, ${data.media_skipped} skipped, ${data.media_failed} failed, ${data.playlists_imported} playlists.
+      </div>`;
+      refreshMedia();
+      refreshDashboard();
+    } else {
+      statusEl.innerHTML = `<div style="padding:12px;border-radius:12px;background:#fce4ec;color:#c62828;font-size:13px;font-weight:600">${data.error || 'Import failed'}</div>`;
+    }
+  } catch (e) {
+    statusEl.innerHTML = `<div style="padding:12px;border-radius:12px;background:#fce4ec;color:#c62828;font-size:13px;font-weight:600">Connection error: ${e.message}</div>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Start Import';
+}
+
+// ════════════════════════════════════
 // USERS
 // ════════════════════════════════════
 async function refreshUsers() {

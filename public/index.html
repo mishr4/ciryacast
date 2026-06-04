@@ -149,6 +149,10 @@
           <div class="card-title">Media Library</div>
           <div style="display:flex;align-items:center;gap:10px">
             <input type="text" id="media-search" placeholder="Search media..." style="padding:7px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none;width:180px" oninput="filterMedia(this.value)">
+            <button class="btn btn-ghost btn-sm" onclick="showModal('modal-azuracast-import')" title="Import from AzuraCast">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Import
+            </button>
             <button class="btn btn-primary btn-sm" onclick="enrichAllMedia()" title="Enrich metadata from TypicalMedia">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
               Enrich
@@ -382,6 +386,34 @@
       <div style="flex:1"></div>
       <button class="btn btn-ghost" onclick="closeModal('modal-edit-station')">Cancel</button>
       <button class="btn btn-primary" onclick="saveStation()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- AzuraCast Import Modal -->
+<div class="modal-overlay" id="modal-azuracast-import">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Import from AzuraCast</h3>
+      <button class="modal-close" onclick="closeModal('modal-azuracast-import')">&times;</button>
+    </div>
+    <p style="font-size:13px;color:#777;margin-bottom:16px">Pull media files and playlists from an AzuraCast station into CiryaCast. Duplicates are automatically skipped.</p>
+    <div class="form-group">
+      <label>AzuraCast URL</label>
+      <input type="url" id="input-azura-url" placeholder="https://your-azuracast.example.com">
+    </div>
+    <div class="form-group">
+      <label>API Key</label>
+      <input type="text" id="input-azura-apikey" placeholder="Your AzuraCast API key">
+    </div>
+    <div class="form-group">
+      <label>Station ID</label>
+      <input type="number" id="input-azura-station" placeholder="1" value="1">
+    </div>
+    <div id="azura-import-status" style="display:none;margin-bottom:12px"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-azuracast-import')">Cancel</button>
+      <button class="btn btn-primary" id="btn-azura-import" onclick="startAzuraCastImport()">Start Import</button>
     </div>
   </div>
 </div>
