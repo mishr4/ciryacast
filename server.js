@@ -224,6 +224,11 @@ app.get('/player/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));
 });
 
+// ── Stream overlay (OBS browser source) ──
+app.get('/overlay/:stationId', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'overlay.html'));
+});
+
 // ── Login page ──
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));

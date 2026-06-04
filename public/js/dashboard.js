@@ -219,6 +219,10 @@ function renderDashboardStations() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
             Player
           </a>
+          <a class="btn btn-ghost btn-sm" href="/overlay/${s.id}" target="_blank" title="OBS Stream Overlay">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            Overlay
+          </a>
         </div>
       </div>
     `;
@@ -749,6 +753,19 @@ async function refreshDJs() {
   if (hostEl) hostEl.textContent = hostname;
   if (portEl) portEl.textContent = port;
   if (mountEl) mountEl.textContent = `/live/${sid}`;
+
+  // Integration URLs
+  const origin = location.origin;
+  const streamUrl = document.getElementById('int-stream-url');
+  const overlayUrl = document.getElementById('int-overlay-url');
+  const barUrl = document.getElementById('int-bar-url');
+  const playerUrl = document.getElementById('int-player-url');
+  const discordCmd = document.getElementById('int-discord-cmd');
+  if (streamUrl) streamUrl.textContent = `${origin}/listen/${sid}/radio.mp3`;
+  if (overlayUrl) overlayUrl.textContent = `${origin}/overlay/${sid}`;
+  if (barUrl) barUrl.textContent = `${origin}/overlay/${sid}?mode=bar`;
+  if (playerUrl) playerUrl.textContent = `${origin}/player/${sid}`;
+  if (discordCmd) discordCmd.textContent = `/play ${origin}/listen/${sid}/radio.mp3`;
 
   // Check live status
   const liveData = await api(`/stations/${sid}/live`);

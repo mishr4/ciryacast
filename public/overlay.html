@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CiryaCast — Stream Overlay</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Instrument Sans', sans-serif;
+    background: transparent;
+    color: #fff;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Full-screen mode (default) ── */
+  .overlay-full {
+    width: 1920px;
+    height: 1080px;
+    background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 40%, #0a1a2e 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Animated background glow */
+  .bg-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.3;
+    animation: floatGlow 8s ease-in-out infinite;
+  }
+  .bg-glow-1 { width: 600px; height: 600px; background: #7C4DFF; top: -200px; left: -100px; }
+  .bg-glow-2 { width: 500px; height: 500px; background: #FF48BC; bottom: -150px; right: -100px; animation-delay: -4s; }
+  .bg-glow-3 { width: 400px; height: 400px; background: #0ED7FF; top: 50%; left: 60%; animation-delay: -2s; }
+  @keyframes floatGlow {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -20px) scale(1.1); }
+    66% { transform: translate(-20px, 30px) scale(0.95); }
+  }
+
+  /* Station branding */
+  .station-header {
+    position: absolute;
+    top: 48px;
+    left: 60px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 2;
+  }
+  .station-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    object-fit: contain;
+  }
+  .station-name-text {
+    font-family: 'Lexend', sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    opacity: 0.9;
+  }
+  .station-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #00C853;
+    box-shadow: 0 0 8px rgba(0,200,83,0.6);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .live-dot.red { background: #ff4444; box-shadow: 0 0 8px rgba(255,68,68,0.6); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Center content */
+  .now-playing {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    z-index: 2;
+  }
+
+  .art-wrap {
+    width: 320px;
+    height: 320px;
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .art-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .art-wrap svg {
+    width: 64px;
+    height: 64px;
+    color: rgba(255,255,255,0.5);
+  }
+  /* Subtle spinning ring on art */
+  .art-ring {
+    position: absolute;
+    inset: -4px;
+    border-radius: 28px;
+    border: 2px solid transparent;
+    border-top-color: rgba(255,255,255,0.2);
+    animation: spin 6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .track-info {
+    max-width: 500px;
+  }
+  .track-title {
+    font-family: 'Lexend', sans-serif;
+    font-size: 42px;
+    font-weight: 600;
+    line-height: 1.15;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+  }
+  .track-artist {
+    font-size: 22px;
+    font-weight: 500;
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+  .track-album {
+    font-size: 16px;
+    opacity: 0.4;
+    margin-bottom: 24px;
+  }
+
+  /* Progress */
+  .progress-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .progress-time {
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.5;
+    min-width: 40px;
+    font-variant-numeric: tabular-nums;
+  }
+  .progress-track {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #7C4DFF, #FF48BC);
+    border-radius: 2px;
+    transition: width 1s linear;
+    width: 0%;
+  }
+
+  /* Visualizer */
+  .visualizer {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 40px;
+  }
+  .vis-bar {
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to top, #7C4DFF, #FF48BC);
+    opacity: 0.6;
+    transition: height 0.15s ease;
+  }
+
+  /* Listeners badge */
+  .listeners-badge {
+    position: absolute;
+    bottom: 48px;
+    right: 60px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    opacity: 0.6;
+    z-index: 2;
+  }
+
+  /* Request badge */
+  .request-badge {
+    display: none;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 4px 14px;
+    border-radius: 20px;
+    background: rgba(124,77,255,0.2);
+    border: 1px solid rgba(124,77,255,0.3);
+    color: #b388ff;
+    margin-bottom: 16px;
+    width: fit-content;
+  }
+  .request-badge.show { display: block; }
+
+  /* ── Bar mode (?mode=bar) — slim bottom bar for OBS ── */
+  .overlay-bar {
+    width: 1920px;
+    height: 100px;
+    background: rgba(10, 10, 26, 0.95);
+    backdrop-filter: blur(20px);
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+    gap: 20px;
+  }
+  .overlay-bar .bar-art {
+    width: 64px; height: 64px; border-radius: 12px; overflow: hidden; flex-shrink: 0;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .overlay-bar .bar-art img { width: 100%; height: 100%; object-fit: cover; }
+  .overlay-bar .bar-art svg { width: 24px; height: 24px; color: rgba(255,255,255,0.5); }
+  .overlay-bar .bar-meta { flex: 1; }
+  .overlay-bar .bar-title { font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; }
+  .overlay-bar .bar-artist { font-size: 14px; opacity: 0.6; }
+  .overlay-bar .bar-progress { width: 300px; }
+  .overlay-bar .bar-station {
+    font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 600; opacity: 0.5;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .overlay-bar .bar-station img { width: 28px; height: 28px; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<!-- Full overlay (default) -->
+<div class="overlay-full" id="overlay-full">
+  <div class="bg-glow bg-glow-1"></div>
+  <div class="bg-glow bg-glow-2"></div>
+  <div class="bg-glow bg-glow-3"></div>
+
+  <div class="station-header">
+    <img class="station-logo" id="station-logo" src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">
+    <div>
+      <div class="station-name-text" id="station-name">Loading...</div>
+      <div class="station-badge">
+        <div class="live-dot" id="status-dot"></div>
+        <span id="status-text">ON AIR</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="now-playing">
+    <div class="art-wrap" id="art-wrap">
+      <div class="art-ring"></div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+    <div class="track-info">
+      <div class="request-badge" id="request-badge">Listener Request</div>
+      <div class="track-title" id="track-title">—</div>
+      <div class="track-artist" id="track-artist">—</div>
+      <div class="track-album" id="track-album"></div>
+      <div class="progress-row">
+        <span class="progress-time" id="elapsed">0:00</span>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="progress-time" id="duration">0:00</span>
+      </div>
+      <div class="visualizer" id="visualizer"></div>
+    </div>
+  </div>
+
+  <div class="listeners-badge">
+    <span id="listener-count">0</span> listening
+  </div>
+</div>
+
+<!-- Bar overlay (add ?mode=bar to URL) -->
+<div class="overlay-bar" id="overlay-bar" style="display:none">
+  <div class="bar-art" id="bar-art">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+  </div>
+  <div class="bar-meta">
+    <div class="bar-title" id="bar-title">—</div>
+    <div class="bar-artist" id="bar-artist">—</div>
+  </div>
+  <div class="bar-progress">
+    <div class="progress-row" style="margin:0">
+      <span class="progress-time" id="bar-elapsed">0:00</span>
+      <div class="progress-track"><div class="progress-fill" id="bar-progress-fill"></div></div>
+      <span class="progress-time" id="bar-duration">0:00</span>
+    </div>
+  </div>
+  <div class="bar-station">
+    <img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">
+    <span id="bar-station-name">CiryaCast</span>
+  </div>
+</div>
+
+<script>
+  const stationId = window.location.pathname.split('/')[2];
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get('mode') || 'full';
+
+  // Show correct overlay
+  if (mode === 'bar') {
+    document.getElementById('overlay-full').style.display = 'none';
+    document.getElementById('overlay-bar').style.display = 'flex';
+  }
+
+  // Visualizer bars
+  const visEl = document.getElementById('visualizer');
+  const visBars = [];
+  for (let i = 0; i < 32; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'vis-bar';
+    bar.style.height = '4px';
+    visEl.appendChild(bar);
+    visBars.push(bar);
+  }
+
+  let npElapsed = 0, npDuration = 0;
+
+  function fmtDur(sec) {
+    if (!sec) return '0:00';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  // Animate visualizer
+  function animateVis() {
+    visBars.forEach(b => { b.style.height = (4 + Math.random() * 36) + 'px'; });
+    setTimeout(() => requestAnimationFrame(animateVis), 150);
+  }
+  animateVis();
+
+  // Tick progress every second
+  setInterval(() => {
+    npElapsed++;
+    const pct = npDuration > 0 ? Math.min(100, (npElapsed / npDuration) * 100) : 0;
+
+    if (mode === 'full') {
+      document.getElementById('elapsed').textContent = fmtDur(npElapsed);
+      document.getElementById('progress-fill').style.width = pct + '%';
+    } else {
+      document.getElementById('bar-elapsed').textContent = fmtDur(npElapsed);
+      document.getElementById('bar-progress-fill').style.width = pct + '%';
+    }
+  }, 1000);
+
+  async function refresh() {
+    try {
+      const res = await fetch(`/api/nowplaying/${stationId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const np = data.now_playing;
+      const live = data.live;
+
+      if (mode === 'full') {
+        document.getElementById('station-name').textContent = data.station.name;
+
+        if (live) {
+          document.getElementById('status-dot').className = 'live-dot red';
+          document.getElementById('status-text').textContent = 'LIVE';
+        } else {
+          document.getElementById('status-dot').className = 'live-dot';
+          document.getElementById('status-text').textContent = 'ON AIR';
+        }
+
+        document.getElementById('listener-count').textContent = data.listeners.current;
+
+        if (np) {
+          document.getElementById('track-title').textContent = np.title || '—';
+          document.getElementById('track-artist').textContent = np.artist || '—';
+          document.getElementById('track-album').textContent = np.album || '';
+          npElapsed = np.elapsed || 0;
+          npDuration = np.duration || 0;
+          document.getElementById('elapsed').textContent = fmtDur(npElapsed);
+          document.getElementById('duration').textContent = fmtDur(npDuration);
+
+          const artWrap = document.getElementById('art-wrap');
+          if (np.artwork_url) {
+            const existing = artWrap.querySelector('img');
+            if (!existing || !existing.src.includes(np.artwork_url)) {
+              artWrap.innerHTML = '<div class="art-ring"></div><img src="' + np.artwork_url + '" alt="">';
+            }
+          }
+
+          const rb = document.getElementById('request-badge');
+          if (np.is_request) rb.classList.add('show');
+          else rb.classList.remove('show');
+        }
+      } else {
+        // Bar mode
+        document.getElementById('bar-station-name').textContent = data.station.name;
+        if (np) {
+          document.getElementById('bar-title').textContent = np.title || '—';
+          document.getElementById('bar-artist').textContent = np.artist || '—';
+          npElapsed = np.elapsed || 0;
+          npDuration = np.duration || 0;
+          document.getElementById('bar-elapsed').textContent = fmtDur(npElapsed);
+          document.getElementById('bar-duration').textContent = fmtDur(npDuration);
+
+          const barArt = document.getElementById('bar-art');
+          if (np.artwork_url) {
+            const existing = barArt.querySelector('img');
+            if (!existing || !existing.src.includes(np.artwork_url)) {
+              barArt.innerHTML = '<img src="' + np.artwork_url + '" alt="">';
+            }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  refresh();
+  setInterval(refresh, 3000);
+
+  // WebSocket for instant updates
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  let ws;
+  function connectWS() {
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onmessage = (e) => {
+      const { type, data } = JSON.parse(e.data);
+      if ((type === 'track_change' || type === 'nowplaying') && data.stationId === stationId) refresh();
+      if (type === 'listeners' && data.stationId === stationId) {
+        document.getElementById('listener-count').textContent = data.count;
+      }
+    };
+    ws.onclose = () => setTimeout(connectWS, 3000);
+  }
+  connectWS();
+</script>
+</body>
+</html>
