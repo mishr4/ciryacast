@@ -1,13 +1,20 @@
+const fs = require('fs');
+const path = require('path');
+
+const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
+const RECORDINGS_DIR = VOLUME ? path.join(VOLUME, 'recordings') : path.join(__dirname, '..', 'recordings');
+if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+
 /**
  * StreamEngine — manages audio streams for each station.
  *
  * Distributes MP3 chunks from the AutoDJ to connected HTTP listeners.
  * Keeps a small ring buffer so new listeners get instant audio on connect.
+ * Supports recording streams to MP3 files.
  */
 class StreamEngine {
   constructor(broadcast) {
     this.broadcast = broadcast;
-    // stationId -> StationState
     this.stations = new Map();
   }
 
@@ -20,60 +27,155 @@ class StreamEngine {
         bufferSize: 0,
         live: false,
         _elapsedTimer: null,
+        // Recording state
+        recording: null, // { id, stream, startedAt, title }
       });
     }
     return this.stations.get(stationId);
   }
 
-  /** Push MP3 chunk to all listeners and ring buffer */
+  /** Push MP3 chunk to all listeners, ring buffer, and active recording */
   pushAudio(stationId, chunk) {
     const s = this._ensure(stationId);
 
-    // Ring buffer: ~192KB ≈ 12s at 128kbps — enough for smooth connect,
-    // small enough that skips aren't delayed by stale data
+    // Ring buffer
     s.buffer.push(chunk);
     s.bufferSize += chunk.length;
     while (s.bufferSize > 192 * 1024 && s.buffer.length > 1) {
       s.bufferSize -= s.buffer.shift().length;
     }
 
-    // Deliver to every connected listener
+    // Deliver to listeners
     for (const res of s.listeners) {
       try {
         if (!res.write(chunk)) {
-          // Backpressure — slow client, disconnect
           this.removeListener(stationId, res);
         }
       } catch {
         this.removeListener(stationId, res);
       }
     }
+
+    // Write to recording file if active
+    if (s.recording && s.recording.stream) {
+      try { s.recording.stream.write(chunk); } catch {}
+    }
   }
 
-  /** Add an HTTP response as a stream listener */
   addListener(stationId, res) {
     const s = this._ensure(stationId);
     s.listeners.add(res);
-
-    // Burst: send recent audio so playback starts instantly
     for (const chunk of s.buffer) {
       try { res.write(chunk); } catch { break; }
     }
-
     this.broadcast('listeners', { stationId, count: s.listeners.size });
   }
 
-  /** Remove a listener cleanly */
   removeListener(stationId, res) {
     const s = this.stations.get(stationId);
     if (!s) return;
-    if (!s.listeners.has(res)) return; // already removed
+    if (!s.listeners.has(res)) return;
     s.listeners.delete(res);
     try { res.end(); } catch {}
     this.broadcast('listeners', { stationId, count: s.listeners.size });
   }
 
-  /** Set now-playing metadata and start elapsed timer */
+  /* ── Recording ── */
+
+  startRecording(stationId, title) {
+    const s = this._ensure(stationId);
+    if (s.recording) return null; // already recording
+
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const filename = `${stationId}_${id}.mp3`;
+    const filePath = path.join(RECORDINGS_DIR, filename);
+    const stream = fs.createWriteStream(filePath);
+
+    s.recording = {
+      id,
+      filename,
+      filePath,
+      stream,
+      startedAt: new Date().toISOString(),
+      title: title || 'Recording',
+    };
+
+    console.log(`  ● REC: Started "${title || 'Recording'}" on station ${stationId}`);
+    this.broadcast('recording_start', { stationId, id, title: s.recording.title });
+
+    return { id, title: s.recording.title, started_at: s.recording.startedAt };
+  }
+
+  stopRecording(stationId) {
+    const s = this.stations.get(stationId);
+    if (!s || !s.recording) return null;
+
+    const rec = s.recording;
+    try { rec.stream.end(); } catch {}
+
+    const stats = fs.existsSync(rec.filePath) ? fs.statSync(rec.filePath) : { size: 0 };
+    const duration = Math.floor((Date.now() - new Date(rec.startedAt).getTime()) / 1000);
+
+    const result = {
+      id: rec.id,
+      filename: rec.filename,
+      title: rec.title,
+      started_at: rec.startedAt,
+      duration,
+      size: stats.size,
+    };
+
+    s.recording = null;
+    console.log(`  ■ REC: Stopped "${rec.title}" (${duration}s, ${(stats.size / 1024 / 1024).toFixed(1)}MB)`);
+    this.broadcast('recording_stop', { stationId, ...result });
+
+    return result;
+  }
+
+  isRecording(stationId) {
+    const s = this.stations.get(stationId);
+    return s?.recording ? { id: s.recording.id, title: s.recording.title, started_at: s.recording.startedAt } : null;
+  }
+
+  /** List all saved recordings for a station */
+  listRecordings(stationId) {
+    try {
+      const files = fs.readdirSync(RECORDINGS_DIR)
+        .filter(f => f.startsWith(stationId + '_') && f.endsWith('.mp3'))
+        .map(f => {
+          const filePath = path.join(RECORDINGS_DIR, f);
+          const stats = fs.statSync(filePath);
+          const id = f.replace(`${stationId}_`, '').replace('.mp3', '');
+          return {
+            id,
+            filename: f,
+            size: stats.size,
+            created_at: stats.birthtime.toISOString(),
+            duration_estimate: Math.round(stats.size / (128000 / 8)), // rough estimate at 128kbps
+          };
+        })
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return files;
+    } catch {
+      return [];
+    }
+  }
+
+  getRecordingPath(stationId, recordingId) {
+    const filename = `${stationId}_${recordingId}.mp3`;
+    const filePath = path.join(RECORDINGS_DIR, filename);
+    if (fs.existsSync(filePath)) return filePath;
+    return null;
+  }
+
+  deleteRecording(stationId, recordingId) {
+    const filePath = this.getRecordingPath(stationId, recordingId);
+    if (filePath) { try { fs.unlinkSync(filePath); return true; } catch {} }
+    return false;
+  }
+
+  /* ── Now Playing ── */
+
   setNowPlaying(stationId, meta) {
     const s = this._ensure(stationId);
     const startedAt = Date.now();

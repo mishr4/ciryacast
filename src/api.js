@@ -967,6 +967,62 @@ router.get('/users/:id/stations', (req, res) => {
 });
 
 // ════════════════════════════════════
+// RECORDINGS
+// ════════════════════════════════════
+
+// Start recording
+router.post('/stations/:id/recording/start', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const { title } = req.body;
+  const result = streamEngine.startRecording(req.params.id, title || 'Recording');
+  if (!result) return res.status(409).json({ error: 'Already recording on this station' });
+  res.json(result);
+});
+
+// Stop recording
+router.post('/stations/:id/recording/stop', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const result = streamEngine.stopRecording(req.params.id);
+  if (!result) return res.status(404).json({ error: 'Not recording' });
+  res.json(result);
+});
+
+// Get recording status
+router.get('/stations/:id/recording', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const status = streamEngine.isRecording(req.params.id);
+  res.json({ recording: !!status, ...(status || {}) });
+});
+
+// List recordings
+router.get('/stations/:id/recordings', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const recordings = streamEngine.listRecordings(req.params.id);
+  res.json(recordings);
+});
+
+// Download a recording
+router.get('/stations/:id/recordings/:recId/download', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const filePath = streamEngine.getRecordingPath(req.params.id, req.params.recId);
+  if (!filePath) return res.status(404).json({ error: 'Recording not found' });
+
+  const filename = `recording-${req.params.recId}.mp3`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', 'audio/mpeg');
+  const stream = require('fs').createReadStream(filePath);
+  stream.pipe(res);
+});
+
+// Delete a recording
+router.delete('/stations/:id/recordings/:recId', (req, res) => {
+  const streamEngine = req.app.get('streamEngine');
+  const ok = streamEngine.deleteRecording(req.params.id, req.params.recId);
+  if (!ok) return res.status(404).json({ error: 'Recording not found' });
+  res.json({ ok: true });
+});
+
+// ════════════════════════════════════
 // AZURACAST IMPORT
 // ════════════════════════════════════
 

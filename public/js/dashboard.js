@@ -203,6 +203,10 @@ function renderDashboardStations() {
                 Start AutoDJ
               </button>`
           }
+          <button class="btn btn-ghost btn-sm" onclick="toggleRecording('${s.id}')" id="rec-btn-${s.id}" title="Record">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+            <span id="rec-label-${s.id}">Record</span>
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Settings
@@ -574,6 +578,34 @@ async function handleFiles(files) {
 async function refreshHistory() {
   const sid = currentStationId || stations?.[0]?.id;
   if (!sid) return;
+
+  // Load recordings
+  const recordings = await api(`/stations/${sid}/recordings`) || [];
+  document.getElementById('recordings-count').textContent = recordings.length;
+  const recEl = document.getElementById('recordings-list');
+  if (recordings.length === 0) {
+    recEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/></svg></div><h3>No recordings</h3><p>Hit Record on a station to capture a show</p></div>`;
+  } else {
+    recEl.innerHTML = recordings.map(r => `
+      <div class="history-item" style="align-items:center">
+        <div style="width:8px;height:8px;border-radius:50%;background:#ff1744;flex-shrink:0"></div>
+        <div class="history-meta" style="flex:1">
+          <h4>Recording ${r.id}</h4>
+          <p>${formatBytes(r.size)} &middot; ~${formatDuration(r.duration_estimate)}</p>
+        </div>
+        <div class="history-time">${timeAgo(r.created_at)}</div>
+        <div style="display:flex;gap:4px;margin-left:8px">
+          <a class="btn btn-ghost btn-sm" href="/api/stations/${sid}/recordings/${r.id}/download" title="Download">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </a>
+          <button class="btn btn-danger btn-sm" onclick="deleteRecording('${sid}','${r.id}')" title="Delete">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
   const history = await api(`/stations/${sid}/history?limit=50`) || [];
   const el = document.getElementById('history-list');
   if (history.length === 0) {
@@ -879,6 +911,65 @@ async function kickLiveDJ() {
 }
 
 // ════════════════════════════════════
+// RECORDINGS
+// ════════════════════════════════════
+async function toggleRecording(stationId) {
+  const status = await api(`/stations/${stationId}/recording`);
+  if (status?.recording) {
+    const res = await api(`/stations/${stationId}/recording/stop`, { method: 'POST' });
+    if (res?.id) {
+      showToast(`Recording saved (${formatDuration(res.duration)}, ${formatBytes(res.size)})`);
+      updateRecBtn(stationId, false);
+    }
+  } else {
+    const title = prompt('Recording title:', 'Show Recording');
+    if (!title) return;
+    const res = await api(`/stations/${stationId}/recording/start`, {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    });
+    if (res?.id) {
+      showToast('Recording started');
+      updateRecBtn(stationId, true);
+    } else {
+      showToast(res?.error || 'Failed to start recording', 'error');
+    }
+  }
+}
+
+function updateRecBtn(stationId, isRecording) {
+  const btn = document.getElementById(`rec-btn-${stationId}`);
+  const label = document.getElementById(`rec-label-${stationId}`);
+  if (!btn) return;
+  if (isRecording) {
+    btn.style.color = '#ff1744';
+    btn.style.borderColor = 'rgba(255,23,68,0.3)';
+    if (label) label.textContent = 'Stop Rec';
+  } else {
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    if (label) label.textContent = 'Record';
+  }
+}
+
+async function deleteRecording(stationId, recId) {
+  if (!confirm('Delete this recording? This cannot be undone.')) return;
+  await api(`/stations/${stationId}/recordings/${recId}`, { method: 'DELETE' });
+  showToast('Recording deleted');
+  refreshHistory();
+}
+
+// Check recording state on dashboard refresh
+async function checkRecordingStates() {
+  for (const s of stations) {
+    try {
+      const status = await api(`/stations/${s.id}/recording`);
+      updateRecBtn(s.id, !!status?.recording);
+    } catch {}
+  }
+}
+
+// ════════════════════════════════════
 // AZURACAST IMPORT
 // ════════════════════════════════════
 async function startAzuraCastImport() {
@@ -1025,7 +1116,7 @@ async function deleteUser(id) {
 // INIT
 // ════════════════════════════════════
 try { connectWS(); } catch (e) { console.error('WS init error:', e); }
-refreshDashboard().catch(e => console.error('Init error:', e));
+refreshDashboard().then(() => checkRecordingStates()).catch(e => console.error('Init error:', e));
 
 // Auto-refresh now-playing every 2s for progress bar
 setInterval(() => {
