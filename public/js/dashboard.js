@@ -1,3 +1,16 @@
+// ── Gravatar helper (MD5 hash in browser) ──
+function md5(s){var h=0x67452301,g=0xEFCDAB89,f=0x98BADCFE,e=0x10325476;function c(a,b){return(a<<b)|(a>>>(32-b))}function d(v,w,x,y,z,A,B){v=v+z+(y>>>0)+B;return((v<<A)|(v>>>(32-A)))+w}s=unescape(encodeURIComponent(s));var j=[];for(var i=0;i<s.length;i++){j.push(s.charCodeAt(i))}j.push(128);while(j.length%64!==56)j.push(0);var lo=s.length*8;j.push(lo&0xff,(lo>>8)&0xff,(lo>>16)&0xff,(lo>>24)&0xff,0,0,0,0);for(var i=0;i<j.length;i+=64){var a=h,b=g,cc=f,dd=e;var w=[];for(var k=0;k<16;k++){w[k]=j[i+k*4]|(j[i+k*4+1]<<8)|(j[i+k*4+2]<<16)|(j[i+k*4+3]<<24)}var S=[7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,5,9,14,20,5,9,14,20,5,9,14,20,5,9,14,20,4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21];var T=[0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391];for(var k=0;k<64;k++){var F,gi;if(k<16){F=(b&cc)|((~b)&dd);gi=k}else if(k<32){F=(dd&b)|((~dd)&cc);gi=(5*k+1)%16}else if(k<48){F=b^cc^dd;gi=(3*k+5)%16}else{F=cc^(b|(~dd));gi=(7*k)%16}var temp=dd;dd=cc;cc=b;b=(b+c(((a+F+(w[gi]>>>0)+(T[k]>>>0))>>>0),S[k]))>>>0;a=temp}h=(h+a)>>>0;g=(g+b)>>>0;f=(f+cc)>>>0;e=(e+dd)>>>0}var r='';[h,g,f,e].forEach(function(v){for(var i=0;i<4;i++){r+=('0'+((v>>(i*8))&0xff).toString(16)).slice(-2)}});return r}
+
+function getAvatarUrl(user) {
+  // 1) CiryaSSO avatar
+  const ssoAvatar = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
+  if (ssoAvatar) return ssoAvatar;
+  // 2) Gravatar from email
+  const email = (user.email || '').trim().toLowerCase();
+  if (email) return `https://www.gravatar.com/avatar/${md5(email)}?s=96&d=identicon`;
+  return '';
+}
+
 // ── Auth Gate ──
 (function checkAuth() {
   const user = sessionStorage.getItem('ciryacast_user');
@@ -13,7 +26,7 @@
     if (nameEl) nameEl.textContent = u.display_name || u.cirya_handle || 'User';
     if (handleEl) handleEl.textContent = u.cirya_handle ? '@' + u.cirya_handle : u.email || '';
     if (avatarEl) {
-      const pic = u.avatar_url || u.profile_picture || u.photo_url || u.picture || '';
+      const pic = getAvatarUrl(u);
       if (pic) {
         avatarEl.innerHTML = `<img src="${pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`;
       } else {
