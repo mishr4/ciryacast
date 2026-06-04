@@ -9,13 +9,22 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Instrument Sans', 'Inter', sans-serif;
-    background: linear-gradient(90deg, #fef6f0 0%, #fdf2fd 100%);
+    background: linear-gradient(135deg, #fef6f0, #fdf2fd, #f0eaff, #fef6f0, #fdf2fd);
+    background-size: 400% 400%;
+    animation: gradientMove 12s ease infinite;
     color: #000;
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
     -webkit-font-smoothing: antialiased;
+  }
+  @keyframes gradientMove {
+    0% { background-position: 0% 50%; }
+    25% { background-position: 100% 25%; }
+    50% { background-position: 100% 50%; }
+    75% { background-position: 0% 75%; }
+    100% { background-position: 0% 50%; }
   }
 
   .login-wrap {
@@ -77,9 +86,7 @@
   }
 
   .sso-mount {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 20px;
+    display: none;
   }
 
   .btn-sso {
