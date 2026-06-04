@@ -85,8 +85,13 @@
     line-height: 1.5;
   }
 
-  .sso-mount {
-    display: none;
+  /* Hide the CiryaSSO SDK-rendered button entirely */
+  .sso-mount,
+  [data-cirya-sso],
+  .cirya-sso-btn,
+  .cirya-sso-widget,
+  [class*="cirya-sso"] {
+    display: none !important;
   }
 
   .btn-sso {
