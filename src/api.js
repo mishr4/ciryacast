@@ -1244,7 +1244,7 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
         // Build all possible download URLs for AzuraCast
         const fileId = file.id;
         const uniqueId = file.unique_id;
-        const filePath = file.path; // e.g. "media/Artist - Title.mp3"
+        const azuraPath = file.path; // e.g. "media/Artist - Title.mp3"
 
         const downloadUrls = [
           // links.download is the most reliable (full API path)
@@ -1254,7 +1254,7 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
           // By unique_id
           uniqueId ? `${baseUrl}/api/station/${azura_station_id}/file/${uniqueId}` : null,
           // By path (URL-encoded)
-          filePath ? `${baseUrl}/api/station/${azura_station_id}/file/${encodeURIComponent(filePath)}` : null,
+          azuraPath ? `${baseUrl}/api/station/${azura_station_id}/file/${encodeURIComponent(azuraPath)}` : null,
         ].filter(Boolean);
 
         let buffer = null;
