@@ -263,14 +263,26 @@
     </div>
 
     <div id="login-area">
-      <!-- CiryaSSO mount point -->
+      <!-- Email/Password login -->
+      <form id="login-form" onsubmit="doEmailLogin(event)" style="margin-bottom:20px">
+        <input type="email" id="login-email" placeholder="Email" style="width:100%;padding:12px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-family:inherit;font-size:14px;outline:none;margin-bottom:10px;background:#fafafa" required>
+        <input type="password" id="login-password" placeholder="Password" style="width:100%;padding:12px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-family:inherit;font-size:14px;outline:none;margin-bottom:14px;background:#fafafa" required>
+        <button type="submit" class="btn-sso" style="width:100%">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          Sign In
+        </button>
+      </form>
+
+      <div class="divider"><span>or</span></div>
+
+      <!-- CiryaSSO -->
       <div class="sso-mount">
         <div data-cirya-sso></div>
       </div>
 
-      <button class="btn-sso" id="btn-sso" onclick="doSignIn()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-        Sign in with Cirya
+      <button class="btn-sso" id="btn-sso" onclick="doSignIn()" style="background:#7C4DFF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+        Sign in with CiryaSSO
       </button>
     </div>
 
@@ -296,6 +308,40 @@
 </script>
 <script src="https://cirya.co/sso-sdk.js?v=3" async></script>
 <script>
+  async function doEmailLogin(e) {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) return showStatus('Enter email and password', 'error');
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showStatus(data.error || 'Login failed', 'error');
+        return;
+      }
+
+      // Store user + their assigned stations
+      const user = {
+        ...data.user,
+        display_name: data.user.display_name || email,
+        auth_type: 'local',
+        assigned_stations: data.stations,
+      };
+      sessionStorage.setItem('ciryacast_user', JSON.stringify(user));
+      showUser(user);
+      showStatus('Signed in!', 'success');
+    } catch (err) {
+      showStatus('Connection error — try again', 'error');
+    }
+  }
+
   function doSignIn() {
     if (window.CiryaSSO) {
       CiryaSSO.signIn(window.location.origin + '/login');

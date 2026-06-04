@@ -33,6 +33,29 @@ function signOut() {
 let stations = [];
 let currentStationId = null;
 let allMedia = []; // cached for search filtering
+
+// Check if current user is a local manager (not admin/SSO)
+function getCurrentUser() {
+  try { return JSON.parse(sessionStorage.getItem('ciryacast_user')); } catch { return null; }
+}
+function isLocalManager() {
+  const u = getCurrentUser();
+  return u && u.auth_type === 'local' && u.role === 'manager';
+}
+function getAssignedStationIds() {
+  const u = getCurrentUser();
+  if (!u || !u.assigned_stations) return null; // null = show all (admin)
+  return u.assigned_stations.map(s => s.id);
+}
+
+// Hide admin-only nav items for managers
+(function restrictNav() {
+  if (isLocalManager()) {
+    document.querySelectorAll('.nav-item[data-view="users"], .nav-item[data-view="djs"]').forEach(el => el.style.display = 'none');
+    const newStationBtn = document.getElementById('btn-new-station');
+    if (newStationBtn) newStationBtn.style.display = 'none';
+  }
+})();
 let ws = null;
 
 // ── API helper ──
@@ -78,6 +101,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (view === 'stations') loadStations();
     if (view === 'requests') refreshRequests();
     if (view === 'djs') refreshDJs();
+    if (view === 'users') refreshUsers();
     closeMobileSidebar();
   });
 });
@@ -103,7 +127,10 @@ async function refreshDashboard() {
       document.getElementById('stat-played').textContent = stats.total_played;
     }
     const data = await api('/stations');
-    if (data) stations = data;
+    if (data) {
+      const allowed = getAssignedStationIds();
+      stations = allowed ? data.filter(s => allowed.includes(s.id)) : data;
+    }
     renderDashboardStations();
     populateStationSelect();
   } catch (e) { console.error('Dashboard refresh error:', e); }
@@ -832,6 +859,98 @@ async function kickLiveDJ() {
   showToast('DJ kicked');
   refreshDJs();
   refreshDashboard();
+}
+
+// ════════════════════════════════════
+// USERS
+// ════════════════════════════════════
+async function refreshUsers() {
+  const users = await api('/users') || [];
+  document.getElementById('user-count').textContent = users.length;
+  const el = document.getElementById('users-list');
+
+  // Populate station checkboxes in invite modal
+  const stationsDiv = document.getElementById('input-user-stations');
+  if (stationsDiv && stations?.length) {
+    stationsDiv.innerHTML = stations.map(s =>
+      `<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" value="${s.id}" class="user-station-cb"> ${esc(s.name)}
+      </label>`
+    ).join('');
+  }
+
+  if (!users.length) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+      <h3>No users</h3><p>Invite a user and assign them a station to manage</p>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = `<table class="media-table">
+    <thead><tr>
+      <th>Name</th><th>Email</th><th>Role</th><th>Stations</th><th>Last Login</th><th style="width:100px">Actions</th>
+    </tr></thead>
+    <tbody>${users.map(u => `
+      <tr>
+        <td class="title-cell">${esc(u.display_name || u.email)}</td>
+        <td class="dim" style="font-size:12px">${esc(u.email)}</td>
+        <td><span class="badge ${u.role === 'admin' ? 'badge-purple' : 'badge-green'}">${u.role}</span></td>
+        <td class="dim" style="font-size:12px">${esc(u.assigned_stations || 'None')}</td>
+        <td class="dim">${u.last_login ? timeAgo(u.last_login) : 'Never'}</td>
+        <td>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="resetUserPassword('${u.id}', '${esc(u.email)}')" title="Reset password">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}')" title="Delete">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('')}</tbody>
+  </table>`;
+}
+
+async function createUser() {
+  const email = document.getElementById('input-user-email').value.trim();
+  const password = document.getElementById('input-user-password').value;
+  const displayName = document.getElementById('input-user-name').value.trim();
+  if (!email || !password) return showToast('Email and password required', 'error');
+
+  const stationIds = Array.from(document.querySelectorAll('.user-station-cb:checked')).map(cb => cb.value);
+
+  const res = await api('/users', {
+    method: 'POST',
+    body: JSON.stringify({ email, password, display_name: displayName, station_ids: stationIds }),
+  });
+
+  if (res?.id) {
+    closeModal('modal-new-user');
+    document.getElementById('input-user-email').value = '';
+    document.getElementById('input-user-password').value = '';
+    document.getElementById('input-user-name').value = '';
+    showToast(`User created: ${email}`);
+    refreshUsers();
+  } else {
+    showToast(res?.error || 'Failed to create user', 'error');
+  }
+}
+
+async function resetUserPassword(id, email) {
+  const newPass = prompt(`New password for ${email}:`);
+  if (!newPass) return;
+  const res = await api(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ password: newPass }) });
+  if (res?.id) showToast('Password reset');
+  else showToast(res?.error || 'Failed', 'error');
+}
+
+async function deleteUser(id) {
+  if (!confirm('Delete this user? They will lose access to all stations.')) return;
+  await api(`/users/${id}`, { method: 'DELETE' });
+  showToast('User deleted');
+  refreshUsers();
 }
 
 // ════════════════════════════════════

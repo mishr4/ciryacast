@@ -2,9 +2,23 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { v4: uuid } = require('uuid');
 
 const router = express.Router();
+
+// ── Password hashing (scrypt, no external deps) ──
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = stored.split(':');
+  const test = crypto.scryptSync(password, salt, 64).toString('hex');
+  return test === hash;
+}
 const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 const MEDIA_DIR = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, '..', 'media');
 
@@ -805,6 +819,151 @@ router.post('/stations/:id/live/kick', (req, res) => {
   // Destroy the incoming request to force disconnect
   try { source.req.destroy(); } catch {}
   res.json({ ok: true, message: 'DJ kicked' });
+});
+
+// ════════════════════════════════════
+// USER AUTH & MANAGEMENT
+// ════════════════════════════════════
+
+// Login with email + password
+router.post('/auth/login', (req, res) => {
+  const db = req.app.get('db');
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email.toLowerCase().trim());
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+
+  db.prepare('UPDATE users SET last_login = datetime("now") WHERE id = ?').run(user.id);
+
+  // Get assigned stations
+  const stations = db.prepare(`
+    SELECT s.id, s.name FROM stations s
+    JOIN station_assignments sa ON sa.station_id = s.id
+    WHERE sa.user_id = ?
+  `).all(user.id);
+
+  res.json({
+    user: {
+      id: user.id,
+      email: user.email,
+      display_name: user.display_name,
+      role: user.role,
+    },
+    stations: stations,
+  });
+});
+
+// List all users (admin only — no middleware yet, rely on CiryaSSO admin)
+router.get('/users', (req, res) => {
+  const db = req.app.get('db');
+  const users = db.prepare(`
+    SELECT u.id, u.email, u.display_name, u.role, u.is_active, u.created_at, u.last_login,
+      (SELECT GROUP_CONCAT(s.name, ', ')
+       FROM station_assignments sa JOIN stations s ON s.id = sa.station_id
+       WHERE sa.user_id = u.id) as assigned_stations,
+      (SELECT GROUP_CONCAT(sa.station_id, ',')
+       FROM station_assignments sa
+       WHERE sa.user_id = u.id) as station_ids
+    FROM users u ORDER BY u.created_at DESC
+  `).all();
+  res.json(users);
+});
+
+// Create/invite a user
+router.post('/users', (req, res) => {
+  const db = req.app.get('db');
+  const { email, password, display_name, role, station_ids } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+
+  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase().trim());
+  if (existing) return res.status(409).json({ error: 'Email already exists' });
+
+  const id = uuid();
+  const hash = hashPassword(password);
+
+  db.prepare(
+    'INSERT INTO users (id, email, password_hash, display_name, role) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, email.toLowerCase().trim(), hash, display_name || '', role || 'manager');
+
+  // Assign stations
+  if (station_ids && Array.isArray(station_ids)) {
+    const insert = db.prepare('INSERT OR IGNORE INTO station_assignments (id, user_id, station_id) VALUES (?, ?, ?)');
+    for (const sid of station_ids) {
+      insert.run(uuid(), id, sid);
+    }
+  }
+
+  const user = db.prepare('SELECT id, email, display_name, role, is_active, created_at FROM users WHERE id = ?').get(id);
+  res.status(201).json(user);
+});
+
+// Update user (change password, display name, role, active status)
+router.put('/users/:id', (req, res) => {
+  const db = req.app.get('db');
+  const { display_name, role, is_active, password } = req.body;
+
+  if (password) {
+    if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+    const hash = hashPassword(password);
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, req.params.id);
+  }
+
+  db.prepare(`
+    UPDATE users SET
+      display_name = COALESCE(?, display_name),
+      role = COALESCE(?, role),
+      is_active = COALESCE(?, is_active)
+    WHERE id = ?
+  `).run(display_name, role, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+
+  const user = db.prepare('SELECT id, email, display_name, role, is_active, created_at, last_login FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json(user);
+});
+
+// Delete user
+router.delete('/users/:id', (req, res) => {
+  const db = req.app.get('db');
+  db.prepare('DELETE FROM station_assignments WHERE user_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Assign station to user
+router.post('/users/:id/stations', (req, res) => {
+  const db = req.app.get('db');
+  const { station_id } = req.body;
+  if (!station_id) return res.status(400).json({ error: 'station_id required' });
+
+  try {
+    db.prepare('INSERT INTO station_assignments (id, user_id, station_id) VALUES (?, ?, ?)').run(uuid(), req.params.id, station_id);
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'Already assigned' });
+    throw e;
+  }
+  res.json({ ok: true });
+});
+
+// Remove station assignment
+router.delete('/users/:userId/stations/:stationId', (req, res) => {
+  const db = req.app.get('db');
+  db.prepare('DELETE FROM station_assignments WHERE user_id = ? AND station_id = ?').run(req.params.userId, req.params.stationId);
+  res.json({ ok: true });
+});
+
+// Get stations assigned to a user (for manager login)
+router.get('/users/:id/stations', (req, res) => {
+  const db = req.app.get('db');
+  const stations = db.prepare(`
+    SELECT s.* FROM stations s
+    JOIN station_assignments sa ON sa.station_id = s.id
+    WHERE sa.user_id = ?
+  `).all(req.params.id);
+  res.json(stations);
 });
 
 // ── Global multer error handler ──

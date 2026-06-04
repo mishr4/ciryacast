@@ -112,6 +112,31 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_dj_station
     ON dj_accounts(station_id);
+
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    role TEXT DEFAULT 'manager',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now')),
+    last_login TEXT,
+    created_by TEXT DEFAULT 'system'
+  );
+
+  CREATE TABLE IF NOT EXISTS station_assignments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    UNIQUE(user_id, station_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_assignments_user ON station_assignments(user_id);
+  CREATE INDEX IF NOT EXISTS idx_assignments_station ON station_assignments(station_id);
 `);
 
 // ── Migrations: add columns if missing ──

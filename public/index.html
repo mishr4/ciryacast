@@ -33,6 +33,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <span>Requests</span>
     </button>
+    <button class="nav-item" data-view="users">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Users</span>
+    </button>
     <button class="nav-item" data-view="djs">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
       <span>DJs</span>
@@ -206,6 +210,28 @@
       </div>
     </div>
 
+    <!-- Users View -->
+    <div class="view" id="view-users">
+      <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="showModal('modal-new-user')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Invite User
+        </button>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Station Managers</div>
+          <span class="badge badge-purple" id="user-count">0</span>
+        </div>
+        <div id="users-list">
+          <div class="empty-state">
+            <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+            <h3>No users</h3><p>Invite a user and assign them a station to manage</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- DJs View -->
     <div class="view" id="view-djs">
       <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
@@ -356,6 +382,36 @@
       <div style="flex:1"></div>
       <button class="btn btn-ghost" onclick="closeModal('modal-edit-station')">Cancel</button>
       <button class="btn btn-primary" onclick="saveStation()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invite User Modal -->
+<div class="modal-overlay" id="modal-new-user">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Invite User</h3>
+      <button class="modal-close" onclick="closeModal('modal-new-user')">&times;</button>
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="input-user-email" placeholder="user@example.com">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="text" id="input-user-password" placeholder="Temporary password">
+    </div>
+    <div class="form-group">
+      <label>Display Name</label>
+      <input type="text" id="input-user-name" placeholder="John Smith">
+    </div>
+    <div class="form-group">
+      <label>Assign Stations</label>
+      <div id="input-user-stations" style="display:flex;flex-direction:column;gap:8px;margin-top:4px"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-user')">Cancel</button>
+      <button class="btn btn-primary" onclick="createUser()">Create & Invite</button>
     </div>
   </div>
 </div>
