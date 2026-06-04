@@ -1137,6 +1137,14 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
       console.log(`    ⚠ Media list failed: ${e.message}`);
     }
 
+    // Log first file structure for debugging
+    if (mediaList.length > 0) {
+      console.log(`    Sample file keys: ${Object.keys(mediaList[0]).join(', ')}`);
+      if (mediaList[0].song) console.log(`    Song keys: ${Object.keys(mediaList[0].song).join(', ')}`);
+      if (mediaList[0].links) console.log(`    Links: ${JSON.stringify(mediaList[0].links)}`);
+      console.log(`    Sample: id=${mediaList[0].id}, unique_id=${mediaList[0].unique_id}, path=${mediaList[0].path}`);
+    }
+
     // ── 3) Download each file ──
     for (const file of mediaList) {
       const title = file.title || file.song?.title || '';
@@ -1155,29 +1163,38 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
 
       // Try to download the file
       try {
-        // AzuraCast file download endpoints (try multiple patterns)
-        const fileId = file.unique_id || file.id || file.media_id;
+        // Build all possible download URLs for AzuraCast
+        const fileId = file.id;
+        const uniqueId = file.unique_id;
+        const filePath = file.path; // e.g. "media/Artist - Title.mp3"
+
         const downloadUrls = [
-          `${baseUrl}/api/station/${azura_station_id}/file/${fileId}/download`,
-          `${baseUrl}/api/station/${azura_station_id}/files/${fileId}`,
-          file.links?.download ? `${baseUrl}${file.links.download}` : null,
+          // links.download is the most reliable (full API path)
+          file.links?.download ? (file.links.download.startsWith('http') ? file.links.download : `${baseUrl}${file.links.download}`) : null,
+          // Direct file endpoint by numeric ID
+          fileId ? `${baseUrl}/api/station/${azura_station_id}/file/${fileId}` : null,
+          // By unique_id
+          uniqueId ? `${baseUrl}/api/station/${azura_station_id}/file/${uniqueId}` : null,
+          // By path (URL-encoded)
+          filePath ? `${baseUrl}/api/station/${azura_station_id}/file/${encodeURIComponent(filePath)}` : null,
         ].filter(Boolean);
 
         let buffer = null;
+        let lastStatus = '';
         for (const url of downloadUrls) {
           try {
             const dlRes = await fetch(url, { headers, signal: AbortSignal.timeout(60000) });
+            lastStatus = `${dlRes.status} ${dlRes.statusText}`;
             if (dlRes.ok) {
-              const ct = dlRes.headers.get('content-type') || '';
-              if (ct.includes('audio') || ct.includes('octet-stream') || dlRes.headers.get('content-length') > 10000) {
-                buffer = Buffer.from(await dlRes.arrayBuffer());
-                break;
-              }
+              buffer = Buffer.from(await dlRes.arrayBuffer());
+              if (buffer.length > 5000) break;
+              buffer = null; // too small, try next URL
             }
-          } catch {}
+          } catch (e) { lastStatus = e.message; }
         }
 
         if (!buffer || buffer.length < 5000) {
+          if (results.media_failed < 3) console.log(`    ⚠ Failed: ${artist} - ${title} (${lastStatus}) tried ${downloadUrls.length} URLs`);
           results.media_failed++;
           continue;
         }
