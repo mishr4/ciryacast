@@ -967,6 +967,84 @@ router.get('/users/:id/stations', (req, res) => {
 });
 
 // ════════════════════════════════════
+// SEARCH & ADD SONGS (TypicalMedia)
+// ════════════════════════════════════
+
+// Download a song from TypicalMedia into a station's library
+router.post('/stations/:id/add-song', async (req, res) => {
+  const db = req.app.get('db');
+  const stationId = req.params.id;
+  const { title, artist, album, artwork_url, deezer_id, duration } = req.body;
+
+  if (!title || !deezer_id) return res.status(400).json({ error: 'title and deezer_id required' });
+
+  const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(stationId);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  // Check if already exists
+  const existing = db.prepare(
+    "SELECT id FROM media WHERE station_id = ? AND tm_track_id = ?"
+  ).get(stationId, String(deezer_id));
+  if (existing) return res.json({ ok: true, message: 'Already in library', skipped: true });
+
+  // Download from TypicalMedia
+  try {
+    console.log(`  ⬇ Adding: ${artist} — ${title}`);
+    if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+    const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${deezer_id}`;
+    const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(60000) });
+
+    if (!streamRes.ok) return res.status(502).json({ error: `Download failed: ${streamRes.status}` });
+
+    const buffer = Buffer.from(await streamRes.arrayBuffer());
+    if (buffer.length < 10000) return res.status(502).json({ error: 'File too small — download may have failed' });
+
+    const filename = `${uuid()}.mp3`;
+    const filePath = path.join(MEDIA_DIR, filename);
+    fs.writeFileSync(filePath, buffer);
+
+    // Parse actual metadata
+    let actualTitle = title, actualArtist = artist || 'Unknown', actualAlbum = album || '', actualDuration = duration || 0;
+    const mm = await getMetadataParser();
+    if (mm) {
+      try {
+        const meta = await mm.parseFile(filePath);
+        if (meta.common.title) actualTitle = meta.common.title;
+        if (meta.common.artist) actualArtist = meta.common.artist;
+        if (meta.common.album) actualAlbum = meta.common.album;
+        if (meta.format.duration) actualDuration = Math.round(meta.format.duration);
+      } catch {}
+    }
+
+    const mediaId = uuid();
+    db.prepare(`
+      INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(mediaId, stationId, filename, `${actualArtist} - ${actualTitle}.mp3`,
+      actualTitle, actualArtist, actualAlbum, actualDuration,
+      buffer.length, 'audio/mpeg', artwork_url || '', String(deezer_id));
+
+    // Add to default playlist
+    const defaultPl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
+    if (defaultPl) {
+      const mo = db.prepare('SELECT MAX(sort_order) as m FROM playlist_items WHERE playlist_id = ?').get(defaultPl.id);
+      db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
+        uuid(), defaultPl.id, mediaId, (mo?.m || 0) + 1
+      );
+    }
+
+    console.log(`  ✓ Added: ${actualArtist} — ${actualTitle} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+    req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
+
+    res.json({ ok: true, id: mediaId, title: actualTitle, artist: actualArtist });
+  } catch (e) {
+    console.log(`  ⚠ Add song failed: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ════════════════════════════════════
 // RECORDINGS
 // ════════════════════════════════════
 

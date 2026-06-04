@@ -3,7 +3,7 @@ const path = require('path');
 
 const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 const RECORDINGS_DIR = VOLUME ? path.join(VOLUME, 'recordings') : path.join(__dirname, '..', 'recordings');
-if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
+try { if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR, { recursive: true }); } catch (e) { console.log('  ⚠ Recordings dir:', e.message); }
 
 /**
  * StreamEngine — manages audio streams for each station.

@@ -134,6 +134,18 @@
         <span id="media-station-name" style="font-size:15px;font-weight:600;color:#333"></span>
       </div>
 
+      <!-- Search & Add from TypicalMedia -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">Search & Add Songs</div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="text" id="tm-search-input" placeholder="Search artist, song..." style="flex:1;padding:10px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-size:14px;background:#fafafa;outline:none;font-family:inherit" onkeydown="if(event.key==='Enter')searchAndAdd()">
+          <button class="btn btn-primary btn-sm" onclick="searchAndAdd()">Search</button>
+        </div>
+        <div id="tm-search-results" style="margin-top:12px"></div>
+      </div>
+
       <input type="file" id="file-input" multiple accept="audio/*" style="display:none">
       <div class="upload-area" id="upload-area">
         <div class="upload-icon">
