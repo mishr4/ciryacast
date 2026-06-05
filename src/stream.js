@@ -41,7 +41,8 @@ class StreamEngine {
     // Ring buffer
     s.buffer.push(chunk);
     s.bufferSize += chunk.length;
-    while (s.bufferSize > 192 * 1024 && s.buffer.length > 1) {
+    // Keep ~32KB (~2s at 128kbps) — small enough for fast skip response
+    while (s.bufferSize > 32 * 1024 && s.buffer.length > 1) {
       s.bufferSize -= s.buffer.shift().length;
     }
 
@@ -62,11 +63,14 @@ class StreamEngine {
     }
   }
 
-  addListener(stationId, res) {
+  addListener(stationId, res, skipBuffer = false) {
     const s = this._ensure(stationId);
     s.listeners.add(res);
-    for (const chunk of s.buffer) {
-      try { res.write(chunk); } catch { break; }
+    // Skip burst for low-latency connections (reduces initial ~12s delay)
+    if (!skipBuffer) {
+      for (const chunk of s.buffer) {
+        try { res.write(chunk); } catch { break; }
+      }
     }
     this.broadcast('listeners', { stationId, count: s.listeners.size });
   }

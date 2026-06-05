@@ -93,7 +93,7 @@ function handleLiveSource(req, res, stationId) {
   if (wasRunning) autoDJ.stop(stationId);
 
   streamEngine.setLive(stationId, true);
-  db.prepare('UPDATE dj_accounts SET last_connected = datetime("now") WHERE id = ?').run(dj.id);
+  db.prepare("UPDATE dj_accounts SET last_connected = datetime('now') WHERE id = ?").run(dj.id);
 
   streamEngine.setNowPlaying(stationId, {
     title: 'Live Broadcast',
@@ -166,11 +166,15 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
   if (!station) return res.status(404).send('Station not found');
 
+  // ?skip_buffer=1 for low-latency mode (dashboard preview, OBS)
+  const skipBuffer = req.query.skip_buffer === '1';
+
   res.writeHead(200, {
     'Content-Type': 'audio/mpeg',
     'Transfer-Encoding': 'chunked',
     'Cache-Control': 'no-cache, no-store',
     'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',       // disable nginx/proxy buffering
     'icy-name': station.name,
     'icy-description': station.description || '',
     'icy-genre': station.genre || 'Various',
@@ -178,7 +182,7 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
     'Access-Control-Allow-Origin': '*',
   });
 
-  streamEngine.addListener(station.id, res);
+  streamEngine.addListener(station.id, res, skipBuffer);
   req.on('close', () => streamEngine.removeListener(station.id, res));
 });
 

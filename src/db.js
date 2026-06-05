@@ -142,6 +142,11 @@ db.exec(`
 // ── Migrations: add columns if missing ──
 try { db.exec('ALTER TABLE media ADD COLUMN artwork_url TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE media ADD COLUMN tm_track_id TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE stations ADD COLUMN logo_url TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE stations ADD COLUMN website_url TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE stations ADD COLUMN location TEXT DEFAULT ""'); } catch {}
+// stream_url in media allows external stream URLs as sources
+try { db.exec('ALTER TABLE media ADD COLUMN stream_url TEXT DEFAULT ""'); } catch {}
 
 // ── Seed default station if none exist ──
 const count = db.prepare('SELECT COUNT(*) as c FROM stations').get();

@@ -308,6 +308,9 @@ function editStation(id) {
   document.getElementById('edit-station-desc').value = s.description || '';
   document.getElementById('edit-station-genre').value = s.genre || 'Various';
   document.getElementById('edit-station-bitrate').value = String(s.bitrate || 128);
+  document.getElementById('edit-station-logo').value = s.logo_url || '';
+  document.getElementById('edit-station-website').value = s.website_url || '';
+  document.getElementById('edit-station-location').value = s.location || '';
   showModal('modal-edit-station');
 }
 
@@ -320,6 +323,9 @@ async function saveStation() {
       description: document.getElementById('edit-station-desc').value,
       genre: document.getElementById('edit-station-genre').value,
       bitrate: parseInt(document.getElementById('edit-station-bitrate').value),
+      logo_url: document.getElementById('edit-station-logo').value || null,
+      website_url: document.getElementById('edit-station-website').value || null,
+      location: document.getElementById('edit-station-location').value || null,
     }),
   });
   closeModal('modal-edit-station');

@@ -112,7 +112,7 @@ router.post('/stations', (req, res) => {
 
 router.put('/stations/:id', (req, res) => {
   const db = req.app.get('db');
-  const { name, description, genre, bitrate } = req.body;
+  const { name, description, genre, bitrate, logo_url, website_url, location } = req.body;
 
   db.prepare(`
     UPDATE stations SET
@@ -120,9 +120,12 @@ router.put('/stations/:id', (req, res) => {
       description = COALESCE(?, description),
       genre = COALESCE(?, genre),
       bitrate = COALESCE(?, bitrate),
+      logo_url = COALESCE(?, logo_url),
+      website_url = COALESCE(?, website_url),
+      location = COALESCE(?, location),
       updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, description, genre, bitrate, req.params.id);
+  `).run(name, description, genre, bitrate, logo_url || null, website_url || null, location || null, req.params.id);
 
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id);
   res.json(station);
@@ -836,7 +839,7 @@ router.post('/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  db.prepare('UPDATE users SET last_login = datetime("now") WHERE id = ?').run(user.id);
+  db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(user.id);
 
   // Get assigned stations
   const stations = db.prepare(`
@@ -964,6 +967,118 @@ router.get('/users/:id/stations', (req, res) => {
     WHERE sa.user_id = ?
   `).all(req.params.id);
   res.json(stations);
+});
+
+// ════════════════════════════════════
+// AD BREAKS
+// ════════════════════════════════════
+
+// Play an ad break (plays immediately, then resumes previous track)
+router.post('/stations/:id/ad-break', async (req, res) => {
+  const db = req.app.get('db');
+  const autoDJ = req.app.get('autoDJ');
+  const stationId = req.params.id;
+
+  if (!autoDJ.isRunning(stationId)) {
+    return res.status(400).json({ error: 'AutoDJ not running' });
+  }
+
+  const { media_id } = req.body;
+
+  if (media_id) {
+    // Use an existing media file as the ad
+    const media = db.prepare('SELECT * FROM media WHERE id = ?').get(media_id);
+    if (!media) return res.status(404).json({ error: 'Media not found' });
+    autoDJ.playNow(stationId, media_id);
+    return res.json({ ok: true, message: `Ad break: ${media.title}` });
+  }
+
+  // Auto-select an ad from media tagged as ads (title contains [AD])
+  const ad = db.prepare(
+    "SELECT * FROM media WHERE station_id = ? AND (title LIKE '%[AD]%' OR title LIKE '%[ad]%') ORDER BY RANDOM() LIMIT 1"
+  ).get(stationId);
+
+  if (ad) {
+    autoDJ.playNow(stationId, ad.id);
+    return res.json({ ok: true, message: `Ad break: ${ad.title}` });
+  }
+
+  res.status(404).json({ error: 'No ad media found — upload a track with [AD] in the title' });
+});
+
+// ════════════════════════════════════
+// STREAM URL RELAY
+// Proxy an external MP3 stream URL as a live source
+// ════════════════════════════════════
+
+router.post('/stations/:id/stream-relay/start', async (req, res) => {
+  const { stream_url, title, artist } = req.body;
+  if (!stream_url) return res.status(400).json({ error: 'stream_url required' });
+
+  const stationId = req.params.id;
+  const streamEngine = req.app.get('streamEngine');
+  const autoDJ = req.app.get('autoDJ');
+  const broadcast = req.app.get('broadcast');
+
+  const relays = req.app.get('streamRelays') || new Map();
+  req.app.set('streamRelays', relays);
+
+  if (relays.has(stationId)) return res.status(409).json({ error: 'Already relaying on this station' });
+
+  console.log(`  📡 Relay: ${stream_url} → station ${stationId}`);
+
+  const wasRunning = autoDJ.isRunning(stationId);
+  if (wasRunning) autoDJ.stop(stationId);
+  streamEngine.setLive(stationId, true);
+  streamEngine.setNowPlaying(stationId, {
+    title: title || 'Live Stream',
+    artist: artist || 'External Source',
+    album: '', duration: 0, media_id: null, artwork_url: '',
+  });
+  broadcast('live_start', { stationId, dj: title || 'External Stream' });
+
+  // Fetch and relay the stream
+  const controller = new AbortController();
+  const relay = { controller, wasRunning, url: stream_url };
+  relays.set(stationId, relay);
+
+  fetch(stream_url, { signal: controller.signal }).then(async (r) => {
+    if (!r.ok) {
+      relays.delete(stationId);
+      streamEngine.setLive(stationId, false);
+      if (wasRunning) autoDJ.start(stationId);
+      return;
+    }
+    const reader = r.body.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || !relays.has(stationId)) break;
+        streamEngine.pushAudio(stationId, Buffer.from(value));
+      }
+    } catch {}
+    relays.delete(stationId);
+    streamEngine.setLive(stationId, false);
+    broadcast('live_end', { stationId });
+    if (wasRunning) autoDJ.start(stationId);
+  }).catch(() => {
+    relays.delete(stationId);
+    streamEngine.setLive(stationId, false);
+    if (wasRunning) autoDJ.start(stationId);
+  });
+
+  res.json({ ok: true, url: stream_url });
+});
+
+router.post('/stations/:id/stream-relay/stop', (req, res) => {
+  const stationId = req.params.id;
+  const relays = req.app.get('streamRelays') || new Map();
+  const relay = relays.get(stationId);
+  if (!relay) return res.status(404).json({ error: 'No relay active' });
+
+  try { relay.controller.abort(); } catch {}
+  relays.delete(stationId);
+  res.json({ ok: true });
 });
 
 // ════════════════════════════════════

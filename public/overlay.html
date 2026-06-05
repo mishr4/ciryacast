@@ -2,12 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CiryaCast — Stream Overlay</title>
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<title>CiryaCast Overlay</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     font-family: 'Instrument Sans', sans-serif;
     background: transparent;
@@ -16,293 +14,216 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Full-screen mode (default) ── */
-  .overlay-full {
-    width: 1920px;
-    height: 1080px;
-    background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 40%, #0a1a2e 100%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
+  /* ── FULL overlay (default) 1920×1080 ── */
+  #overlay-full {
+    width: 1920px; height: 1080px;
     position: relative;
     overflow: hidden;
+    background: #0a0a14;
   }
 
-  /* Animated background glow */
-  .bg-glow {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(120px);
-    opacity: 0.3;
-    animation: floatGlow 8s ease-in-out infinite;
+  /* Dynamic background — pulls dominant color from album art */
+  .bg-layer {
+    position: absolute; inset: 0;
+    background: linear-gradient(135deg, #0d0820 0%, #0a1428 50%, #150a20 100%);
+    transition: background 2s ease;
   }
-  .bg-glow-1 { width: 600px; height: 600px; background: #7C4DFF; top: -200px; left: -100px; }
-  .bg-glow-2 { width: 500px; height: 500px; background: #FF48BC; bottom: -150px; right: -100px; animation-delay: -4s; }
-  .bg-glow-3 { width: 400px; height: 400px; background: #0ED7FF; top: 50%; left: 60%; animation-delay: -2s; }
-  @keyframes floatGlow {
-    0%, 100% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(30px, -20px) scale(1.1); }
-    66% { transform: translate(-20px, 30px) scale(0.95); }
+  .bg-art-blur {
+    position: absolute; inset: -40px;
+    background-size: cover; background-position: center;
+    filter: blur(80px) saturate(180%) brightness(0.25);
+    opacity: 0; transition: opacity 3s ease, background-image 0.5s;
+  }
+  .bg-art-blur.show { opacity: 1; }
+
+  /* Subtle grain overlay */
+  .bg-grain {
+    position: absolute; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    opacity: 0.4; pointer-events: none;
   }
 
-  /* Station branding */
-  .station-header {
-    position: absolute;
-    top: 48px;
-    left: 60px;
-    display: flex;
-    align-items: center;
-    gap: 16px;
+  /* Station badge — top left */
+  .station-badge {
+    position: absolute; top: 52px; left: 64px;
+    display: flex; align-items: center; gap: 14px;
     z-index: 2;
   }
   .station-logo {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    object-fit: contain;
+    width: 52px; height: 52px; border-radius: 14px;
+    object-fit: contain; background: rgba(255,255,255,0.08);
   }
-  .station-name-text {
+  .station-text h3 {
     font-family: 'Lexend', sans-serif;
-    font-size: 20px;
-    font-weight: 600;
-    opacity: 0.9;
+    font-size: 18px; font-weight: 600;
+    letter-spacing: -0.2px;
   }
-  .station-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 4px 12px;
-    border-radius: 20px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.15);
+  .on-air-pill {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 3px;
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    padding: 3px 10px; border-radius: 20px;
+    background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
   }
-  .live-dot {
-    width: 6px; height: 6px; border-radius: 50%; background: #00C853;
-    box-shadow: 0 0 8px rgba(0,200,83,0.6);
-    animation: pulse 2s ease-in-out infinite;
+  .on-air-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    animation: dot-pulse 2s ease-in-out infinite;
   }
-  .live-dot.red { background: #ff4444; box-shadow: 0 0 8px rgba(255,68,68,0.6); }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @keyframes dot-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  /* Center content */
+  /* Main content — bottom left */
   .now-playing {
-    display: flex;
-    align-items: center;
-    gap: 48px;
+    position: absolute; bottom: 80px; left: 64px; right: 64px;
+    display: flex; align-items: flex-end; gap: 40px;
     z-index: 2;
   }
 
-  .art-wrap {
-    width: 320px;
-    height: 320px;
-    border-radius: 24px;
-    overflow: hidden;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+  .art-container {
+    width: 240px; height: 240px;
+    border-radius: 20px; overflow: hidden; flex-shrink: 0;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+    background: linear-gradient(135deg, #2a1060, #601030);
     position: relative;
+    transition: opacity 0.5s;
   }
-  .art-wrap img {
-    width: 100%;
-    height: 100%;
+  .art-container img {
+    width: 100%; height: 100%;
     object-fit: cover;
+    transition: opacity 0.5s;
   }
-  .art-wrap svg {
-    width: 64px;
-    height: 64px;
-    color: rgba(255,255,255,0.5);
+  .art-container .art-icon {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
   }
-  /* Subtle spinning ring on art */
-  .art-ring {
-    position: absolute;
-    inset: -4px;
-    border-radius: 28px;
-    border: 2px solid transparent;
-    border-top-color: rgba(255,255,255,0.2);
-    animation: spin 6s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .art-icon svg { width: 56px; height: 56px; color: rgba(255,255,255,0.2); }
 
-  .track-info {
-    max-width: 500px;
+  .track-info { flex: 1; padding-bottom: 4px; }
+  .request-tag {
+    display: none; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.5); margin-bottom: 10px;
   }
+  .request-tag.show { display: flex; }
+  .request-tag::before {
+    content: ''; width: 16px; height: 1px; background: rgba(255,255,255,0.3);
+  }
+
   .track-title {
     font-family: 'Lexend', sans-serif;
-    font-size: 42px;
-    font-weight: 600;
-    line-height: 1.15;
-    margin-bottom: 8px;
-    letter-spacing: -0.5px;
+    font-size: 52px; font-weight: 700; line-height: 1.05;
+    letter-spacing: -1px; margin-bottom: 10px;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    /* limit to 2 lines */
+    display: -webkit-box; -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical; overflow: hidden;
   }
   .track-artist {
-    font-size: 22px;
-    font-weight: 500;
-    opacity: 0.7;
-    margin-bottom: 6px;
-  }
-  .track-album {
-    font-size: 16px;
-    opacity: 0.4;
-    margin-bottom: 24px;
+    font-size: 22px; font-weight: 500;
+    color: rgba(255,255,255,0.65); margin-bottom: 20px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 700px;
   }
 
   /* Progress */
   .progress-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 14px; margin-bottom: 20px;
   }
-  .progress-time {
-    font-size: 13px;
-    font-weight: 500;
-    opacity: 0.5;
-    min-width: 40px;
-    font-variant-numeric: tabular-nums;
-  }
+  .progress-time { font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.4); width: 44px; font-variant-numeric: tabular-nums; }
+  .progress-time.right { text-align: right; }
   .progress-track {
-    flex: 1;
-    height: 4px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 2px;
-    overflow: hidden;
+    flex: 1; height: 3px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden;
   }
   .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #7C4DFF, #FF48BC);
-    border-radius: 2px;
-    transition: width 1s linear;
-    width: 0%;
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, rgba(124,77,255,0.8), rgba(255,72,188,0.8));
+    border-radius: 2px; transition: width 1s linear;
   }
 
   /* Visualizer */
-  .visualizer {
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 40px;
-  }
+  .vis { display: flex; align-items: flex-end; gap: 3px; height: 36px; }
   .vis-bar {
-    width: 4px;
-    border-radius: 2px;
-    background: linear-gradient(to top, #7C4DFF, #FF48BC);
-    opacity: 0.6;
+    width: 3px; border-radius: 2px; background: rgba(255,255,255,0.2);
     transition: height 0.15s ease;
   }
 
-  /* Listeners badge */
-  .listeners-badge {
-    position: absolute;
-    bottom: 48px;
-    right: 60px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    opacity: 0.6;
-    z-index: 2;
+  /* Listeners — top right */
+  .listeners {
+    position: absolute; top: 52px; right: 64px;
+    font-size: 14px; color: rgba(255,255,255,0.4); z-index: 2;
+    font-weight: 500;
   }
+  .listeners span { color: rgba(255,255,255,0.8); font-weight: 600; }
 
-  /* Request badge */
-  .request-badge {
+  /* ── BAR mode — 1920×100 ── */
+  #overlay-bar {
     display: none;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    padding: 4px 14px;
-    border-radius: 20px;
-    background: rgba(124,77,255,0.2);
-    border: 1px solid rgba(124,77,255,0.3);
-    color: #b388ff;
-    margin-bottom: 16px;
-    width: fit-content;
-  }
-  .request-badge.show { display: block; }
-
-  /* ── Bar mode (?mode=bar) — slim bottom bar for OBS ── */
-  .overlay-bar {
-    width: 1920px;
-    height: 100px;
-    background: rgba(10, 10, 26, 0.95);
+    width: 1920px; height: 100px;
+    background: rgba(8,8,16,0.96);
     backdrop-filter: blur(20px);
-    display: flex;
-    align-items: center;
-    padding: 0 32px;
-    gap: 20px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    align-items: center; padding: 0 32px; gap: 20px;
   }
-  .overlay-bar .bar-art {
-    width: 64px; height: 64px; border-radius: 12px; overflow: hidden; flex-shrink: 0;
+  .bar-art {
+    width: 64px; height: 64px; border-radius: 12px;
+    overflow: hidden; flex-shrink: 0;
     background: linear-gradient(135deg, #7C4DFF, #FF48BC);
     display: flex; align-items: center; justify-content: center;
   }
-  .overlay-bar .bar-art img { width: 100%; height: 100%; object-fit: cover; }
-  .overlay-bar .bar-art svg { width: 24px; height: 24px; color: rgba(255,255,255,0.5); }
-  .overlay-bar .bar-meta { flex: 1; }
-  .overlay-bar .bar-title { font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; }
-  .overlay-bar .bar-artist { font-size: 14px; opacity: 0.6; }
-  .overlay-bar .bar-progress { width: 300px; }
-  .overlay-bar .bar-station {
-    font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 600; opacity: 0.5;
-    display: flex; align-items: center; gap: 10px;
-  }
-  .overlay-bar .bar-station img { width: 28px; height: 28px; border-radius: 6px; }
+  .bar-art img { width: 100%; height: 100%; object-fit: cover; }
+  .bar-art svg { width: 22px; height: 22px; color: rgba(255,255,255,0.5); }
+  .bar-meta { flex: 1; min-width: 0; }
+  .bar-title { font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-artist { font-size: 13px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-progress { width: 280px; }
+  .bar-progress .progress-row { margin: 0; }
+  .bar-station { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.4); }
+  .bar-station img { width: 28px; height: 28px; border-radius: 6px; }
 </style>
 </head>
 <body>
 
-<!-- Full overlay (default) -->
-<div class="overlay-full" id="overlay-full">
-  <div class="bg-glow bg-glow-1"></div>
-  <div class="bg-glow bg-glow-2"></div>
-  <div class="bg-glow bg-glow-3"></div>
+<!-- Full overlay -->
+<div id="overlay-full">
+  <div class="bg-layer"></div>
+  <div class="bg-art-blur" id="bg-blur"></div>
+  <div class="bg-grain"></div>
 
-  <div class="station-header">
+  <div class="station-badge">
     <img class="station-logo" id="station-logo" src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">
-    <div>
-      <div class="station-name-text" id="station-name">Loading...</div>
-      <div class="station-badge">
-        <div class="live-dot" id="status-dot"></div>
+    <div class="station-text">
+      <h3 id="station-name">Loading...</h3>
+      <div class="on-air-pill">
+        <div class="on-air-dot" id="status-dot" style="background:#00C853"></div>
         <span id="status-text">ON AIR</span>
       </div>
     </div>
   </div>
 
-  <div class="now-playing">
-    <div class="art-wrap" id="art-wrap">
-      <div class="art-ring"></div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-    </div>
-    <div class="track-info">
-      <div class="request-badge" id="request-badge">Listener Request</div>
-      <div class="track-title" id="track-title">—</div>
-      <div class="track-artist" id="track-artist">—</div>
-      <div class="track-album" id="track-album"></div>
-      <div class="progress-row">
-        <span class="progress-time" id="elapsed">0:00</span>
-        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-        <span class="progress-time" id="duration">0:00</span>
-      </div>
-      <div class="visualizer" id="visualizer"></div>
-    </div>
+  <div class="listeners" id="listeners-wrap">
+    <span id="listener-count">0</span> listening
   </div>
 
-  <div class="listeners-badge">
-    <span id="listener-count">0</span> listening
+  <div class="now-playing">
+    <div class="art-container" id="art-wrap">
+      <div class="art-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+    </div>
+    <div class="track-info">
+      <div class="request-tag" id="request-tag">Listener Request</div>
+      <div class="track-title" id="track-title">—</div>
+      <div class="track-artist" id="track-artist">—</div>
+      <div class="progress-row" id="progress-row" style="display:none">
+        <span class="progress-time" id="elapsed">0:00</span>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <span class="progress-time right" id="duration">0:00</span>
+      </div>
+      <div class="vis" id="vis"></div>
+    </div>
   </div>
 </div>
 
-<!-- Bar overlay (add ?mode=bar to URL) -->
-<div class="overlay-bar" id="overlay-bar" style="display:none">
+<!-- Bar overlay -->
+<div id="overlay-bar">
   <div class="bar-art" id="bar-art">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
   </div>
@@ -311,10 +232,10 @@
     <div class="bar-artist" id="bar-artist">—</div>
   </div>
   <div class="bar-progress">
-    <div class="progress-row" style="margin:0">
+    <div class="progress-row">
       <span class="progress-time" id="bar-elapsed">0:00</span>
-      <div class="progress-track"><div class="progress-fill" id="bar-progress-fill"></div></div>
-      <span class="progress-time" id="bar-duration">0:00</span>
+      <div class="progress-track"><div class="progress-fill" id="bar-fill"></div></div>
+      <span class="progress-time right" id="bar-duration">0:00</span>
     </div>
   </div>
   <div class="bar-station">
@@ -324,116 +245,112 @@
 </div>
 
 <script>
-  const stationId = window.location.pathname.split('/')[2];
-  const params = new URLSearchParams(window.location.search);
+  const stationId = location.pathname.split('/')[2];
+  const params = new URLSearchParams(location.search);
   const mode = params.get('mode') || 'full';
 
-  // Show correct overlay
   if (mode === 'bar') {
     document.getElementById('overlay-full').style.display = 'none';
     document.getElementById('overlay-bar').style.display = 'flex';
   }
 
-  // Visualizer bars
-  const visEl = document.getElementById('visualizer');
-  const visBars = [];
-  for (let i = 0; i < 32; i++) {
-    const bar = document.createElement('div');
-    bar.className = 'vis-bar';
-    bar.style.height = '4px';
-    visEl.appendChild(bar);
-    visBars.push(bar);
+  // Visualizer
+  const visEl = document.getElementById('vis');
+  const bars = [];
+  for (let i = 0; i < 28; i++) {
+    const b = document.createElement('div');
+    b.className = 'vis-bar';
+    b.style.height = '3px';
+    visEl.appendChild(b);
+    bars.push(b);
   }
-
-  let npElapsed = 0, npDuration = 0;
-
-  function fmtDur(sec) {
-    if (!sec) return '0:00';
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
-
-  // Animate visualizer
   function animateVis() {
-    visBars.forEach(b => { b.style.height = (4 + Math.random() * 36) + 'px'; });
+    bars.forEach(b => {
+      const h = 3 + Math.random() * 33;
+      b.style.height = h + 'px';
+      b.style.opacity = 0.15 + (h / 36) * 0.65;
+    });
     setTimeout(() => requestAnimationFrame(animateVis), 150);
   }
   animateVis();
 
-  // Tick progress every second
+  // Progress tick
+  let npElapsed = 0, npDuration = 0;
+  function fmtDur(s) { if (!s) return '0:00'; return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
   setInterval(() => {
     npElapsed++;
-    const pct = npDuration > 0 ? Math.min(100, (npElapsed / npDuration) * 100) : 0;
-
+    const pct = npDuration > 0 ? Math.min(100, (npElapsed/npDuration)*100) : 0;
     if (mode === 'full') {
       document.getElementById('elapsed').textContent = fmtDur(npElapsed);
       document.getElementById('progress-fill').style.width = pct + '%';
     } else {
       document.getElementById('bar-elapsed').textContent = fmtDur(npElapsed);
-      document.getElementById('bar-progress-fill').style.width = pct + '%';
+      document.getElementById('bar-fill').style.width = pct + '%';
     }
   }, 1000);
 
+  let lastMediaId = null;
   async function refresh() {
     try {
-      const res = await fetch(`/api/nowplaying/${stationId}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const np = data.now_playing;
-      const live = data.live;
+      const r = await fetch(`/api/nowplaying/${stationId}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      const np = d.now_playing;
 
       if (mode === 'full') {
-        document.getElementById('station-name').textContent = data.station.name;
+        document.getElementById('station-name').textContent = d.station.name;
+        document.getElementById('listener-count').textContent = d.listeners.current;
 
-        if (live) {
-          document.getElementById('status-dot').className = 'live-dot red';
+        if (d.live) {
+          document.getElementById('status-dot').style.background = '#ff1744';
           document.getElementById('status-text').textContent = 'LIVE';
         } else {
-          document.getElementById('status-dot').className = 'live-dot';
+          document.getElementById('status-dot').style.background = '#00C853';
           document.getElementById('status-text').textContent = 'ON AIR';
         }
 
-        document.getElementById('listener-count').textContent = data.listeners.current;
+        // Station logo
+        if (d.station.logo_url) {
+          document.getElementById('station-logo').src = d.station.logo_url;
+        }
 
         if (np) {
           document.getElementById('track-title').textContent = np.title || '—';
           document.getElementById('track-artist').textContent = np.artist || '—';
-          document.getElementById('track-album').textContent = np.album || '';
           npElapsed = np.elapsed || 0;
           npDuration = np.duration || 0;
-          document.getElementById('elapsed').textContent = fmtDur(npElapsed);
           document.getElementById('duration').textContent = fmtDur(npDuration);
+          document.getElementById('progress-row').style.display = npDuration > 0 ? 'flex' : 'none';
+          document.getElementById('request-tag').className = 'request-tag' + (np.is_request ? ' show' : '');
 
-          const artWrap = document.getElementById('art-wrap');
-          if (np.artwork_url) {
-            const existing = artWrap.querySelector('img');
-            if (!existing || !existing.src.includes(np.artwork_url)) {
-              artWrap.innerHTML = '<div class="art-ring"></div><img src="' + np.artwork_url + '" alt="">';
+          // Update art + bg blur when track changes
+          if (np.media_id !== lastMediaId) {
+            lastMediaId = np.media_id;
+            const art = np.artwork_url || '';
+            const artWrap = document.getElementById('art-wrap');
+            const bgBlur = document.getElementById('bg-blur');
+            if (art) {
+              artWrap.innerHTML = `<img src="${art}" alt="" onerror="this.remove()">`;
+              bgBlur.style.backgroundImage = `url(${art})`;
+              bgBlur.classList.add('show');
+            } else {
+              artWrap.innerHTML = '<div class="art-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
+              bgBlur.classList.remove('show');
             }
           }
-
-          const rb = document.getElementById('request-badge');
-          if (np.is_request) rb.classList.add('show');
-          else rb.classList.remove('show');
         }
       } else {
-        // Bar mode
-        document.getElementById('bar-station-name').textContent = data.station.name;
+        document.getElementById('bar-station-name').textContent = d.station.name;
         if (np) {
           document.getElementById('bar-title').textContent = np.title || '—';
           document.getElementById('bar-artist').textContent = np.artist || '—';
           npElapsed = np.elapsed || 0;
           npDuration = np.duration || 0;
-          document.getElementById('bar-elapsed').textContent = fmtDur(npElapsed);
           document.getElementById('bar-duration').textContent = fmtDur(npDuration);
-
           const barArt = document.getElementById('bar-art');
-          if (np.artwork_url) {
-            const existing = barArt.querySelector('img');
-            if (!existing || !existing.src.includes(np.artwork_url)) {
-              barArt.innerHTML = '<img src="' + np.artwork_url + '" alt="">';
-            }
+          if (np.artwork_url && np.media_id !== lastMediaId) {
+            lastMediaId = np.media_id;
+            barArt.innerHTML = `<img src="${np.artwork_url}" alt="" onerror="this.remove()">`;
           }
         }
       }
@@ -443,14 +360,13 @@
   refresh();
   setInterval(refresh, 3000);
 
-  // WebSocket for instant updates
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   let ws;
   function connectWS() {
     ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onmessage = (e) => {
       const { type, data } = JSON.parse(e.data);
-      if ((type === 'track_change' || type === 'nowplaying') && data.stationId === stationId) refresh();
+      if ((type === 'track_change' || type === 'nowplaying' || type === 'live_start' || type === 'live_end') && data.stationId === stationId) refresh();
       if (type === 'listeners' && data.stationId === stationId) {
         document.getElementById('listener-count').textContent = data.count;
       }
