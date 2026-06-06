@@ -7,73 +7,89 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-// ── Piped (YouTube proxy) audio ripper ──
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
-const os = require('os');
+// ── Deezer download (requires DEEZER_ARL env var — free account cookie) ──
+const DEEZER_ARL = process.env.DEEZER_ARL || '';
 
-const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://pipedapi.adminforge.de',
-  'https://api.piped.projectsegfau.lt',
-];
+async function deezerDownload(deezerId) {
+  if (!DEEZER_ARL) throw new Error('DEEZER_ARL env var not set');
 
-async function pipedFetch(endpoint, timeout = 15000) {
-  for (const base of PIPED_INSTANCES) {
-    try {
-      const res = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(timeout) });
-      if (res.ok) return await res.json();
-    } catch {}
+  const cookie = `arl=${DEEZER_ARL}`;
+  const headers = { 'Cookie': cookie, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+
+  // 1. Get API token from authenticated session
+  const userData = await fetch('https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=', { headers }).then(r => r.json());
+  const apiToken = userData.results?.checkForm;
+  const licenseToken = userData.results?.USER?.OPTIONS?.license_token;
+  if (!apiToken || !licenseToken) throw new Error('Invalid ARL — could not get session');
+
+  // 2. Get track data
+  const trackData = await fetch(`https://www.deezer.com/ajax/gw-light.php?method=song.getData&input=3&api_version=1.0&api_token=${apiToken}`, {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sng_id: String(deezerId) }),
+  }).then(r => r.json());
+  const track = trackData.results;
+  if (!track?.TRACK_TOKEN) throw new Error('Track not found on Deezer');
+  console.log(`  🎵 Deezer: ${track.ART_NAME} — ${track.SNG_TITLE}`);
+
+  // 3. Get media URL via license token
+  const mediaRes = await fetch('https://media.deezer.com/v1/get_url', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      license_token: licenseToken,
+      media: [{ type: 'FULL', formats: [{ cipher: 'BF_CBC_STRIPE', format: 'MP3_128' }, { cipher: 'BF_CBC_STRIPE', format: 'MP3_64' }, { cipher: 'NONE', format: 'MP3_MISC' }] }],
+      track_tokens: [track.TRACK_TOKEN],
+    }),
+  }).then(r => r.json());
+
+  const sources = mediaRes.data?.[0]?.media;
+  if (!sources?.length) throw new Error('No media URLs returned — ARL may have expired');
+
+  const mediaUrl = sources[0].sources?.[0]?.url;
+  if (!mediaUrl) throw new Error('No download URL in response');
+
+  // 4. Download the encrypted/raw audio
+  const audioRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(120000) });
+  if (!audioRes.ok) throw new Error(`Download failed: ${audioRes.status}`);
+
+  const buffer = Buffer.from(await audioRes.arrayBuffer());
+  if (buffer.length < 10000) throw new Error('Downloaded file too small');
+
+  // If cipher is BF_CBC_STRIPE, decrypt with Blowfish
+  const cipher = sources[0].format?.includes('BF_CBC_STRIPE') || sources[0].cipher === 'BF_CBC_STRIPE';
+  if (cipher) {
+    const decrypted = decryptDeezer(buffer, track.SNG_ID);
+    console.log(`  ✓ Deezer: ${(decrypted.length / 1024 / 1024).toFixed(1)}MB MP3 (decrypted)`);
+    return decrypted;
   }
-  throw new Error('All Piped instances failed');
+
+  console.log(`  ✓ Deezer: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
+  return buffer;
 }
 
-async function pipedDownload(artist, title) {
-  const query = `${artist} - ${title}`;
-  console.log(`  🔍 Piped search: "${query}"`);
-
-  const results = await pipedFetch(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
-  const video = results.items?.find(i => i.type === 'stream');
-  if (!video) throw new Error('No result found');
-
-  const videoId = video.url?.replace('/watch?v=', '');
-  console.log(`  🎬 Found: ${video.title} (${videoId})`);
-
-  const streams = await pipedFetch(`/streams/${videoId}`, 20000);
-  const audioStreams = (streams.audioStreams || [])
-    .filter(s => s.mimeType?.startsWith('audio/'))
-    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-
-  if (!audioStreams.length) throw new Error('No audio streams available');
-  const best = audioStreams[0];
-  console.log(`  🎵 Downloading: ${best.mimeType} ${best.quality || ''} (${Math.round((best.bitrate || 0) / 1000)}kbps)`);
-
-  const audioRes = await fetch(best.url, { signal: AbortSignal.timeout(120000) });
-  if (!audioRes.ok) throw new Error(`Audio download failed: ${audioRes.status}`);
-
-  const rawBuf = Buffer.from(await audioRes.arrayBuffer());
-  if (rawBuf.length < 10000) throw new Error('Downloaded audio too small');
-
-  // Convert to MP3 with ffmpeg
-  const tmpIn = path.join(os.tmpdir(), `${uuid()}.webm`);
-  const tmpOut = path.join(os.tmpdir(), `${uuid()}.mp3`);
-  fs.writeFileSync(tmpIn, rawBuf);
-
-  try {
-    await execFileAsync('ffmpeg', [
-      '-i', tmpIn, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', '-y', tmpOut,
-    ], { timeout: 60000 });
-  } finally {
-    try { fs.unlinkSync(tmpIn); } catch {}
+function decryptDeezer(buf, sngId) {
+  const Blowfish = require('crypto');
+  const secret = 'g4el58wc0zvf9na1';
+  const idMd5 = Blowfish.createHash('md5').update(String(sngId), 'ascii').digest('hex');
+  let bfKey = '';
+  for (let i = 0; i < 16; i++) {
+    bfKey += String.fromCharCode(idMd5.charCodeAt(i) ^ idMd5.charCodeAt(i + 16) ^ secret.charCodeAt(i));
   }
 
-  if (!fs.existsSync(tmpOut)) throw new Error('ffmpeg conversion failed');
-  const mp3Buf = fs.readFileSync(tmpOut);
-  fs.unlinkSync(tmpOut);
-
-  console.log(`  ✓ Piped: ${(mp3Buf.length / 1024 / 1024).toFixed(1)}MB MP3`);
-  return mp3Buf;
+  const chunkSize = 2048;
+  const out = Buffer.alloc(buf.length);
+  for (let i = 0; i < buf.length; i += chunkSize) {
+    const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
+    if (i % (chunkSize * 3) === 0 && chunk.length === chunkSize) {
+      const iv = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]);
+      const decipher = Blowfish.createDecipheriv('bf-cbc', Buffer.from(bfKey, 'binary'), iv);
+      decipher.setAutoPadding(false);
+      const dec = Buffer.concat([decipher.update(chunk), decipher.final()]);
+      dec.copy(out, i);
+    } else {
+      chunk.copy(out, i);
+    }
+  }
+  return out;
 }
 
 // ── Password hashing (scrypt, no external deps) ──
@@ -1194,14 +1210,14 @@ router.post('/stations/:id/add-song', async (req, res) => {
       }
     }
 
-    // Fallback: Piped (YouTube proxy) + ffmpeg
-    if (!buffer && title) {
+    // Fallback: Deezer via ARL cookie
+    if (!buffer && deezer_id) {
       try {
-        console.log(`  ↻ Trying Piped for ${artist} — ${title}...`);
-        const buf = await pipedDownload(artist || '', title);
-        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'piped'; }
+        console.log(`  ↻ Trying Deezer for ${artist} — ${title} (${deezer_id})...`);
+        const buf = await deezerDownload(deezer_id);
+        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'deezer'; }
       } catch (e) {
-        console.log(`  ⚠ Piped failed: ${e.message}`);
+        console.log(`  ⚠ Deezer failed: ${e.message}`);
       }
     }
 
