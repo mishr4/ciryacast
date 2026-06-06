@@ -1089,31 +1089,61 @@ router.post('/stations/:id/stream-relay/stop', (req, res) => {
 router.post('/stations/:id/add-song', async (req, res) => {
   const db = req.app.get('db');
   const stationId = req.params.id;
-  const { title, artist, album, artwork_url, deezer_id, duration } = req.body;
+  const { title, artist, album, artwork_url, deezer_id, spotify_id, duration } = req.body;
 
-  if (!title || !deezer_id) return res.status(400).json({ error: 'title and deezer_id required' });
+  if (!title || (!deezer_id && !spotify_id)) return res.status(400).json({ error: 'title and deezer_id or spotify_id required' });
 
   const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(stationId);
   if (!station) return res.status(404).json({ error: 'Station not found' });
 
   // Check if already exists
+  const trackKey = deezer_id ? String(deezer_id) : `sp_${spotify_id}`;
   const existing = db.prepare(
     "SELECT id FROM media WHERE station_id = ? AND tm_track_id = ?"
-  ).get(stationId, String(deezer_id));
+  ).get(stationId, trackKey);
   if (existing) return res.json({ ok: true, message: 'Already in library', skipped: true });
 
-  // Download from TypicalMedia
+  // Download — try TypicalMedia first, fall back to Spotisaver
   try {
     console.log(`  ⬇ Adding: ${artist} — ${title}`);
     if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
-    const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${deezer_id}`;
-    const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(60000) });
+    let buffer = null;
+    let downloadSource = '';
 
-    if (!streamRes.ok) return res.status(502).json({ error: `Download failed: ${streamRes.status}` });
+    // Try TypicalMedia
+    if (deezer_id) {
+      try {
+        const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${deezer_id}`;
+        const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(30000) });
+        if (streamRes.ok) {
+          const buf = Buffer.from(await streamRes.arrayBuffer());
+          if (buf.length >= 10000) { buffer = buf; downloadSource = 'typicalmedia'; }
+        }
+      } catch (e) {
+        console.log(`  ⚠ TypicalMedia failed: ${e.message}`);
+      }
+    }
 
-    const buffer = Buffer.from(await streamRes.arrayBuffer());
-    if (buffer.length < 10000) return res.status(502).json({ error: 'File too small — download may have failed' });
+    // Fallback: Spotisaver via tmc.gg API
+    if (!buffer && spotify_id) {
+      try {
+        console.log(`  ↻ Trying Spotisaver for ${spotify_id}...`);
+        const ssUrl = `https://tmc.gg/api/spotisaver?action=download&id=${spotify_id}`;
+        const ssRes = await fetch(ssUrl, { signal: AbortSignal.timeout(60000) });
+        if (ssRes.ok) {
+          const ct = ssRes.headers.get('content-type') || '';
+          if (!ct.includes('application/json')) {
+            const buf = Buffer.from(await ssRes.arrayBuffer());
+            if (buf.length >= 10000) { buffer = buf; downloadSource = 'spotisaver'; }
+          }
+        }
+      } catch (e) {
+        console.log(`  ⚠ Spotisaver failed: ${e.message}`);
+      }
+    }
+
+    if (!buffer) return res.status(502).json({ error: 'Download failed from all sources' });
 
     const filename = `${uuid()}.mp3`;
     const filePath = path.join(MEDIA_DIR, filename);
@@ -1138,7 +1168,7 @@ router.post('/stations/:id/add-song', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(mediaId, stationId, filename, `${actualArtist} - ${actualTitle}.mp3`,
       actualTitle, actualArtist, actualAlbum, actualDuration,
-      buffer.length, 'audio/mpeg', artwork_url || '', String(deezer_id));
+      buffer.length, 'audio/mpeg', artwork_url || '', trackKey);
 
     // Add to default playlist
     const defaultPl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
@@ -1149,7 +1179,7 @@ router.post('/stations/:id/add-song', async (req, res) => {
       );
     }
 
-    console.log(`  ✓ Added: ${actualArtist} — ${actualTitle} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
+    console.log(`  ✓ Added (${downloadSource}): ${actualArtist} — ${actualTitle} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
     req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
 
     res.json({ ok: true, id: mediaId, title: actualTitle, artist: actualArtist });

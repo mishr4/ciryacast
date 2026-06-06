@@ -1019,6 +1019,7 @@ async function searchAndAdd() {
         album: t.album_name || '',
         artwork_url: t.album_art || '',
         deezer_id: t.deezer_id || '',
+        spotify_id: t.spotify_id || '',
         duration: t.duration_sec || 0,
       }).replace(/'/g, '&#39;').replace(/"/g, '&quot;')})" style="white-space:nowrap">
         + Add
