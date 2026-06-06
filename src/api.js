@@ -7,84 +7,56 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-// ── Spotisaver client (direct, no tmc.gg proxy) ──
-const SS_BASE = 'https://spotisaver.net';
-const SS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-let ssCookieJar = {};
+// ── YouTube search + yt-dlp audio ripper ──
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
+const os = require('os');
 
-function ssGetCookies() {
-  return Object.entries(ssCookieJar).map(([k, v]) => `${k}=${v}`).join('; ');
-}
-function ssMergeCookies(res) {
-  for (const h of (res.headers.getSetCookie?.() || [])) {
-    const [pair] = h.split(';');
-    const eq = pair.indexOf('=');
-    if (eq > 0) ssCookieJar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
-  }
-}
-function ssEncodeCtx(ctx) {
-  const bytes = new TextEncoder().encode(JSON.stringify(ctx));
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return Buffer.from(bin, 'binary').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-async function ssEnsureSession() {
-  if (ssGetCookies()) return;
-  const r = await fetch(`${SS_BASE}/en1`, { headers: { 'User-Agent': SS_UA } });
-  await r.text();
-  ssMergeCookies(r);
-}
-
-async function ssGetSignature(action, ctx, retry = true) {
-  await ssEnsureSession();
-  const params = new URLSearchParams({ action, ctx: ssEncodeCtx(ctx) });
-  const r = await fetch(`${SS_BASE}/api/get_signature.php?${params}`, {
-    headers: { 'Accept': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en1`, 'Cookie': ssGetCookies() },
+async function ytSearch(query) {
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+  const res = await fetch(searchUrl, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
   });
-  ssMergeCookies(r);
-  const d = await r.json();
-  if (!d.success || !d.token) {
-    if (retry) { ssCookieJar = {}; return ssGetSignature(action, ctx, false); }
-    throw new Error(d.error || 'signature_failed');
-  }
-  return { token: d.token, exp: d.exp };
+  const html = await res.text();
+  const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+  return match ? match[1] : null;
 }
 
-async function ssDownloadTrack(spotifyId, trackName, durationMs) {
-  // 1. Look up track to get full metadata
-  const lookupSig = await ssGetSignature('get_playlist', { id: spotifyId, type: 'track', lang: 'en' });
-  const lookupParams = new URLSearchParams({ id: spotifyId, type: 'track', lang: 'en' });
-  const lookupRes = await fetch(`${SS_BASE}/api/get_playlist.php?${lookupParams}`, {
-    headers: { 'Accept': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en/track/${spotifyId}/`, 'Cookie': ssGetCookies(), 'X-PT': String(lookupSig.token), 'X-PE': String(lookupSig.exp) },
-  });
-  ssMergeCookies(lookupRes);
-  const lookupData = await lookupRes.json();
-  if (lookupData.error) throw new Error(lookupData.error);
-  const track = lookupData.tracks?.[0];
-  if (!track) throw new Error('track_not_found');
+async function ytdlpDownload(artist, title) {
+  const query = `${artist} - ${title}`;
+  console.log(`  🔍 YouTube search: "${query}"`);
+  const videoId = await ytSearch(query);
+  if (!videoId) throw new Error('No YouTube result found');
+  console.log(`  🎬 Found: youtube.com/watch?v=${videoId}`);
 
-  // 2. Get download signature
-  const dlCtx = { lang: 'en' };
-  if (track.id) dlCtx.id = String(track.id);
-  if (track.name) dlCtx.name = String(track.name);
-  if (track.duration_ms != null) dlCtx.duration_ms = String(Math.trunc(Number(track.duration_ms)));
-  const dlSig = await ssGetSignature('download_track', dlCtx);
-  const sigParam = ssEncodeCtx({ token: dlSig.token, exp: dlSig.exp });
+  const outPath = path.join(os.tmpdir(), `${uuid()}.mp3`);
+  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-  // 3. Download
-  const dlRes = await fetch(`${SS_BASE}/api/download_track.php?sig=${sigParam}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en/track/${spotifyId}/`, 'Cookie': ssGetCookies() },
-    body: JSON.stringify({ track, download_dir: 'downloads', filename_tag: 'SPOTISAVER', user_ip: '0.0.0.0', is_premium: false, lang: 'en' }),
-  });
-  ssMergeCookies(dlRes);
-  const ct = dlRes.headers.get('content-type') || '';
-  if (!dlRes.ok || ct.includes('application/json')) {
-    const err = await dlRes.json().catch(() => ({}));
-    throw new Error(err.error || `download_failed_${dlRes.status}`);
+  await execFileAsync('yt-dlp', [
+    '-x', '--audio-format', 'mp3', '--audio-quality', '0',
+    '--no-playlist', '--no-warnings',
+    '-o', outPath.replace('.mp3', '.%(ext)s'),
+    ytUrl,
+  ], { timeout: 120000 });
+
+  const finalPath = outPath.replace('.mp3', '.mp3');
+  if (!fs.existsSync(finalPath)) {
+    const possibleExts = ['.opus', '.m4a', '.webm', '.ogg'];
+    for (const ext of possibleExts) {
+      const alt = outPath.replace('.mp3', ext);
+      if (fs.existsSync(alt)) {
+        await execFileAsync('ffmpeg', ['-i', alt, '-acodec', 'libmp3lame', '-q:a', '2', finalPath], { timeout: 60000 });
+        fs.unlinkSync(alt);
+        break;
+      }
+    }
   }
-  return Buffer.from(await dlRes.arrayBuffer());
+
+  if (!fs.existsSync(finalPath)) throw new Error('yt-dlp produced no output');
+  const buffer = fs.readFileSync(finalPath);
+  fs.unlinkSync(finalPath);
+  return buffer;
 }
 
 // ── Password hashing (scrypt, no external deps) ──
@@ -1205,14 +1177,14 @@ router.post('/stations/:id/add-song', async (req, res) => {
       }
     }
 
-    // Fallback: Spotisaver direct
-    if (!buffer && spotify_id) {
+    // Fallback: YouTube search + yt-dlp
+    if (!buffer && title) {
       try {
-        console.log(`  ↻ Trying Spotisaver for ${spotify_id}...`);
-        const buf = await ssDownloadTrack(spotify_id, title, duration);
-        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'spotisaver'; }
+        console.log(`  ↻ Trying yt-dlp for ${artist} — ${title}...`);
+        const buf = await ytdlpDownload(artist || '', title);
+        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'yt-dlp'; }
       } catch (e) {
-        console.log(`  ⚠ Spotisaver failed: ${e.message}`);
+        console.log(`  ⚠ yt-dlp failed: ${e.message}`);
       }
     }
 
