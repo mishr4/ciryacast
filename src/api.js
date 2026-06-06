@@ -7,6 +7,86 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
+// ── Spotisaver client (direct, no tmc.gg proxy) ──
+const SS_BASE = 'https://spotisaver.net';
+const SS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+let ssCookieJar = {};
+
+function ssGetCookies() {
+  return Object.entries(ssCookieJar).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+function ssMergeCookies(res) {
+  for (const h of (res.headers.getSetCookie?.() || [])) {
+    const [pair] = h.split(';');
+    const eq = pair.indexOf('=');
+    if (eq > 0) ssCookieJar[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
+  }
+}
+function ssEncodeCtx(ctx) {
+  const bytes = new TextEncoder().encode(JSON.stringify(ctx));
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return Buffer.from(bin, 'binary').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function ssEnsureSession() {
+  if (ssGetCookies()) return;
+  const r = await fetch(`${SS_BASE}/en1`, { headers: { 'User-Agent': SS_UA } });
+  await r.text();
+  ssMergeCookies(r);
+}
+
+async function ssGetSignature(action, ctx, retry = true) {
+  await ssEnsureSession();
+  const params = new URLSearchParams({ action, ctx: ssEncodeCtx(ctx) });
+  const r = await fetch(`${SS_BASE}/api/get_signature.php?${params}`, {
+    headers: { 'Accept': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en1`, 'Cookie': ssGetCookies() },
+  });
+  ssMergeCookies(r);
+  const d = await r.json();
+  if (!d.success || !d.token) {
+    if (retry) { ssCookieJar = {}; return ssGetSignature(action, ctx, false); }
+    throw new Error(d.error || 'signature_failed');
+  }
+  return { token: d.token, exp: d.exp };
+}
+
+async function ssDownloadTrack(spotifyId, trackName, durationMs) {
+  // 1. Look up track to get full metadata
+  const lookupSig = await ssGetSignature('get_playlist', { id: spotifyId, type: 'track', lang: 'en' });
+  const lookupParams = new URLSearchParams({ id: spotifyId, type: 'track', lang: 'en' });
+  const lookupRes = await fetch(`${SS_BASE}/api/get_playlist.php?${lookupParams}`, {
+    headers: { 'Accept': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en/track/${spotifyId}/`, 'Cookie': ssGetCookies(), 'X-PT': String(lookupSig.token), 'X-PE': String(lookupSig.exp) },
+  });
+  ssMergeCookies(lookupRes);
+  const lookupData = await lookupRes.json();
+  if (lookupData.error) throw new Error(lookupData.error);
+  const track = lookupData.tracks?.[0];
+  if (!track) throw new Error('track_not_found');
+
+  // 2. Get download signature
+  const dlCtx = { lang: 'en' };
+  if (track.id) dlCtx.id = String(track.id);
+  if (track.name) dlCtx.name = String(track.name);
+  if (track.duration_ms != null) dlCtx.duration_ms = String(Math.trunc(Number(track.duration_ms)));
+  const dlSig = await ssGetSignature('download_track', dlCtx);
+  const sigParam = ssEncodeCtx({ token: dlSig.token, exp: dlSig.exp });
+
+  // 3. Download
+  const dlRes = await fetch(`${SS_BASE}/api/download_track.php?sig=${sigParam}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': SS_UA, 'Referer': `${SS_BASE}/en/track/${spotifyId}/`, 'Cookie': ssGetCookies() },
+    body: JSON.stringify({ track, download_dir: 'downloads', filename_tag: 'SPOTISAVER', user_ip: '0.0.0.0', is_premium: false, lang: 'en' }),
+  });
+  ssMergeCookies(dlRes);
+  const ct = dlRes.headers.get('content-type') || '';
+  if (!dlRes.ok || ct.includes('application/json')) {
+    const err = await dlRes.json().catch(() => ({}));
+    throw new Error(err.error || `download_failed_${dlRes.status}`);
+  }
+  return Buffer.from(await dlRes.arrayBuffer());
+}
+
 // ── Password hashing (scrypt, no external deps) ──
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -1125,19 +1205,12 @@ router.post('/stations/:id/add-song', async (req, res) => {
       }
     }
 
-    // Fallback: Spotisaver via tmc.gg API
+    // Fallback: Spotisaver direct
     if (!buffer && spotify_id) {
       try {
         console.log(`  ↻ Trying Spotisaver for ${spotify_id}...`);
-        const ssUrl = `https://tmc.gg/api/spotisaver?action=download&id=${spotify_id}`;
-        const ssRes = await fetch(ssUrl, { signal: AbortSignal.timeout(60000) });
-        if (ssRes.ok) {
-          const ct = ssRes.headers.get('content-type') || '';
-          if (!ct.includes('application/json')) {
-            const buf = Buffer.from(await ssRes.arrayBuffer());
-            if (buf.length >= 10000) { buffer = buf; downloadSource = 'spotisaver'; }
-          }
-        }
+        const buf = await ssDownloadTrack(spotify_id, title, duration);
+        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'spotisaver'; }
       } catch (e) {
         console.log(`  ⚠ Spotisaver failed: ${e.message}`);
       }
