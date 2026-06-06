@@ -7,56 +7,73 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-// ── YouTube search + yt-dlp audio ripper ──
+// ── Piped (YouTube proxy) audio ripper ──
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const os = require('os');
 
-async function ytSearch(query) {
-  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-  const res = await fetch(searchUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-  });
-  const html = await res.text();
-  const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-  return match ? match[1] : null;
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://api.piped.projectsegfau.lt',
+];
+
+async function pipedFetch(endpoint, timeout = 15000) {
+  for (const base of PIPED_INSTANCES) {
+    try {
+      const res = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(timeout) });
+      if (res.ok) return await res.json();
+    } catch {}
+  }
+  throw new Error('All Piped instances failed');
 }
 
-async function ytdlpDownload(artist, title) {
+async function pipedDownload(artist, title) {
   const query = `${artist} - ${title}`;
-  console.log(`  🔍 YouTube search: "${query}"`);
-  const videoId = await ytSearch(query);
-  if (!videoId) throw new Error('No YouTube result found');
-  console.log(`  🎬 Found: youtube.com/watch?v=${videoId}`);
+  console.log(`  🔍 Piped search: "${query}"`);
 
-  const outPath = path.join(os.tmpdir(), `${uuid()}.mp3`);
-  const ytUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const results = await pipedFetch(`/search?q=${encodeURIComponent(query)}&filter=music_songs`);
+  const video = results.items?.find(i => i.type === 'stream');
+  if (!video) throw new Error('No result found');
 
-  await execFileAsync('yt-dlp', [
-    '-x', '--audio-format', 'mp3', '--audio-quality', '0',
-    '--no-playlist', '--no-warnings',
-    '-o', outPath.replace('.mp3', '.%(ext)s'),
-    ytUrl,
-  ], { timeout: 120000 });
+  const videoId = video.url?.replace('/watch?v=', '');
+  console.log(`  🎬 Found: ${video.title} (${videoId})`);
 
-  const finalPath = outPath.replace('.mp3', '.mp3');
-  if (!fs.existsSync(finalPath)) {
-    const possibleExts = ['.opus', '.m4a', '.webm', '.ogg'];
-    for (const ext of possibleExts) {
-      const alt = outPath.replace('.mp3', ext);
-      if (fs.existsSync(alt)) {
-        await execFileAsync('ffmpeg', ['-i', alt, '-acodec', 'libmp3lame', '-q:a', '2', finalPath], { timeout: 60000 });
-        fs.unlinkSync(alt);
-        break;
-      }
-    }
+  const streams = await pipedFetch(`/streams/${videoId}`, 20000);
+  const audioStreams = (streams.audioStreams || [])
+    .filter(s => s.mimeType?.startsWith('audio/'))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+  if (!audioStreams.length) throw new Error('No audio streams available');
+  const best = audioStreams[0];
+  console.log(`  🎵 Downloading: ${best.mimeType} ${best.quality || ''} (${Math.round((best.bitrate || 0) / 1000)}kbps)`);
+
+  const audioRes = await fetch(best.url, { signal: AbortSignal.timeout(120000) });
+  if (!audioRes.ok) throw new Error(`Audio download failed: ${audioRes.status}`);
+
+  const rawBuf = Buffer.from(await audioRes.arrayBuffer());
+  if (rawBuf.length < 10000) throw new Error('Downloaded audio too small');
+
+  // Convert to MP3 with ffmpeg
+  const tmpIn = path.join(os.tmpdir(), `${uuid()}.webm`);
+  const tmpOut = path.join(os.tmpdir(), `${uuid()}.mp3`);
+  fs.writeFileSync(tmpIn, rawBuf);
+
+  try {
+    await execFileAsync('ffmpeg', [
+      '-i', tmpIn, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', '-y', tmpOut,
+    ], { timeout: 60000 });
+  } finally {
+    try { fs.unlinkSync(tmpIn); } catch {}
   }
 
-  if (!fs.existsSync(finalPath)) throw new Error('yt-dlp produced no output');
-  const buffer = fs.readFileSync(finalPath);
-  fs.unlinkSync(finalPath);
-  return buffer;
+  if (!fs.existsSync(tmpOut)) throw new Error('ffmpeg conversion failed');
+  const mp3Buf = fs.readFileSync(tmpOut);
+  fs.unlinkSync(tmpOut);
+
+  console.log(`  ✓ Piped: ${(mp3Buf.length / 1024 / 1024).toFixed(1)}MB MP3`);
+  return mp3Buf;
 }
 
 // ── Password hashing (scrypt, no external deps) ──
@@ -1177,14 +1194,14 @@ router.post('/stations/:id/add-song', async (req, res) => {
       }
     }
 
-    // Fallback: YouTube search + yt-dlp
+    // Fallback: Piped (YouTube proxy) + ffmpeg
     if (!buffer && title) {
       try {
-        console.log(`  ↻ Trying yt-dlp for ${artist} — ${title}...`);
-        const buf = await ytdlpDownload(artist || '', title);
-        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'yt-dlp'; }
+        console.log(`  ↻ Trying Piped for ${artist} — ${title}...`);
+        const buf = await pipedDownload(artist || '', title);
+        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'piped'; }
       } catch (e) {
-        console.log(`  ⚠ yt-dlp failed: ${e.message}`);
+        console.log(`  ⚠ Piped failed: ${e.message}`);
       }
     }
 
