@@ -190,7 +190,7 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
 app.get('/api/nowplaying', (req, res) => {
   const stations = db.prepare('SELECT * FROM stations').all();
   const result = stations.map(s => ({
-    station: { id: s.id, name: s.name, description: s.description, genre: s.genre },
+    station: { id: s.id, name: s.name, description: s.description, genre: s.genre, logo_url: s.logo_url || '', location: s.location || '' },
     now_playing: streamEngine.getNowPlaying(s.id),
     listeners: { current: streamEngine.getListenerCount(s.id) },
     live: streamEngine.isLive(s.id),
