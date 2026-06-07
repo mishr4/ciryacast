@@ -7,89 +7,47 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-// ── Deezer download (requires DEEZER_ARL env var — free account cookie) ──
-const DEEZER_ARL = process.env.DEEZER_ARL || '';
+// ── spotDL download (uses curl_cffi to bypass YouTube bot detection) ──
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
+const os = require('os');
 
-async function deezerDownload(deezerId) {
-  if (!DEEZER_ARL) throw new Error('DEEZER_ARL env var not set');
+async function spotdlDownload(spotifyId, artist, title) {
+  const spotifyUrl = `https://open.spotify.com/track/${spotifyId}`;
+  const tmpId = uuid();
+  const outTemplate = path.join(os.tmpdir(), `${tmpId}.{output-ext}`);
 
-  const cookie = `arl=${DEEZER_ARL}`;
-  const headers = { 'Cookie': cookie, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+  console.log(`  🎵 spotDL: ${artist} — ${title} (${spotifyId})`);
 
-  // 1. Get API token from authenticated session
-  const userData = await fetch('https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=', { headers }).then(r => r.json());
-  const apiToken = userData.results?.checkForm;
-  const licenseToken = userData.results?.USER?.OPTIONS?.license_token;
-  if (!apiToken || !licenseToken) throw new Error('Invalid ARL — could not get session');
+  await execFileAsync('spotdl', [
+    'download', spotifyUrl,
+    '--output', outTemplate,
+    '--format', 'mp3',
+    '--bitrate', '128k',
+  ], { timeout: 120000 });
 
-  // 2. Get track data
-  const trackData = await fetch(`https://www.deezer.com/ajax/gw-light.php?method=song.getData&input=3&api_version=1.0&api_token=${apiToken}`, {
-    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sng_id: String(deezerId) }),
-  }).then(r => r.json());
-  const track = trackData.results;
-  if (!track?.TRACK_TOKEN) throw new Error('Track not found on Deezer');
-  console.log(`  🎵 Deezer: ${track.ART_NAME} — ${track.SNG_TITLE}`);
-
-  // 3. Get media URL via license token
-  const mediaRes = await fetch('https://media.deezer.com/v1/get_url', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      license_token: licenseToken,
-      media: [{ type: 'FULL', formats: [{ cipher: 'BF_CBC_STRIPE', format: 'MP3_128' }, { cipher: 'BF_CBC_STRIPE', format: 'MP3_64' }, { cipher: 'NONE', format: 'MP3_MISC' }] }],
-      track_tokens: [track.TRACK_TOKEN],
-    }),
-  }).then(r => r.json());
-
-  const sources = mediaRes.data?.[0]?.media;
-  if (!sources?.length) throw new Error('No media URLs returned — ARL may have expired');
-
-  const mediaUrl = sources[0].sources?.[0]?.url;
-  if (!mediaUrl) throw new Error('No download URL in response');
-
-  // 4. Download the encrypted/raw audio
-  const audioRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(120000) });
-  if (!audioRes.ok) throw new Error(`Download failed: ${audioRes.status}`);
-
-  const buffer = Buffer.from(await audioRes.arrayBuffer());
-  if (buffer.length < 10000) throw new Error('Downloaded file too small');
-
-  // If cipher is BF_CBC_STRIPE, decrypt with Blowfish
-  const cipher = sources[0].format?.includes('BF_CBC_STRIPE') || sources[0].cipher === 'BF_CBC_STRIPE';
-  if (cipher) {
-    const decrypted = decryptDeezer(buffer, track.SNG_ID);
-    console.log(`  ✓ Deezer: ${(decrypted.length / 1024 / 1024).toFixed(1)}MB MP3 (decrypted)`);
-    return decrypted;
-  }
-
-  console.log(`  ✓ Deezer: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
-  return buffer;
-}
-
-function decryptDeezer(buf, sngId) {
-  const Blowfish = require('crypto');
-  const secret = 'g4el58wc0zvf9na1';
-  const idMd5 = Blowfish.createHash('md5').update(String(sngId), 'ascii').digest('hex');
-  let bfKey = '';
-  for (let i = 0; i < 16; i++) {
-    bfKey += String.fromCharCode(idMd5.charCodeAt(i) ^ idMd5.charCodeAt(i + 16) ^ secret.charCodeAt(i));
-  }
-
-  const chunkSize = 2048;
-  const out = Buffer.alloc(buf.length);
-  for (let i = 0; i < buf.length; i += chunkSize) {
-    const chunk = buf.subarray(i, Math.min(i + chunkSize, buf.length));
-    if (i % (chunkSize * 3) === 0 && chunk.length === chunkSize) {
-      const iv = Buffer.from([0, 1, 2, 3, 4, 5, 6, 7]);
-      const decipher = Blowfish.createDecipheriv('bf-cbc', Buffer.from(bfKey, 'binary'), iv);
-      decipher.setAutoPadding(false);
-      const dec = Buffer.concat([decipher.update(chunk), decipher.final()]);
-      dec.copy(out, i);
-    } else {
-      chunk.copy(out, i);
+  // spotDL writes to the template path with the extension resolved
+  const outMp3 = path.join(os.tmpdir(), `${tmpId}.mp3`);
+  if (!fs.existsSync(outMp3)) {
+    // spotDL may use the track name instead — find any new mp3 in tmpdir
+    const tmpFiles = fs.readdirSync(os.tmpdir()).filter(f => f.endsWith('.mp3'));
+    const recent = tmpFiles.map(f => ({ f, t: fs.statSync(path.join(os.tmpdir(), f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t)[0];
+    if (recent && Date.now() - recent.t < 30000) {
+      const alt = path.join(os.tmpdir(), recent.f);
+      const buffer = fs.readFileSync(alt);
+      try { fs.unlinkSync(alt); } catch {}
+      console.log(`  ✓ spotDL: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
+      return buffer;
     }
+    throw new Error('spotDL produced no output file');
   }
-  return out;
+
+  const buffer = fs.readFileSync(outMp3);
+  try { fs.unlinkSync(outMp3); } catch {}
+  console.log(`  ✓ spotDL: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
+  return buffer;
 }
 
 // ── Password hashing (scrypt, no external deps) ──
@@ -1210,14 +1168,14 @@ router.post('/stations/:id/add-song', async (req, res) => {
       }
     }
 
-    // Fallback: Deezer via ARL cookie
-    if (!buffer && deezer_id) {
+    // Fallback: spotDL (Spotify → YouTube via curl_cffi, bypasses bot detection)
+    if (!buffer && spotify_id) {
       try {
-        console.log(`  ↻ Trying Deezer for ${artist} — ${title} (${deezer_id})...`);
-        const buf = await deezerDownload(deezer_id);
-        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'deezer'; }
+        console.log(`  ↻ Trying spotDL for ${artist} — ${title}...`);
+        const buf = await spotdlDownload(spotify_id, artist || '', title);
+        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'spotdl'; }
       } catch (e) {
-        console.log(`  ⚠ Deezer failed: ${e.message}`);
+        console.log(`  ⚠ spotDL failed: ${e.message}`);
       }
     }
 
