@@ -152,48 +152,71 @@
     flex-direction: column;
     color: var(--text);
     height: 100%;
+    position: relative;
+    background-size: cover !important;
+    background-position: center !important;
   }
+
+  .station-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent 0%, rgba(0,0,0,0.5) 100%);
+    z-index: 1;
+    transition: all 0.25s;
+  }
+
   .station-card:hover {
     border-color: rgba(124,77,255,0.4);
-    background: var(--card-hover);
     transform: translateY(-4px);
     box-shadow: 0 16px 48px rgba(124,77,255,0.15);
+  }
+
+  .station-card:hover::before {
+    background: linear-gradient(135deg, transparent 0%, rgba(0,0,0,0.7) 100%);
   }
 
   .card-logo {
     width: 100%;
     aspect-ratio: 1;
-    background: linear-gradient(135deg, #1a1030, #0d1a30);
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC, #0ED7FF, #7C4DFF);
+    background-size: 400% 400%;
+    animation: gradient-shift 12s ease infinite;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  .card-logo-placeholder {
+    width: 100%;
+    height: 100%;
+    background: inherit;
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
-    overflow: hidden;
   }
-  .card-logo img {
-    width: 100%; height: 100%;
-    object-fit: cover;
-  }
-  .card-logo-placeholder {
-    width: 100%; height: 100%;
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC, #0ED7FF, #7C4DFF);
-    background-size: 400% 400%;
-    animation: gradient-shift 12s ease infinite;
-    display: flex; align-items: center; justify-content: center;
-    position: relative;
-  }
+
   .card-logo-placeholder::before {
     content: '';
     position: absolute;
     inset: 0;
     background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1) 0%, transparent 70%);
   }
+
   .card-logo-placeholder svg {
-    width: 48px; height: 48px; color: rgba(255,255,255,0.8);
+    width: 48px;
+    height: 48px;
+    color: rgba(255,255,255,0.8);
     position: relative;
-    z-index: 1;
+    z-index: 2;
     filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
   }
+
   @keyframes gradient-shift {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -344,18 +367,12 @@
       const np = s.now_playing;
       const live = s.live;
       const hasAudio = np && np.title !== 'Unknown';
-      const logo = s.station.logo_url || '';
-      // Use logo first, then album art, then show placeholder
-      const artUrl = logo || (np?.artwork_url);
+      const artUrl = s.station.logo_url || (np?.artwork_url) || '';
 
       return `
-        <a class="station-card" href="/player/${s.station.id}">
-          <div class="card-logo">
-            ${artUrl
-              ? `<img src="${esc(artUrl)}" alt="" onerror="this.style.display='none';this.nextElementSibling?.style?.display && (this.nextElementSibling.style.display='flex')">`
-              : ''
-            }
-            <div class="card-logo-placeholder" ${artUrl ? 'style="display:none"' : ''}>
+        <a class="station-card" href="/player/${s.station.id}" style="background-image:url('${esc(artUrl)}');background-size:cover;background-position:center">
+          <div class="card-logo" ${!artUrl ? '' : 'style="display:none"'}>
+            <div class="card-logo-placeholder">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
             </div>
             ${live ? `<div class="live-badge"><div class="live-dot"></div>LIVE</div>` : ''}
