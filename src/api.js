@@ -160,6 +160,19 @@ const upload = multer({
   },
 });
 
+// Multer for station logos (images only)
+const imageStorage = multer.memoryStorage();
+const uploadImage = multer({
+  storage: imageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('Only image files allowed (JPG, PNG, WebP, GIF)'));
+  },
+});
+
 // ════════════════════════════════════
 // STATIONS
 // ════════════════════════════════════
@@ -310,6 +323,37 @@ router.delete('/stations/:id', (req, res) => {
   db.prepare('DELETE FROM stations WHERE id = ?').run(req.params.id);
   req.app.get('broadcast')('station_deleted', { id: req.params.id });
   res.json({ ok: true });
+});
+
+// Upload station logo (image file)
+router.post('/stations/:id/logo', uploadImage.single('logo'), async (req, res) => {
+  const db = req.app.get('db');
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No image file provided' });
+  }
+
+  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  try {
+    // Save image file with UUID filename
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const filename = `logo-${req.params.id}${ext}`;
+    const filepath = path.join(MEDIA_DIR, filename);
+
+    // Write image to disk
+    fs.writeFileSync(filepath, req.file.buffer);
+
+    // Update station logo_url to point to the uploaded file
+    const logo_url = `/media/${filename}`;
+    db.prepare('UPDATE stations SET logo_url = ? WHERE id = ?').run(logo_url, req.params.id);
+
+    res.json({ ok: true, logo_url });
+  } catch (err) {
+    console.error('  ⚠ Logo upload error:', err.message);
+    res.status(500).json({ error: 'Failed to save logo' });
+  }
 });
 
 // ════════════════════════════════════

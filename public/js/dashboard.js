@@ -330,7 +330,78 @@ function editStation(id) {
   document.getElementById('edit-station-logo').value = s.logo_url || '';
   document.getElementById('edit-station-website').value = s.website_url || '';
   document.getElementById('edit-station-location').value = s.location || '';
+  document.getElementById('edit-station-logo-file').value = '';
+
+  // Update logo preview
+  const preview = document.getElementById('logo-preview');
+  if (s.logo_url) {
+    preview.innerHTML = `<img src="${esc(s.logo_url)}" style="width:100%;height:100%;object-fit:cover" onerror="this.style.display='none';this.nextElementSibling?.style?.display && (this.nextElementSibling.style.display='flex')">`;
+  } else {
+    preview.innerHTML = '<div style="font-size:24px;color:#666">📻</div>';
+  }
+
   showModal('modal-edit-station');
+}
+
+function updateLogoPreview() {
+  const url = document.getElementById('edit-station-logo').value;
+  const preview = document.getElementById('logo-preview');
+  if (!url) {
+    preview.innerHTML = '<div style="font-size:24px;color:#666">📻</div>';
+    return;
+  }
+  const img = new Image();
+  img.onload = () => {
+    preview.innerHTML = `<img src="${esc(url)}" style="width:100%;height:100%;object-fit:cover">`;
+  };
+  img.onerror = () => {
+    preview.innerHTML = '<div style="font-size:24px;color:#999">⚠️</div>';
+  };
+  img.src = url;
+}
+
+async function uploadStationLogo() {
+  const fileInput = document.getElementById('edit-station-logo-file');
+  const file = fileInput.files[0];
+  if (!file) {
+    toast('Please select an image file first');
+    return;
+  }
+
+  const stationId = document.getElementById('edit-station-id').value;
+  if (!stationId) {
+    toast('No station selected');
+    return;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    const response = await fetch(`/api/stations/${stationId}/logo`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Upload failed');
+    }
+
+    const result = await response.json();
+    // Update the logo URL field
+    document.getElementById('edit-station-logo').value = result.logo_url;
+
+    // Update preview
+    const preview = document.getElementById('logo-preview');
+    preview.innerHTML = `<img src="${result.logo_url}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover">`;
+
+    toast('Logo uploaded successfully!');
+    fileInput.value = '';
+  } catch (err) {
+    toast(`Upload failed: ${err.message}`);
+    console.error('Logo upload error:', err);
+  }
 }
 
 async function saveStation() {
