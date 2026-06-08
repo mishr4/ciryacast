@@ -7,11 +7,60 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
-// ── spotDL download (uses curl_cffi to bypass YouTube bot detection) ──
+// ── Audio normalization (EBU R128 loudnorm — broadcast standard) ──
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
 const os = require('os');
+
+/**
+ * Normalize an MP3 file to broadcast loudness (-14 LUFS, -1 dBTP).
+ * Uses ffmpeg's loudnorm filter (two-pass for accuracy).
+ * Overwrites the file in place. Skips if ffmpeg unavailable.
+ */
+async function normalizeAudio(filePath) {
+  try {
+    // Pass 1: measure loudness
+    const { stderr: info } = await execFileAsync('ffmpeg', [
+      '-i', filePath, '-af', 'loudnorm=I=-14:TP=-1:LRA=11:print_format=json',
+      '-f', 'null', '-'
+    ], { timeout: 60000 });
+
+    // Parse measured values from ffmpeg output
+    const jsonMatch = info.match(/\{[\s\S]*"input_i"[\s\S]*\}/);
+    if (!jsonMatch) { console.log('  ⚠ Loudnorm: could not parse pass 1'); return; }
+    const m = JSON.parse(jsonMatch[0]);
+
+    // Skip if already close to target (-14 LUFS ± 1)
+    const inputLufs = parseFloat(m.input_i);
+    if (Math.abs(inputLufs - (-14)) < 1) {
+      console.log(`  ✓ Already normalized (${inputLufs.toFixed(1)} LUFS)`);
+      return;
+    }
+
+    // Pass 2: apply correction
+    const tmpOut = filePath + '.norm.mp3';
+    await execFileAsync('ffmpeg', [
+      '-i', filePath, '-af',
+      `loudnorm=I=-14:TP=-1:LRA=11:measured_I=${m.input_i}:measured_TP=${m.input_tp}:measured_LRA=${m.input_lra}:measured_thresh=${m.input_thresh}:offset=${m.target_offset}:linear=true`,
+      '-ar', '44100', '-ab', '128k', '-y', tmpOut
+    ], { timeout: 120000 });
+
+    // Replace original
+    fs.unlinkSync(filePath);
+    fs.renameSync(tmpOut, filePath);
+
+    const newSize = fs.statSync(filePath).size;
+    console.log(`  🔊 Normalized: ${inputLufs.toFixed(1)} → -14.0 LUFS (${(newSize/1024/1024).toFixed(1)}MB)`);
+  } catch (e) {
+    // ffmpeg not available or error — skip normalization silently
+    console.log(`  ⚠ Normalization skipped: ${e.message?.split('\n')[0] || e.message}`);
+    // Clean up temp file if exists
+    try { fs.unlinkSync(filePath + '.norm.mp3'); } catch {}
+  }
+}
+
+// ── spotDL download (uses curl_cffi to bypass YouTube bot detection) ──
 
 async function spotdlDownload(spotifyId, artist, title) {
   const spotifyUrl = `https://open.spotify.com/track/${spotifyId}`;
@@ -365,7 +414,11 @@ router.post('/stations/:id/media', (req, res) => {
       }
 
       try {
-        insertMedia.run(id, stationId, file.filename, file.originalname, title, artist, album, duration, file.size, file.mimetype);
+        // Normalize loudness to broadcast standard (-14 LUFS)
+        await normalizeAudio(file.path);
+        const normalizedSize = fs.statSync(file.path).size;
+
+        insertMedia.run(id, stationId, file.filename, file.originalname, title, artist, album, duration, normalizedSize, file.mimetype);
 
         // Auto-add to default playlist
         if (insertPlaylistItem) {
@@ -373,8 +426,8 @@ router.post('/stations/:id/media', (req, res) => {
           insertPlaylistItem.run(uuid(), defaultPlaylist.id, id, maxOrder);
         }
 
-        results.push({ id, title, artist, album, duration, filename: file.filename, size: file.size });
-        console.log(`  ✓ Uploaded: ${title} — ${artist} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+        results.push({ id, title, artist, album, duration, filename: file.filename, size: normalizedSize });
+        console.log(`  ✓ Uploaded: ${title} — ${artist} (${(normalizedSize / 1024 / 1024).toFixed(1)}MB)`);
       } catch (e) {
         console.log(`  ⚠ DB insert failed for ${file.originalname}: ${e.message}`);
       }
@@ -564,6 +617,9 @@ router.post('/stations/:id/requests', async (req, res) => {
           const filePath = path.join(MEDIA_DIR, filename);
           fs.writeFileSync(filePath, buffer);
 
+          // Normalize loudness to broadcast standard (-14 LUFS)
+          await normalizeAudio(filePath);
+
           // Parse actual file metadata to verify/correct what TypicalMedia reported
           let actualTitle = title;
           let actualArtist = artist;
@@ -590,7 +646,7 @@ router.post('/stations/:id/requests', async (req, res) => {
             mediaId, stationId, filename,
             `${actualArtist} - ${actualTitle}.mp3`,
             actualTitle, actualArtist, actualAlbum, actualDuration,
-            buffer.length, 'audio/mpeg',
+            fs.statSync(filePath).size, 'audio/mpeg',
             artwork_url || '', tm_track_id
           );
 
@@ -1185,6 +1241,9 @@ router.post('/stations/:id/add-song', async (req, res) => {
     const filePath = path.join(MEDIA_DIR, filename);
     fs.writeFileSync(filePath, buffer);
 
+    // Normalize loudness to broadcast standard (-14 LUFS)
+    await normalizeAudio(filePath);
+
     // Parse actual metadata
     let actualTitle = title, actualArtist = artist || 'Unknown', actualAlbum = album || '', actualDuration = duration || 0;
     const mm = await getMetadataParser();
@@ -1204,7 +1263,7 @@ router.post('/stations/:id/add-song', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(mediaId, stationId, filename, `${actualArtist} - ${actualTitle}.mp3`,
       actualTitle, actualArtist, actualAlbum, actualDuration,
-      buffer.length, 'audio/mpeg', artwork_url || '', trackKey);
+      fs.statSync(filePath).size, 'audio/mpeg', artwork_url || '', trackKey);
 
     // Add to default playlist
     const defaultPl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
