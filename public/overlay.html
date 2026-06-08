@@ -268,53 +268,94 @@
   const params = new URLSearchParams(location.search);
   const mode = params.get('mode') || 'full';
 
-  // ── Audio playback with auto-reconnect ──
+  // ── Audio playback with aggressive reconnect ──
   const audioEl = document.getElementById('stream-audio');
-  // Use normal buffering (skip_buffer=1 for low-latency was causing cuts)
   const streamUrl = `/listen/${stationId}/radio.mp3`;
   let audioReconnectTimer = null;
+  let audioConnectAttempts = 0;
+  const maxAttempts = 5;
 
   function connectAudio() {
-    audioEl.src = streamUrl;
-    audioEl.load(); // Force reload
-    const playPromise = audioEl.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(e => {
-        console.log('Audio play error:', e.message);
-        // Schedule reconnect
-        if (!audioReconnectTimer) {
-          audioReconnectTimer = setTimeout(connectAudio, 1000);
-        }
-      });
+    if (audioReconnectTimer) {
+      clearTimeout(audioReconnectTimer);
+      audioReconnectTimer = null;
+    }
+
+    if (audioConnectAttempts > maxAttempts) {
+      console.error('Audio: Max reconnect attempts reached');
+      return;
+    }
+
+    audioConnectAttempts++;
+    console.log(`Audio: Connect attempt ${audioConnectAttempts}/${maxAttempts}`);
+
+    try {
+      // Reset audio element completely
+      audioEl.pause();
+      audioEl.src = '';
+      audioEl.src = streamUrl + '?t=' + Date.now(); // Cache bust
+      audioEl.load();
+
+      const playPromise = audioEl.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log('Audio: Playing');
+            audioConnectAttempts = 0;
+          })
+          .catch(e => {
+            console.log('Audio: Play error:', e.message);
+            audioReconnectTimer = setTimeout(connectAudio, 1000 * Math.pow(2, Math.min(audioConnectAttempts - 1, 2)));
+          });
+      }
+    } catch (e) {
+      console.error('Audio: Connection error:', e.message);
+      audioReconnectTimer = setTimeout(connectAudio, 2000);
     }
   }
 
-  // Auto-play on load, handle autoplay policy
+  // Start connection
   connectAudio();
-  document.addEventListener('click', connectAudio, { once: true });
 
-  // Handle audio errors and disconnections
-  audioEl.addEventListener('error', (e) => {
-    console.log('Audio error:', e);
-    if (!audioReconnectTimer) {
-      audioReconnectTimer = setTimeout(connectAudio, 2000);
+  // Resume on user click
+  let hasClicked = false;
+  document.addEventListener('click', () => {
+    if (!hasClicked) {
+      hasClicked = true;
+      console.log('Audio: User interaction detected');
+      connectAudio();
     }
   });
+
+  // Audio events with better error handling
+  audioEl.addEventListener('error', (e) => {
+    console.error('Audio error:', audioEl.error?.code, audioEl.error?.message);
+    audioReconnectTimer = setTimeout(connectAudio, 2000);
+  }, true);
 
   audioEl.addEventListener('ended', () => {
-    console.log('Audio ended, reconnecting...');
-    if (!audioReconnectTimer) {
-      audioReconnectTimer = setTimeout(connectAudio, 500);
-    }
+    console.log('Audio: Stream ended');
+    audioReconnectTimer = setTimeout(connectAudio, 500);
   });
 
-  // Clear reconnect timer when audio starts playing
   audioEl.addEventListener('playing', () => {
+    console.log('Audio: Now playing');
+    audioConnectAttempts = 0;
     if (audioReconnectTimer) {
       clearTimeout(audioReconnectTimer);
       audioReconnectTimer = null;
     }
   });
+
+  // Heartbeat: check if audio is stalled
+  setInterval(() => {
+    if (audioEl.readyState < 2) { // HAVE_CURRENT_DATA = 2
+      console.warn('Audio: Stalled (readyState=' + audioEl.readyState + ')');
+      if (!audioReconnectTimer) {
+        audioReconnectTimer = setTimeout(connectAudio, 500);
+      }
+    }
+  }, 2000);
 
   if (mode === 'bar') {
     document.getElementById('overlay-full').style.display = 'none';
@@ -446,11 +487,6 @@
           // Update art + bg blur when track changes
           if (np.media_id !== lastMediaId) {
             lastMediaId = np.media_id;
-            // Ensure audio is still playing (reconnect if needed)
-            if (audioEl.paused || audioEl.currentTime === 0) {
-              console.log('Track changed, reconnecting audio...');
-              connectAudio();
-            }
             const art = np.artwork_url || '';
             const artWrap = document.getElementById('art-wrap');
             const bgBlur = document.getElementById('bg-blur');
