@@ -215,7 +215,7 @@
   </div>
 
   <!-- Audio playback -->
-  <audio id="stream-audio" crossorigin="anonymous" style="display:none"></audio>
+  <audio id="stream-audio" crossorigin="anonymous" preload="none" style="display:none"></audio>
 
   <div class="listeners" id="listeners-wrap">
     <span id="listener-count">0</span> listening
@@ -268,22 +268,52 @@
   const params = new URLSearchParams(location.search);
   const mode = params.get('mode') || 'full';
 
-  // ── Audio playback ──
+  // ── Audio playback with auto-reconnect ──
   const audioEl = document.getElementById('stream-audio');
   const streamUrl = `/listen/${stationId}/radio.mp3?skip_buffer=1`;
+  let audioReconnectTimer = null;
 
-  // Auto-play on user interaction (browser autoplay policy)
-  function ensureAudioPlaying() {
+  function connectAudio() {
     audioEl.src = streamUrl;
-    audioEl.play().catch(() => {
-      // Autoplay failed — wait for user interaction
-      if (!audioEl.hasListener) {
-        document.addEventListener('click', ensureAudioPlaying, { once: true });
-        audioEl.hasListener = true;
-      }
-    });
+    audioEl.load(); // Force reload
+    const playPromise = audioEl.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(e => {
+        console.log('Audio play error:', e.message);
+        // Schedule reconnect
+        if (!audioReconnectTimer) {
+          audioReconnectTimer = setTimeout(connectAudio, 1000);
+        }
+      });
+    }
   }
-  ensureAudioPlaying();
+
+  // Auto-play on load, handle autoplay policy
+  connectAudio();
+  document.addEventListener('click', connectAudio, { once: true });
+
+  // Handle audio errors and disconnections
+  audioEl.addEventListener('error', (e) => {
+    console.log('Audio error:', e);
+    if (!audioReconnectTimer) {
+      audioReconnectTimer = setTimeout(connectAudio, 2000);
+    }
+  });
+
+  audioEl.addEventListener('ended', () => {
+    console.log('Audio ended, reconnecting...');
+    if (!audioReconnectTimer) {
+      audioReconnectTimer = setTimeout(connectAudio, 500);
+    }
+  });
+
+  // Clear reconnect timer when audio starts playing
+  audioEl.addEventListener('playing', () => {
+    if (audioReconnectTimer) {
+      clearTimeout(audioReconnectTimer);
+      audioReconnectTimer = null;
+    }
+  });
 
   if (mode === 'bar') {
     document.getElementById('overlay-full').style.display = 'none';
@@ -415,6 +445,11 @@
           // Update art + bg blur when track changes
           if (np.media_id !== lastMediaId) {
             lastMediaId = np.media_id;
+            // Ensure audio is still playing (reconnect if needed)
+            if (audioEl.paused || audioEl.currentTime === 0) {
+              console.log('Track changed, reconnecting audio...');
+              connectAudio();
+            }
             const art = np.artwork_url || '';
             const artWrap = document.getElementById('art-wrap');
             const bgBlur = document.getElementById('bg-blur');
