@@ -347,15 +347,31 @@
     }
   });
 
-  // Heartbeat: check if audio is stalled
+  // Heartbeat: check if audio is stalled or stopped
   setInterval(() => {
-    if (audioEl.readyState < 2) { // HAVE_CURRENT_DATA = 2
-      console.warn('Audio: Stalled (readyState=' + audioEl.readyState + ')');
+    const readyState = audioEl.readyState;
+    const paused = audioEl.paused;
+    const duration = audioEl.duration;
+    const current = audioEl.currentTime;
+
+    console.log(`Audio heartbeat: readyState=${readyState} paused=${paused} duration=${duration} current=${current}`);
+
+    // If we expect audio to be playing but it's not
+    if (!paused && readyState < 2) { // HAVE_CURRENT_DATA = 2
+      console.warn('Audio: Stalled (readyState=' + readyState + ')');
       if (!audioReconnectTimer) {
         audioReconnectTimer = setTimeout(connectAudio, 500);
       }
     }
-  }, 2000);
+
+    // If audio ended unexpectedly
+    if (paused && !audioEl.ended && audioConnectAttempts === 0) {
+      console.warn('Audio: Unexpectedly paused (ended=' + audioEl.ended + ')');
+      if (!audioReconnectTimer) {
+        audioReconnectTimer = setTimeout(connectAudio, 500);
+      }
+    }
+  }, 3000);
 
   if (mode === 'bar') {
     document.getElementById('overlay-full').style.display = 'none';
