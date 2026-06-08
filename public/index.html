@@ -452,6 +452,39 @@
   </div>
 </div>
 
+<!-- Manage Members Modal -->
+<div class="modal-overlay" id="modal-manage-members">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>Station Members: <span id="members-station-name"></span></h3>
+      <button class="modal-close" onclick="closeModal('modal-manage-members')">&times;</button>
+    </div>
+    <input type="hidden" id="members-station-id">
+
+    <div style="margin-bottom:20px">
+      <h4 style="margin-bottom:12px">Current Members</h4>
+      <div id="members-list" style="max-height:300px;overflow-y:auto"></div>
+    </div>
+
+    <div style="margin-bottom:20px;padding:16px;background:#f5f5f5;border-radius:8px">
+      <h4 style="margin-bottom:12px">Add New Member</h4>
+      <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px">
+        <input type="email" id="add-member-email" placeholder="user@cirya.co" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="add-member-role" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="dj">DJ</option>
+          <option value="admin">Admin</option>
+          <option value="owner">Owner</option>
+        </select>
+        <button class="btn btn-green" onclick="addNewMember(document.getElementById('members-station-id').value)">Add</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-manage-members')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- AzuraCast Import Modal -->
 <div class="modal-overlay" id="modal-azuracast-import">
   <div class="modal">

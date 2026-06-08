@@ -182,6 +182,10 @@ function renderDashboardStations() {
               }
               ${np?.is_request ? '<span class="badge badge-purple">REQUEST</span>' : ''}
             </div>
+            <div style="font-size:12px;color:#666;margin-bottom:6px">
+              ${s.owner ? `Owner: <strong>${esc(s.owner.display_name || s.owner.email)}</strong>` : 'No owner'}
+              ${s.member_count ? `• ${s.member_count} member${s.member_count !== 1 ? 's' : ''}` : ''}
+            </div>
             ${np ? `<p style="font-size:14px;color:#444">${esc(np.artist)} — ${esc(np.title)}</p>` : '<p style="color:#999">Nothing playing</p>'}
             ${np && duration > 0 ? `
               <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
@@ -220,6 +224,10 @@ function renderDashboardStations() {
           <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Settings
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="manageMembers('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Members
           </button>
           <button class="btn btn-ghost btn-sm" onclick="copyListenUrl('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -338,6 +346,75 @@ async function deleteStation(id) {
   await api(`/stations/${id}`, { method: 'DELETE' });
   refreshDashboard();
   loadStations();
+}
+
+async function manageMembers(stationId) {
+  document.getElementById('members-station-id').value = stationId;
+  const s = stations.find(st => st.id === stationId);
+  if (s) document.getElementById('members-station-name').textContent = esc(s.name);
+
+  const members = await api(`/stations/${stationId}/members`);
+  const el = document.getElementById('members-list');
+  if (!members || members.length === 0) {
+    el.innerHTML = '<p style="text-align:center;color:#999">No members yet</p>';
+  } else {
+    el.innerHTML = members.map(m => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border:1px solid #eee;border-radius:8px;margin-bottom:8px">
+        <div>
+          <strong>${esc(m.display_name || m.email)}</strong>
+          <div style="font-size:12px;color:#666">${esc(m.email)}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select onchange="changeMemberRole('${stationId}', '${m.user_id}', this.value)" style="padding:6px;border:1px solid #ddd;border-radius:4px">
+            <option value="dj" ${m.role === 'dj' ? 'selected' : ''}>DJ</option>
+            <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
+            <option value="owner" ${m.role === 'owner' ? 'selected' : ''}>Owner</option>
+          </select>
+          <button class="btn btn-danger btn-sm" onclick="removeMember('${stationId}', '${m.user_id}')">Remove</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  showModal('modal-manage-members');
+}
+
+async function changeMemberRole(stationId, userId, newRole) {
+  await api(`/stations/${stationId}/members/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role: newRole }),
+  });
+  manageMembers(stationId);
+}
+
+async function removeMember(stationId, userId) {
+  if (!confirm('Remove this member?')) return;
+  await api(`/stations/${stationId}/members/${userId}`, { method: 'DELETE' });
+  manageMembers(stationId);
+}
+
+async function addNewMember(stationId) {
+  const email = document.getElementById('add-member-email').value?.trim();
+  if (!email) return alert('Email required');
+
+  // First, create user if they don't exist
+  const users = await api('/admin/users');
+  let user = users?.find(u => u.email === email);
+  if (!user) {
+    user = await api('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ email, display_name: email.split('@')[0] }),
+    });
+  }
+
+  if (!user) return alert('Failed to create/find user');
+
+  const role = document.getElementById('add-member-role').value || 'dj';
+  await api(`/stations/${stationId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: user.id, role }),
+  });
+  document.getElementById('add-member-email').value = '';
+  manageMembers(stationId);
 }
 
 // ════════════════════════════════════
