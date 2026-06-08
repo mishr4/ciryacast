@@ -1739,12 +1739,12 @@ async function loadScheduledShows() {
 }
 
 function showScheduleModal() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) {
+  const stationId = document.getElementById('sch-station-select')?.value;
+  if (!stationId) {
     alert('Please select a station first');
     return;
   }
-  document.getElementById('sch-station-id').value = currentStation.id;
+  document.getElementById('sch-station-id').value = stationId;
   document.getElementById('sch-title').value = '';
   document.getElementById('sch-desc').value = '';
   document.getElementById('sch-type').value = 'weekly';
@@ -1854,12 +1854,12 @@ async function loadPlaylists() {
 }
 
 function showPlaylistModal() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) {
+  const stationId = document.getElementById('pl-station-select')?.value;
+  if (!stationId) {
     alert('Please select a station first');
     return;
   }
-  document.getElementById('pl-station-id').value = currentStation.id;
+  document.getElementById('pl-station-id').value = stationId;
   document.getElementById('pl-name').value = '';
   document.getElementById('pl-type').value = 'jingles';
   document.getElementById('pl-rule').value = '';
@@ -1933,9 +1933,12 @@ async function loadVoiceTracks() {
 }
 
 function showRecordVTModal() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) return;
-  recordVoiceTrack(currentStation.id);
+  const stationId = document.getElementById('vt-station-select')?.value;
+  if (!stationId) {
+    alert('Please select a station first');
+    return;
+  }
+  recordVoiceTrack(stationId);
 }
 
 async function deleteVoiceTrack(stationId, filename) {
