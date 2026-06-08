@@ -1470,8 +1470,12 @@ let vtIsRecording = false;
 let vtMp3Chunks = [];
 
 function recordVoiceTrack(stationId) {
-  const s = stations.find(st => st.id === stationId);
-  if (!s) return;
+  if (!stationId) {
+    alert('No station selected. Please select a station first.');
+    return;
+  }
+
+  console.log('VT: Opening record modal for station', stationId);
 
   document.getElementById('vt-station-id').value = stationId;
   document.getElementById('vt-presenter').value = '';
@@ -1485,9 +1489,10 @@ function recordVoiceTrack(stationId) {
 
   showModal('modal-record-vt');
 
-  // Request microphone
+  // Request microphone with better error handling
   navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     .then(stream => {
+      console.log('VT: Microphone access granted');
       vtStream = stream;
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       vtAnalyserNode = audioCtx.createAnalyser();
@@ -1496,6 +1501,7 @@ function recordVoiceTrack(stationId) {
 
       document.getElementById('vt-status').textContent = '✅ Ready to record';
       document.getElementById('vt-start-btn').style.display = 'block';
+      document.getElementById('vt-start-btn').disabled = false;
 
       // Show meter
       const dataArray = new Uint8Array(vtAnalyserNode.frequencyBinCount);
@@ -1508,12 +1514,15 @@ function recordVoiceTrack(stationId) {
       updateMeter();
     })
     .catch(err => {
-      document.getElementById('vt-status').textContent = '❌ ' + err.message;
+      console.error('VT: Microphone error:', err);
+      document.getElementById('vt-status').textContent = '❌ ' + (err.name || 'Error') + ': ' + err.message;
       document.getElementById('vt-start-btn').disabled = true;
+      showToast('❌ Microphone access denied: ' + err.message);
     });
 }
 
 function toggleVTRecord() {
+  console.log('VT: toggleVTRecord called, currently recording:', vtIsRecording);
   if (vtIsRecording) {
     stopVTRecording();
   } else {
@@ -1522,8 +1531,16 @@ function toggleVTRecord() {
 }
 
 function startVTRecording() {
+  console.log('VT: startVTRecording called');
   if (!vtStream) {
-    alert('Microphone not ready');
+    console.error('VT: No microphone stream available');
+    alert('Microphone not ready - please click button again and allow access');
+    return;
+  }
+
+  if (!window.lamejs) {
+    console.error('VT: lamejs library not loaded');
+    alert('MP3 encoder library failed to load. Please refresh page.');
     return;
   }
 
