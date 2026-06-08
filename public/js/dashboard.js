@@ -220,6 +220,10 @@ function renderDashboardStations() {
                 Start AutoDJ
               </button>`
           }
+          <button class="btn btn-primary btn-sm" onclick="playStationAudio('${s.id}')" id="listen-btn-${s.id}" title="Monitor audio">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            <span id="listen-label-${s.id}">Listen</span>
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="toggleRecording('${s.id}')" id="rec-btn-${s.id}" title="Record">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
             <span id="rec-label-${s.id}">Record</span>
@@ -822,13 +826,35 @@ async function refreshRequests() {
 
   try {
     const pending = await api(`/stations/${sid}/requests?status=pending`) || [];
+    const station = await api(`/stations/${sid}`) || {};
+    const np = station.now_playing;
     const pendingEl = document.getElementById('requests-pending-list');
     document.getElementById('request-count').textContent = pending.length;
 
+    let content = '';
+
+    // Show now playing section
+    if (np && np.title && np.title !== 'Unknown') {
+      content += `
+        <div style="padding:16px;border-radius:12px;background:linear-gradient(135deg,rgba(124,77,255,0.1),rgba(255,72,188,0.1));border:1px solid rgba(124,77,255,0.2);margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:12px">
+            ${np.artwork_url ? `<img src="${esc(np.artwork_url)}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#7C4DFF,#FF48BC);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="currentColor" style="width:24px;color:#fff"><path d="M12 3v9.28c-1.5 0-3-1.5-3-3s1.5-3 3-3c.88 0 1.65.36 2.2.92.9-.9 1.55-1.68 1.55-1.68L12 3zm.9-1.54c.55.55 1.2 1.46 2.1 2.36.6-.6 1.37-.96 2.25-.96 1.66 0 3 1.34 3 3s-1.34 3-3 3c-1.27 0-2.34-.78-2.84-1.88H12v5H2c0-2.76 2.24-5 5-5c1.2 0 2.3.42 3.16 1.12.4-.52.82-.97 1.28-1.34C9.47 3.52 9.21 2.77 8.9 2.07c.32.15.63.32.92.53zm-.4 8.4v4.3H10v-4.3c-.6-.2-1-1.25-1-2.3 0-1.05.4-2.1 1-2.3v-.66h1.5v.66c.6.2 1 1.25 1 2.3 0 1.05-.4 2.1-1 2.3z"/></svg></div>'}
+            <div style="flex:1">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;color:#7C4DFF;margin-bottom:2px">Now Playing</div>
+              <div style="font-weight:600;font-size:14px">${esc(np.title)}</div>
+              <div style="font-size:12px;color:#666">${esc(np.artist)}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     if (pending.length === 0) {
-      pendingEl.innerHTML = `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>No pending requests</h3><p>Song requests from listeners will appear here</p></div>`;
+      if (!np || !np.title || np.title === 'Unknown') {
+        content += `<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><h3>No pending requests</h3><p>Song requests from listeners will appear here</p></div>`;
+      }
     } else {
-      pendingEl.innerHTML = pending.map((r, i) => `
+      content += pending.map((r, i) => `
         <div class="history-item" style="align-items:center">
           <div class="history-num">${i + 1}</div>
           ${r.artwork_url ? `<img src="${esc(r.artwork_url)}" style="width:40px;height:40px;border-radius:8px;object-fit:cover">` : ''}
@@ -844,6 +870,8 @@ async function refreshRequests() {
         </div>
       `).join('');
     }
+
+    pendingEl.innerHTML = content;
   } catch (e) { console.error('Failed to load requests:', e); }
 
   try {
@@ -873,6 +901,43 @@ async function updateRequest(id, status) {
   await api(`/requests/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
   refreshRequests();
 }
+
+// Audio monitoring for staff
+function playStationAudio(stationId) {
+  const audio = document.getElementById('station-monitor-audio');
+  const btn = document.getElementById(`listen-btn-${stationId}`);
+  const label = document.getElementById(`listen-label-${stationId}`);
+
+  if (audio.src && audio.src.includes(stationId) && !audio.paused) {
+    // Stop if already playing this station
+    audio.pause();
+    label.textContent = 'Listen';
+    btn.classList.remove('active');
+  } else {
+    // Play station audio
+    audio.src = `/listen/${stationId}/radio.mp3?t=${Date.now()}`;
+    audio.play().catch(err => toast(`Failed to play: ${err.message}`));
+    label.textContent = 'Stop';
+    btn.classList.add('active');
+  }
+}
+
+// Update button state when audio ends or is paused elsewhere
+document.addEventListener('DOMContentLoaded', () => {
+  const audio = document.getElementById('station-monitor-audio');
+  if (audio) {
+    audio.addEventListener('ended', () => {
+      document.querySelectorAll('[id^="listen-label-"]').forEach(el => el.textContent = 'Listen');
+      document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
+    });
+    audio.addEventListener('pause', () => {
+      if (audio.src) {
+        document.querySelectorAll('[id^="listen-label-"]').forEach(el => el.textContent = 'Listen');
+        document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
+      }
+    });
+  }
+});
 
 async function enrichAllMedia() {
   const sid = currentStationId || stations?.[0]?.id;

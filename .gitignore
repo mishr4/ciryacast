@@ -4,3 +4,7 @@ data/*.db-wal
 data/*.db-shm
 media/*
 !media/.gitkeep
+chrome_cookies.db
+server_out.log
+yt-cookies.txt
+*# Name clash*
