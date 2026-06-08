@@ -196,14 +196,35 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
 
 // ── Now Playing API (public — no auth) ──
 app.get('/api/nowplaying', (req, res) => {
-  const stations = db.prepare('SELECT * FROM stations').all();
-  const result = stations.map(s => ({
-    station: { id: s.id, name: s.name, description: s.description, genre: s.genre, logo_url: s.logo_url || '', location: s.location || '' },
-    now_playing: streamEngine.getNowPlaying(s.id),
-    listeners: { current: streamEngine.getListenerCount(s.id) },
-    live: streamEngine.isLive(s.id),
-    listen_url: `/listen/${s.id}/radio.mp3`,
-  }));
+  // Only show public (non-hidden) stations
+  const stations = db.prepare('SELECT * FROM stations WHERE is_hidden = 0 OR is_hidden IS NULL').all();
+  const result = stations.map(s => {
+    // Get owner name if owner_id exists
+    let ownerName = '';
+    if (s.owner_id) {
+      const owner = db.prepare('SELECT display_name FROM users WHERE id = ?').get(s.owner_id);
+      ownerName = owner?.display_name || '';
+    }
+    // Get member count from station_members table
+    const memberCount = db.prepare('SELECT COUNT(*) as count FROM station_members WHERE station_id = ?').get(s.id)?.count || 0;
+
+    return {
+      station: {
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        genre: s.genre,
+        logo_url: s.logo_url || '',
+        location: s.location || '',
+        owner_name: ownerName,
+        member_count: memberCount
+      },
+      now_playing: streamEngine.getNowPlaying(s.id),
+      listeners: { current: streamEngine.getListenerCount(s.id) },
+      live: streamEngine.isLive(s.id),
+      listen_url: `/listen/${s.id}/radio.mp3`,
+    };
+  });
   res.json(result);
 });
 

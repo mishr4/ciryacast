@@ -417,6 +417,32 @@
   let npDuration = 0;
   let npElapsed = 0;
 
+  // If no station specified, default to "Cirya Radio One"
+  async function loadDefaultStation() {
+    if (stationId) return; // Already have a station
+
+    try {
+      const res = await fetch('/api/stations');
+      const stations = await res.json();
+
+      // Try to find Cirya Radio One first
+      let station = stations.find(s => s.name === 'Cirya Radio One');
+      if (!station && stations.length > 0) {
+        station = stations[0]; // Fallback to first
+      }
+
+      if (station) {
+        stationId = station.id;
+        window.history.replaceState(null, '', `/player/${stationId}`);
+      }
+    } catch (e) {
+      console.error('Failed to load default station:', e);
+    }
+  }
+
+  // Load default station immediately
+  loadDefaultStation();
+
   // ── Visualizer ──
   const visEl = document.getElementById('visualizer');
   for (let i = 0; i < 24; i++) {
