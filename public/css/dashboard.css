@@ -309,54 +309,109 @@ body {
 
 /* ── Now Playing Card ── */
 .now-playing-card {
-  background: linear-gradient(135deg, #faf8ff, #fff5fb);
+  background: linear-gradient(135deg, #FF1744, #FF48BC);
   border: none;
+  position: relative;
+  overflow: hidden;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.now-playing-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 0%, rgba(0,0,0,0.3) 100%);
+  z-index: 1;
 }
 
 .np-info {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  padding: 20px;
+  justify-content: space-between;
 }
 
 .np-art {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+  border-radius: 0;
   background: linear-gradient(135deg, var(--accent-purple), var(--accent-pink));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  position: relative;
+  z-index: 0;
   overflow: hidden;
 }
 
-.np-art svg { width: 24px; height: 24px; color: #fff; position: relative; z-index: 1; }
-
-.np-art::before {
-  content: '';
-  position: absolute;
-  width: 200%;
-  height: 200%;
-  background: conic-gradient(from 0deg, transparent, rgba(255,255,255,0.15), transparent);
-  animation: spin 6s linear infinite;
+.np-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: brightness(1.1);
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+.np-art svg {
+  width: 28px;
+  height: 28px;
+  color: rgba(255,255,255,0.9);
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.4));
+}
+
+.station-meta {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  background: rgba(0,0,0,0.5);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  z-index: 3;
+  backdrop-filter: blur(8px);
+}
+
+.np-meta {
+  position: relative;
+  z-index: 2;
+}
 
 .np-meta h3 {
-  font-family: 'Instrument Sans', sans-serif;
-  font-size: 16px;
-  font-weight: 600;
+  font-family: 'Lexend', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  margin: 0 0 4px 0;
 }
-.np-meta p { font-size: 14px; color: var(--text-secondary); margin-top: 2px; }
+
+.np-meta p {
+  font-size: 13px;
+  color: rgba(255,255,255,0.85);
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  margin: 0;
+}
 
 .np-controls {
   display: flex;
   gap: 8px;
   margin-top: 16px;
   flex-wrap: wrap;
+  position: relative;
+  z-index: 2;
+  margin-top: auto;
 }
 
 .station-meta {
