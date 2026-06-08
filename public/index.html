@@ -371,10 +371,18 @@
 
     <!-- Scheduling -->
     <div class="view" id="view-scheduling">
+      <div class="card" style="margin-bottom:16px;background:#f9f9f9">
+        <div style="padding:16px;border-bottom:1px solid #eee">
+          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
+          <select id="sch-station-select" onchange="onSchedulingStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+            <option value="">Choose a station...</option>
+          </select>
+        </div>
+      </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
           <div class="card-title">Scheduled Shows</div>
-          <button class="btn btn-green btn-sm" onclick="showScheduleModal()">+ New Show</button>
+          <button class="btn btn-green btn-sm" onclick="showScheduleModal()" id="sch-show-btn" disabled>+ New Show</button>
         </div>
         <div id="shows-list">
           <div class="empty-state">
@@ -387,10 +395,18 @@
 
     <!-- Playlists (Jingles, Ads, Sweepers) -->
     <div class="view" id="view-playlists">
+      <div class="card" style="margin-bottom:16px;background:#f9f9f9">
+        <div style="padding:16px;border-bottom:1px solid #eee">
+          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
+          <select id="pl-station-select" onchange="onPlaylistStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+            <option value="">Choose a station...</option>
+          </select>
+        </div>
+      </div>
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
           <div class="card-title">Rotation Playlists</div>
-          <button class="btn btn-green btn-sm" onclick="showPlaylistModal()">+ New Playlist</button>
+          <button class="btn btn-green btn-sm" onclick="showPlaylistModal()" id="pl-playlist-btn" disabled>+ New Playlist</button>
         </div>
         <p style="font-size:13px;color:#666;margin-bottom:16px">Jingles, ads, sweepers, and other rotation content</p>
         <div id="playlists-list">
@@ -404,10 +420,18 @@
 
     <!-- Voice Tracks -->
     <div class="view" id="view-voicetracks">
+      <div class="card" style="margin-bottom:16px;background:#f9f9f9">
+        <div style="padding:16px;border-bottom:1px solid #eee">
+          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
+          <select id="vt-station-select" onchange="onVTStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+            <option value="">Choose a station...</option>
+          </select>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
           <div class="card-title">Voice Tracks Library</div>
-          <button class="btn btn-green btn-sm" onclick="showRecordVTModal()">🎤 Record New</button>
+          <button class="btn btn-green btn-sm" onclick="showRecordVTModal()" id="vt-record-btn" disabled>🎤 Record New</button>
         </div>
         <p style="font-size:13px;color:#666;margin-bottom:16px">Presenter intros, outros, and station IDs</p>
         <div id="voicetracks-list">

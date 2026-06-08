@@ -112,9 +112,9 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (view === 'requests') refreshRequests();
     if (view === 'djs') refreshDJs();
     if (view === 'users') refreshUsers();
-    if (view === 'scheduling') loadScheduledShows();
-    if (view === 'playlists') loadPlaylists();
-    if (view === 'voicetracks') loadVoiceTracks();
+    if (view === 'scheduling') { populateSchedulingStations(); loadScheduledShows(); }
+    if (view === 'playlists') { populatePlaylistStations(); loadPlaylists(); }
+    if (view === 'voicetracks') { populateVTStations(); loadVoiceTracks(); }
     closeMobileSidebar();
   });
 });
@@ -1666,13 +1666,55 @@ function closeVTModal() {
 }
 
 // ════════════════════════════════════
+// STATION SELECTORS FOR VIEWS
+// ════════════════════════════════════
+function populateSchedulingStations() {
+  const sel = document.getElementById('sch-station-select');
+  if (!stations || !stations.length) return;
+  sel.innerHTML = '<option value="">Choose a station...</option>' +
+    stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function populatePlaylistStations() {
+  const sel = document.getElementById('pl-station-select');
+  if (!stations || !stations.length) return;
+  sel.innerHTML = '<option value="">Choose a station...</option>' +
+    stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function populateVTStations() {
+  const sel = document.getElementById('vt-station-select');
+  if (!stations || !stations.length) return;
+  sel.innerHTML = '<option value="">Choose a station...</option>' +
+    stations.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+}
+
+function onSchedulingStationChange() {
+  const stationId = document.getElementById('sch-station-select').value;
+  document.getElementById('sch-show-btn').disabled = !stationId;
+  if (stationId) loadScheduledShows();
+}
+
+function onPlaylistStationChange() {
+  const stationId = document.getElementById('pl-station-select').value;
+  document.getElementById('pl-playlist-btn').disabled = !stationId;
+  if (stationId) loadPlaylists();
+}
+
+function onVTStationChange() {
+  const stationId = document.getElementById('vt-station-select').value;
+  document.getElementById('vt-record-btn').disabled = !stationId;
+  if (stationId) loadVoiceTracks();
+}
+
+// ════════════════════════════════════
 // SCHEDULED SHOWS
 // ════════════════════════════════════
 async function loadScheduledShows() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) return;
+  const stationId = document.getElementById('sch-station-select')?.value;
+  if (!stationId) return;
 
-  const shows = await api(`/stations/${currentStation.id}/shows`);
+  const shows = await api(`/stations/${stationId}/shows`);
   const list = document.getElementById('shows-list');
 
   if (!shows || shows.length === 0) {
@@ -1779,10 +1821,10 @@ async function deleteScheduledShow(showId) {
 // PLAYLISTS (Jingles, Ads, Sweepers)
 // ════════════════════════════════════
 async function loadPlaylists() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) return;
+  const stationId = document.getElementById('pl-station-select')?.value;
+  if (!stationId) return;
 
-  const playlists = await api(`/stations/${currentStation.id}/playlists`);
+  const playlists = await api(`/stations/${stationId}/playlists`);
   const list = document.getElementById('playlists-list');
 
   // Filter to only non-default playlists
@@ -1868,10 +1910,10 @@ async function deletePlaylist(playlistId) {
 // VOICE TRACKS
 // ════════════════════════════════════
 async function loadVoiceTracks() {
-  const currentStation = getSelectedStation();
-  if (!currentStation) return;
+  const stationId = document.getElementById('vt-station-select')?.value;
+  if (!stationId) return;
 
-  const tracks = await api(`/stations/${currentStation.id}/voicetracks`);
+  const tracks = await api(`/stations/${stationId}/voicetracks`);
   const list = document.getElementById('voicetracks-list');
 
   if (!tracks || tracks.length === 0) {
