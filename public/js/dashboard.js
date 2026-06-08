@@ -1697,7 +1697,76 @@ async function loadScheduledShows() {
 }
 
 function showScheduleModal() {
-  alert('Schedule management UI coming soon!\n\nFor now, use the API:\nPOST /api/stations/{id}/shows\n\n{\n  "title": "Morning Show",\n  "schedule_type": "weekly",\n  "start_time": "09:00",\n  "days_of_week": "1-5",\n  "duration_minutes": 120,\n  "playlist_id": "..."\n}');
+  const currentStation = getSelectedStation();
+  if (!currentStation) {
+    alert('Please select a station first');
+    return;
+  }
+  document.getElementById('sch-station-id').value = currentStation.id;
+  document.getElementById('sch-title').value = '';
+  document.getElementById('sch-desc').value = '';
+  document.getElementById('sch-type').value = 'weekly';
+  document.getElementById('sch-time').value = '09:00';
+  document.getElementById('sch-duration').value = '60';
+  document.querySelectorAll('#modal-new-schedule input[type="checkbox"]').forEach(cb => cb.checked = false);
+  // Check weekdays by default
+  document.querySelectorAll('#modal-new-schedule input[type="checkbox"]').forEach(cb => {
+    if (['1', '2', '3', '4', '5'].includes(cb.value)) cb.checked = true;
+  });
+  updateScheduleTypeUI();
+  showModal('modal-new-schedule');
+}
+
+function updateScheduleTypeUI() {
+  const type = document.getElementById('sch-type').value;
+  document.getElementById('sch-days-ui').style.display = type === 'weekly' ? 'block' : 'none';
+  document.getElementById('sch-date-ui').style.display = type === 'once' ? 'block' : 'none';
+}
+
+async function createScheduledShow() {
+  const stationId = document.getElementById('sch-station-id').value;
+  const title = document.getElementById('sch-title').value?.trim();
+  const desc = document.getElementById('sch-desc').value?.trim();
+  const type = document.getElementById('sch-type').value;
+  const time = document.getElementById('sch-time').value;
+  const duration = parseInt(document.getElementById('sch-duration').value) || 60;
+
+  if (!title) {
+    alert('Show title required');
+    return;
+  }
+
+  let daysOfWeek = '';
+  let targetDate = '';
+
+  if (type === 'weekly') {
+    const checked = Array.from(document.querySelectorAll('#modal-new-schedule input[type="checkbox"]:checked')).map(cb => cb.value);
+    if (!checked.length) {
+      alert('Select at least one day');
+      return;
+    }
+    daysOfWeek = checked.join(',');
+  } else if (type === 'once') {
+    targetDate = document.getElementById('sch-target-date').value;
+    if (!targetDate) {
+      alert('Select a date');
+      return;
+    }
+  }
+
+  const result = await api(`/stations/${stationId}/shows`, {
+    method: 'POST',
+    body: JSON.stringify({
+      title, description: desc, schedule_type: type, start_time: time,
+      days_of_week: daysOfWeek, target_date: targetDate, duration_minutes: duration
+    })
+  });
+
+  if (result) {
+    showToast('✅ Show scheduled');
+    closeModal('modal-new-schedule');
+    loadScheduledShows();
+  }
 }
 
 async function deleteScheduledShow(showId) {
@@ -1743,7 +1812,50 @@ async function loadPlaylists() {
 }
 
 function showPlaylistModal() {
-  alert('Playlist management UI coming soon!\n\nFor now, use the API:\nPOST /api/stations/{id}/playlists\n\n{\n  "name": "Station Jingles",\n  "type": "jingles",\n  "schedule_rule": "every_N_songs",\n  "play_every_n": 3,\n  "play_mode": "shuffle"\n}');
+  const currentStation = getSelectedStation();
+  if (!currentStation) {
+    alert('Please select a station first');
+    return;
+  }
+  document.getElementById('pl-station-id').value = currentStation.id;
+  document.getElementById('pl-name').value = '';
+  document.getElementById('pl-type').value = 'jingles';
+  document.getElementById('pl-rule').value = '';
+  document.getElementById('pl-every-n').value = '3';
+  updatePlaylistRuleUI();
+  showModal('modal-new-playlist');
+}
+
+function updatePlaylistRuleUI() {
+  const rule = document.getElementById('pl-rule').value;
+  document.getElementById('pl-rule-extra').style.display = rule === 'every_N_songs' ? 'block' : 'none';
+}
+
+async function createPlaylist() {
+  const stationId = document.getElementById('pl-station-id').value;
+  const name = document.getElementById('pl-name').value?.trim();
+  const type = document.getElementById('pl-type').value;
+  const rule = document.getElementById('pl-rule').value;
+  const everyN = parseInt(document.getElementById('pl-every-n').value) || 3;
+  const mode = document.getElementById('pl-mode').value;
+
+  if (!name) {
+    alert('Playlist name required');
+    return;
+  }
+
+  const result = await api(`/stations/${stationId}/playlists`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name, type, schedule_rule: rule, play_every_n: everyN, play_mode: mode
+    })
+  });
+
+  if (result) {
+    showToast('✅ Playlist created');
+    closeModal('modal-new-playlist');
+    loadPlaylists();
+  }
 }
 
 async function deletePlaylist(playlistId) {

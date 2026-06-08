@@ -639,6 +639,130 @@
   </div>
 </div>
 
+<!-- Create Playlist Modal -->
+<div class="modal-overlay" id="modal-new-playlist">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>Create Rotation Playlist</h3>
+      <button class="modal-close" onclick="closeModal('modal-new-playlist')">&times;</button>
+    </div>
+    <input type="hidden" id="pl-station-id">
+
+    <div class="form-group">
+      <label>Playlist Name</label>
+      <input type="text" id="pl-name" placeholder="e.g., Station Jingles, Sponsor Ads" style="width:100%">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="form-group">
+        <label>Type</label>
+        <select id="pl-type" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="jingles">Jingles</option>
+          <option value="ads">Ads</option>
+          <option value="sweepers">Sweepers</option>
+          <option value="stingers">Stingers</option>
+          <option value="intros">Intros</option>
+          <option value="outros">Outros</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Play Mode</label>
+        <select id="pl-mode" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="shuffle">Shuffle (random)</option>
+          <option value="sequential">Sequential (in order)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Schedule Rule</label>
+      <select id="pl-rule" onchange="updatePlaylistRuleUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <option value="">No automatic play</option>
+        <option value="every_N_songs">Every N songs</option>
+        <option value="top_of_hour">Top of hour (:00)</option>
+        <option value="bottom_of_hour">Bottom of hour (:30)</option>
+        <option value="between_every_song">Between every song</option>
+      </select>
+    </div>
+
+    <div id="pl-rule-extra" style="display:none;margin-bottom:16px">
+      <label>Play every N songs:</label>
+      <input type="number" id="pl-every-n" value="3" min="1" max="30" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:4px">
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-playlist')">Cancel</button>
+      <button class="btn btn-primary" onclick="createPlaylist()">Create Playlist</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create Scheduled Show Modal -->
+<div class="modal-overlay" id="modal-new-schedule">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <h3>Create Scheduled Show</h3>
+      <button class="modal-close" onclick="closeModal('modal-new-schedule')">&times;</button>
+    </div>
+    <input type="hidden" id="sch-station-id">
+
+    <div class="form-group">
+      <label>Show Title</label>
+      <input type="text" id="sch-title" placeholder="e.g., Morning Broadcast, Evening Jazz" style="width:100%">
+    </div>
+
+    <div class="form-group">
+      <label>Description (optional)</label>
+      <input type="text" id="sch-desc" placeholder="What's this show about?" style="width:100%">
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="form-group">
+        <label>Schedule Type</label>
+        <select id="sch-type" onchange="updateScheduleTypeUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="once">Once (specific date)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Start Time</label>
+        <input type="time" id="sch-time" value="09:00" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+      </div>
+    </div>
+
+    <div id="sch-days-ui" class="form-group" style="display:none;margin-bottom:16px">
+      <label>Days (weekly only)</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label><input type="checkbox" value="1"> Mon</label>
+        <label><input type="checkbox" value="2"> Tue</label>
+        <label><input type="checkbox" value="3"> Wed</label>
+        <label><input type="checkbox" value="4"> Thu</label>
+        <label><input type="checkbox" value="5"> Fri</label>
+        <label><input type="checkbox" value="6"> Sat</label>
+        <label><input type="checkbox" value="0"> Sun</label>
+      </div>
+    </div>
+
+    <div id="sch-date-ui" class="form-group" style="display:none;margin-bottom:16px">
+      <label>Date (once only)</label>
+      <input type="date" id="sch-target-date" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+    </div>
+
+    <div class="form-group">
+      <label>Duration (minutes)</label>
+      <input type="number" id="sch-duration" value="60" min="5" max="480" style="width:120px;padding:8px;border:1px solid #ddd;border-radius:4px">
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-new-schedule')">Cancel</button>
+      <button class="btn btn-primary" onclick="createScheduledShow()">Create Show</button>
+    </div>
+  </div>
+</div>
+
 <!-- AzuraCast Import Modal -->
 <div class="modal-overlay" id="modal-azuracast-import">
   <div class="modal">
