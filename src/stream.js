@@ -69,6 +69,12 @@ class StreamEngine {
     }
   }
 
+  pushLiveAudio(stationId, chunk) {
+    // Same as pushAudio — live mic input goes to the same buffer
+    // and is treated identically by the streaming engine
+    this.pushAudio(stationId, chunk);
+  }
+
   addListener(stationId, res, skipBuffer = false) {
     const s = this._ensure(stationId);
     s.listeners.add(res);

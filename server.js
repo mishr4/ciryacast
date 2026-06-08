@@ -255,6 +255,50 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ════════════════════════════════════
+// WEBSOCKET HANDLERS
+// ════════════════════════════════════
+const wsLiveMics = new Map(); // station_id -> { ws, userId, username }
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const type = url.searchParams.get('type') || 'dashboard';
+  const stationId = url.searchParams.get('station');
+  const userId = url.searchParams.get('user');
+  const username = url.searchParams.get('name') || 'Anonymous';
+
+  if (type === 'livemic' && stationId) {
+    // ── Live mic input stream ──
+    console.log(`  🎤 Live mic connected: ${stationId} (${username})`);
+    wsLiveMics.set(ws, { stationId, userId, username });
+
+    ws.on('message', (data) => {
+      try {
+        // Expect binary audio chunks from browser MediaRecorder
+        if (Buffer.isBuffer(data)) {
+          streamEngine.pushLiveAudio(stationId, data);
+        }
+      } catch (e) {
+        console.log(`  ⚠ Live mic error: ${e.message}`);
+      }
+    });
+
+    ws.on('close', () => {
+      wsLiveMics.delete(ws);
+      console.log(`  🎤 Live mic disconnected: ${stationId}`);
+    });
+
+  } else {
+    // ── Dashboard real-time updates ──
+    ws.on('message', (msg) => {
+      // Handle dashboard messages (reserved for future use)
+    });
+    ws.on('close', () => {
+      // Dashboard client disconnected
+    });
+  }
+});
+
 // ── Start ──
 server.listen(PORT, () => {
   console.log(`

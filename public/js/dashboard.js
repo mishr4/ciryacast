@@ -221,6 +221,10 @@ function renderDashboardStations() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
             <span id="rec-label-${s.id}">Record</span>
           </button>
+          <button class="btn btn-ghost btn-sm" onclick="goLive('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            🎤 Live
+          </button>
           <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Settings
@@ -1281,6 +1285,130 @@ async function deleteUser(id) {
   await api(`/users/${id}`, { method: 'DELETE' });
   showToast('User deleted');
   refreshUsers();
+}
+
+// ════════════════════════════════════
+// LIVE MIC (Go Live)
+// ════════════════════════════════════
+let liveMicStream = null;
+let liveMicRecorder = null;
+let liveMicWS = null;
+let liveMicAnalyser = null;
+let isBroadcasting = false;
+
+function goLive(stationId) {
+  const s = stations.find(st => st.id === stationId);
+  if (!s) return;
+  document.getElementById('live-mic-station-id').value = stationId;
+  document.getElementById('live-mic-station-name').textContent = esc(s.name);
+  showModal('modal-live-mic');
+
+  // Request microphone access
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+    .then(stream => {
+      liveMicStream = stream;
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      liveMicAnalyser = audioCtx.createAnalyser();
+      liveMicAnalyser.fftSize = 256;
+      source.connect(liveMicAnalyser);
+
+      document.getElementById('mic-status').textContent = '✅ Microphone ready';
+      document.getElementById('mic-start-btn').style.display = 'block';
+
+      // Show mic meter
+      const dataArray = new Uint8Array(liveMicAnalyser.frequencyBinCount);
+      const updateMeter = () => {
+        liveMicAnalyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b) / dataArray.length / 255;
+        document.getElementById('mic-meter').style.width = (avg * 100) + '%';
+        if (isBroadcasting) requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+    })
+    .catch(err => {
+      document.getElementById('mic-status').textContent = '❌ ' + err.message;
+      document.getElementById('mic-start-btn').disabled = true;
+    });
+}
+
+async function toggleMic() {
+  if (isBroadcasting) {
+    stopBroadcast();
+  } else {
+    startBroadcast();
+  }
+}
+
+async function startBroadcast() {
+  if (!liveMicStream) {
+    alert('Microphone not ready');
+    return;
+  }
+
+  const stationId = document.getElementById('live-mic-station-id').value;
+  const user = JSON.parse(sessionStorage.getItem('ciryacast_user') || '{}');
+
+  // Connect WebSocket for audio streaming
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws?type=livemic&station=${stationId}&user=${user.id}&name=${encodeURIComponent(user.display_name || user.email)}`;
+  liveMicWS = new WebSocket(wsUrl);
+  liveMicWS.binaryType = 'arraybuffer';
+
+  liveMicWS.onopen = () => {
+    document.getElementById('mic-status').textContent = '🔴 BROADCASTING';
+    document.getElementById('mic-start-btn').style.display = 'none';
+    document.getElementById('mic-btn').style.display = 'block';
+    isBroadcasting = true;
+
+    // Create recorder
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    liveMicRecorder = new MediaRecorder(liveMicStream, { mimeType: 'audio/webm' });
+
+    liveMicRecorder.ondataavailable = (e) => {
+      if (liveMicWS.readyState === WebSocket.OPEN && e.data.size > 0) {
+        liveMicWS.send(e.data);
+      }
+    };
+
+    liveMicRecorder.onerror = (e) => {
+      console.error('Recorder error:', e);
+      stopBroadcast();
+    };
+
+    liveMicRecorder.start(500); // Send chunks every 500ms
+    showToast('🎤 Broadcasting live!');
+  };
+
+  liveMicWS.onerror = (e) => {
+    console.error('WebSocket error:', e);
+    document.getElementById('mic-status').textContent = '❌ Connection failed';
+    isBroadcasting = false;
+  };
+}
+
+function stopBroadcast() {
+  isBroadcasting = false;
+  if (liveMicRecorder && liveMicRecorder.state !== 'inactive') {
+    liveMicRecorder.stop();
+  }
+  if (liveMicWS) {
+    liveMicWS.close();
+    liveMicWS = null;
+  }
+  document.getElementById('mic-status').textContent = '✅ Microphone ready';
+  document.getElementById('mic-btn').style.display = 'none';
+  document.getElementById('mic-start-btn').style.display = 'block';
+  showToast('📻 Live broadcast stopped');
+}
+
+function closeLiveMic() {
+  if (isBroadcasting) stopBroadcast();
+  if (liveMicStream) {
+    liveMicStream.getTracks().forEach(t => t.stop());
+    liveMicStream = null;
+  }
+  closeModal('modal-live-mic');
 }
 
 // ════════════════════════════════════
