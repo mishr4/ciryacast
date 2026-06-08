@@ -268,7 +268,7 @@ router.post('/stations', (req, res) => {
 
 router.put('/stations/:id', (req, res) => {
   const db = req.app.get('db');
-  const { name, description, genre, bitrate, logo_url, website_url, location } = req.body;
+  const { name, description, genre, bitrate, logo_url, website_url, location, owner_id } = req.body;
 
   db.prepare(`
     UPDATE stations SET
@@ -279,9 +279,23 @@ router.put('/stations/:id', (req, res) => {
       logo_url = COALESCE(?, logo_url),
       website_url = COALESCE(?, website_url),
       location = COALESCE(?, location),
+      owner_id = COALESCE(?, owner_id),
       updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, description, genre, bitrate, logo_url || null, website_url || null, location || null, req.params.id);
+  `).run(name, description, genre, bitrate, logo_url || null, website_url || null, location || null, owner_id || null, req.params.id);
+
+  // If owner changed, update station_members table
+  if (owner_id) {
+    // Remove old owner from station_members if any
+    db.prepare('DELETE FROM station_members WHERE station_id = ? AND role = ?').run(req.params.id, 'owner');
+    // Add new owner to station_members
+    const { v4: uuid } = require('uuid');
+    const memberId = uuid();
+    db.prepare(`
+      INSERT INTO station_members (id, station_id, user_id, role)
+      VALUES (?, ?, ?, 'owner')
+    `).run(memberId, req.params.id, owner_id);
+  }
 
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id);
   res.json(station);

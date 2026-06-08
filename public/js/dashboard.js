@@ -323,7 +323,7 @@ async function createStation() {
   refreshDashboard();
 }
 
-function editStation(id) {
+async function editStation(id) {
   const s = stations.find(st => st.id === id);
   if (!s) return;
   document.getElementById('edit-station-id').value = s.id;
@@ -335,6 +335,23 @@ function editStation(id) {
   document.getElementById('edit-station-website').value = s.website_url || '';
   document.getElementById('edit-station-location').value = s.location || '';
   document.getElementById('edit-station-logo-file').value = '';
+  document.getElementById('edit-station-owner').value = s.owner_id || '';
+
+  // Load available users for owner selector
+  try {
+    const allUsers = await api('/admin/users') || [];
+    const ownerSelect = document.getElementById('edit-station-owner');
+    ownerSelect.innerHTML = '<option value="">No owner assigned</option>';
+    allUsers.forEach(user => {
+      const option = document.createElement('option');
+      option.value = user.id;
+      option.textContent = `${user.display_name || user.email}${currentUser?.id === user.id ? ' (You)' : ''}`;
+      ownerSelect.appendChild(option);
+    });
+    ownerSelect.value = s.owner_id || '';
+  } catch (err) {
+    console.error('Failed to load users:', err);
+  }
 
   // Update logo preview
   const preview = document.getElementById('logo-preview');
@@ -420,6 +437,7 @@ async function saveStation() {
       logo_url: document.getElementById('edit-station-logo').value || null,
       website_url: document.getElementById('edit-station-website').value || null,
       location: document.getElementById('edit-station-location').value || null,
+      owner_id: document.getElementById('edit-station-owner').value || null,
     }),
   });
   closeModal('modal-edit-station');
