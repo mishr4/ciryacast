@@ -38,10 +38,11 @@ class StreamEngine {
   pushAudio(stationId, chunk) {
     const s = this._ensure(stationId);
 
-    // Ring buffer — keep ~256KB (~16s at 128kbps) for reliable burst-on-connect
+    // Ring buffer — keep ~512KB (~32s at 128kbps) for reliable burst-on-connect
+    // Larger buffer = new listeners get more audio immediately = less initial buffering
     s.buffer.push(chunk);
     s.bufferSize += chunk.length;
-    while (s.bufferSize > 256 * 1024 && s.buffer.length > 1) {
+    while (s.bufferSize > 512 * 1024 && s.buffer.length > 1) {
       s.bufferSize -= s.buffer.shift().length;
     }
 
@@ -79,12 +80,16 @@ class StreamEngine {
     const s = this._ensure(stationId);
     s.listeners.add(res);
 
-    // Burst buffer on connect — gives the browser ~16s of audio immediately
-    // so playback starts fast and survives network jitter
-    if (!skipBuffer) {
+    // Burst buffer on connect — gives the browser ~32s of audio immediately
+    // so playback starts fast and survives network jitter + browser buffering
+    if (!skipBuffer && s.buffer.length > 0) {
       const burstData = Buffer.concat(s.buffer);
       if (burstData.length > 0) {
-        try { res.write(burstData); } catch {}
+        try {
+          res.write(burstData);
+          // Force flush to browser
+          if (res.flush) res.flush();
+        } catch {}
       }
     }
 

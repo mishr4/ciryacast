@@ -43,6 +43,8 @@ class AutoDJ {
       queueIndex: 0,
       // Current track streaming state
       buf: null,        // file buffer
+      nextBuf: null,    // pre-loaded next track (for gapless transitions)
+      nextMeta: null,   // metadata for next track
       offset: 0,        // bytes sent so far
       startedAt: 0,     // hrtime when streaming began (ms)
       bytesPerMs: 0,    // target bytes per millisecond
@@ -410,12 +412,18 @@ class AutoDJ {
 
     const elapsed = Date.now() - s.startedAt;
     const targetOffset = Math.floor(elapsed * s.bytesPerMs);
-    const toSend = Math.min(targetOffset - s.offset, s.buf.length - s.offset);
+    const drift = targetOffset - s.offset;
+    const toSend = Math.min(drift, s.buf.length - s.offset);
 
     if (toSend > 0) {
       const chunk = s.buf.subarray(s.offset, s.offset + toSend);
       this.streamEngine.pushAudio(stationId, chunk);
       s.offset += toSend;
+    }
+
+    // Detect and warn if we're falling behind (drift > 2 seconds worth of data)
+    if (drift > 2 * 1000 * s.bytesPerMs && s.offset < s.buf.length * 0.5) {
+      console.warn(`  ⏱ Drift detected on ${stationId}: ${Math.round(drift / s.bytesPerMs)}ms behind`);
     }
 
     if (s.offset >= s.buf.length) {
@@ -427,8 +435,8 @@ class AutoDJ {
       return;
     }
 
-    // Schedule next tick in 50ms — smoother delivery, less jitter
-    s.timer = setTimeout(() => this._tick(stationId), 50);
+    // Schedule next tick in 25ms — precise clock-based delivery, minimal jitter
+    s.timer = setTimeout(() => this._tick(stationId), 25);
   }
 
   /** Get a playlist matching a schedule rule and optional type */
