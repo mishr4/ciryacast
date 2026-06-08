@@ -38,19 +38,25 @@ class StreamEngine {
   pushAudio(stationId, chunk) {
     const s = this._ensure(stationId);
 
-    // Ring buffer
+    // Ring buffer — keep ~256KB (~16s at 128kbps) for reliable burst-on-connect
     s.buffer.push(chunk);
     s.bufferSize += chunk.length;
-    // Keep ~32KB (~2s at 128kbps) — small enough for fast skip response
-    while (s.bufferSize > 32 * 1024 && s.buffer.length > 1) {
+    while (s.bufferSize > 256 * 1024 && s.buffer.length > 1) {
       s.bufferSize -= s.buffer.shift().length;
     }
 
-    // Deliver to listeners
+    // Deliver to listeners — handle backpressure gracefully
     for (const res of s.listeners) {
       try {
-        if (!res.write(chunk)) {
+        if (res.destroyed || res.writableEnded) {
           this.removeListener(stationId, res);
+          continue;
+        }
+        const ok = res.write(chunk);
+        if (!ok && !res._draining) {
+          // Backpressure — pause sending to this client until drain
+          res._draining = true;
+          res.once('drain', () => { res._draining = false; });
         }
       } catch {
         this.removeListener(stationId, res);
@@ -66,12 +72,16 @@ class StreamEngine {
   addListener(stationId, res, skipBuffer = false) {
     const s = this._ensure(stationId);
     s.listeners.add(res);
-    // Skip burst for low-latency connections (reduces initial ~12s delay)
+
+    // Burst buffer on connect — gives the browser ~16s of audio immediately
+    // so playback starts fast and survives network jitter
     if (!skipBuffer) {
-      for (const chunk of s.buffer) {
-        try { res.write(chunk); } catch { break; }
+      const burstData = Buffer.concat(s.buffer);
+      if (burstData.length > 0) {
+        try { res.write(burstData); } catch {}
       }
     }
+
     this.broadcast('listeners', { stationId, count: s.listeners.size });
   }
 

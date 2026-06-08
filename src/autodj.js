@@ -37,6 +37,8 @@ class AutoDJ {
       // Queue features
       priorityQueue: [],
       playNowId: null,
+      // Voice tracking — insert presenter audio between songs
+      lastPlayedMusic: false,  // true if last item was a music track (not VT)
     };
     this.sessions.set(stationId, session);
     this._buildQueue(stationId);
@@ -101,6 +103,21 @@ class AutoDJ {
     if (!s || !s.active) return;
     this._cancelTimer(s);
 
+    // ── Voice tracking: if last item was music, try to insert a VT before next song ──
+    if (s.lastPlayedMusic) {
+      const vt = this._pickVoiceTrack(stationId);
+      if (vt) {
+        s.lastPlayedMusic = false;
+        this._streamFile(stationId, vt.filePath, {
+          title: vt.title || 'Voice Break',
+          artist: vt.presenter || 'Presenter',
+          album: '', duration: 0, media_id: null,
+          artwork_url: '', is_request: false, _isVT: true,
+        });
+        return;
+      }
+    }
+
     // Rebuild queue if needed
     if (!s.queue.length || s.queueIndex >= s.queue.length) {
       this._buildQueue(stationId);
@@ -119,39 +136,12 @@ class AutoDJ {
       return;
     }
 
+    // Mark that we're playing a music track (VT may follow)
+    s.lastPlayedMusic = true;
+
     // Read + prepare file
     const filePath = path.join(MEDIA_DIR, track.filename);
-    if (!fs.existsSync(filePath)) {
-      console.log(`  ⚠ Missing: ${track.original_name || track.title}, skip`);
-      setTimeout(() => this._next(stationId), 200);
-      return;
-    }
-
-    let buf;
-    try { buf = fs.readFileSync(filePath); } catch (e) {
-      console.log(`  ⚠ Read error: ${e.message}`);
-      setTimeout(() => this._next(stationId), 500);
-      return;
-    }
-    if (buf.length < 1000) {
-      setTimeout(() => this._next(stationId), 200);
-      return;
-    }
-
-    // Strip ID3v2 header + align to first MP3 frame
-    buf = stripID3(buf);
-    buf = alignFrame(buf);
-    if (buf.length < 500) {
-      setTimeout(() => this._next(stationId), 200);
-      return;
-    }
-
-    // Station bitrate
-    const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
-    const bps = ((station?.bitrate || 128) * 1000) / 8; // bytes per second
-
-    // Set metadata + history
-    this.streamEngine.setNowPlaying(stationId, {
+    this._streamFile(stationId, filePath, {
       title: track.title || track.original_name,
       artist: track.artist || 'Unknown',
       album: track.album || '',
@@ -173,14 +163,52 @@ class AutoDJ {
                duration: track.duration },
     });
 
-    console.log(`  ♪ ${station?.name}: ${track.artist || 'Unknown'} — ${track.title || track.original_name}`);
-
     // Auto-enrich artwork in background
     if (!track.artwork_url && track.title && track.artist !== 'Unknown') {
       this._autoEnrich(track).catch(() => {});
     }
+  }
 
-    // ── Start clock-based streaming ──
+  /** Stream a file to a station — shared by music tracks and voice tracks */
+  _streamFile(stationId, filePath, meta) {
+    const s = this.sessions.get(stationId);
+    if (!s || !s.active) return;
+
+    if (!fs.existsSync(filePath)) {
+      console.log(`  ⚠ Missing: ${meta.title}, skip`);
+      setTimeout(() => this._next(stationId), 200);
+      return;
+    }
+
+    let buf;
+    try { buf = fs.readFileSync(filePath); } catch (e) {
+      console.log(`  ⚠ Read error: ${e.message}`);
+      setTimeout(() => this._next(stationId), 500);
+      return;
+    }
+    if (buf.length < 1000) {
+      setTimeout(() => this._next(stationId), 200);
+      return;
+    }
+
+    buf = stripID3(buf);
+    buf = alignFrame(buf);
+    if (buf.length < 500) {
+      setTimeout(() => this._next(stationId), 200);
+      return;
+    }
+
+    const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+    const bps = ((station?.bitrate || 128) * 1000) / 8;
+
+    this.streamEngine.setNowPlaying(stationId, meta);
+
+    if (meta._isVT) {
+      console.log(`  🎙 ${station?.name}: VT — ${meta.title}`);
+    } else {
+      console.log(`  ♪ ${station?.name}: ${meta.artist} — ${meta.title}`);
+    }
+
     s.buf = buf;
     s.offset = 0;
     s.startedAt = Date.now();
@@ -215,8 +243,31 @@ class AutoDJ {
       return;
     }
 
-    // Schedule next tick in 200ms
-    s.timer = setTimeout(() => this._tick(stationId), 200);
+    // Schedule next tick in 50ms — smoother delivery, less jitter
+    s.timer = setTimeout(() => this._tick(stationId), 50);
+  }
+
+  /** Pick a random voice track for a station (if any exist) */
+  _pickVoiceTrack(stationId) {
+    const VT_DIR = VOLUME ? path.join(VOLUME, 'voicetracks') : path.join(__dirname, '..', 'voicetracks');
+    const stationDir = path.join(VT_DIR, stationId);
+    if (!fs.existsSync(stationDir)) return null;
+
+    try {
+      const files = fs.readdirSync(stationDir).filter(f => f.endsWith('.mp3'));
+      if (!files.length) return null;
+      const pick = files[Math.floor(Math.random() * files.length)];
+      const name = path.parse(pick).name;
+      // Filename format: "PresenterName - Title.mp3" or just "break.mp3"
+      const parts = name.split(' - ');
+      return {
+        filePath: path.join(stationDir, pick),
+        presenter: parts.length > 1 ? parts[0].trim() : 'Presenter',
+        title: parts.length > 1 ? parts[1].trim() : name,
+      };
+    } catch {
+      return null;
+    }
   }
 
   _pickTrack(stationId, s) {

@@ -1533,6 +1533,62 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
   }
 });
 
+// ════════════════════════════════════
+// VOICE TRACKS (remote presenter recordings)
+// ════════════════════════════════════
+
+const VT_DIR = VOLUME ? path.join(VOLUME, 'voicetracks') : path.join(__dirname, '..', 'voicetracks');
+
+// Upload voice tracks for a station
+const vtStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(VT_DIR, req.params.id);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    // Keep original name so presenter + title are preserved
+    const safe = file.originalname.replace(/[^a-zA-Z0-9._\- ]/g, '');
+    cb(null, safe || `${uuid()}.mp3`);
+  },
+});
+const vtUpload = multer({ storage: vtStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+router.post('/stations/:id/voicetracks', vtUpload.array('files', 50), (req, res) => {
+  if (!req.files?.length) return res.status(400).json({ error: 'No files' });
+  console.log(`  🎙 ${req.files.length} voice track(s) uploaded for station ${req.params.id}`);
+  res.json({ ok: true, count: req.files.length, files: req.files.map(f => f.filename) });
+});
+
+// List voice tracks for a station
+router.get('/stations/:id/voicetracks', (req, res) => {
+  const dir = path.join(VT_DIR, req.params.id);
+  if (!fs.existsSync(dir)) return res.json([]);
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.mp3')).map(f => {
+      const stats = fs.statSync(path.join(dir, f));
+      const name = path.parse(f).name;
+      const parts = name.split(' - ');
+      return {
+        filename: f,
+        presenter: parts.length > 1 ? parts[0].trim() : 'Presenter',
+        title: parts.length > 1 ? parts[1].trim() : name,
+        size: stats.size,
+        uploaded_at: stats.birthtime.toISOString(),
+      };
+    });
+    res.json(files);
+  } catch { res.json([]); }
+});
+
+// Delete a voice track
+router.delete('/stations/:id/voicetracks/:filename', (req, res) => {
+  const filePath = path.join(VT_DIR, req.params.id, req.params.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+  fs.unlinkSync(filePath);
+  res.json({ ok: true });
+});
+
 // ── Global multer error handler ──
 router.use((err, req, res, next) => {
   if (err instanceof multer.MulterError) {
