@@ -118,25 +118,26 @@ db.exec(`
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     display_name TEXT DEFAULT '',
-    role TEXT DEFAULT 'manager',
+    is_super_admin INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now')),
     last_login TEXT,
     created_by TEXT DEFAULT 'system'
   );
 
-  CREATE TABLE IF NOT EXISTS station_assignments (
+  CREATE TABLE IF NOT EXISTS station_members (
     id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
     station_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'dj',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
-    UNIQUE(user_id, station_id)
+    UNIQUE(station_id, user_id)
   );
 
-  CREATE INDEX IF NOT EXISTS idx_assignments_user ON station_assignments(user_id);
-  CREATE INDEX IF NOT EXISTS idx_assignments_station ON station_assignments(station_id);
+  CREATE INDEX IF NOT EXISTS idx_station_members_station ON station_members(station_id);
+  CREATE INDEX IF NOT EXISTS idx_station_members_user ON station_members(user_id);
 `);
 
 // ── Migrations: add columns if missing ──
@@ -146,6 +147,14 @@ try { db.exec('ALTER TABLE stations ADD COLUMN logo_url TEXT DEFAULT ""'); } cat
 try { db.exec('ALTER TABLE stations ADD COLUMN website_url TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE stations ADD COLUMN location TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE media ADD COLUMN stream_url TEXT DEFAULT ""'); } catch {}
+
+// ── Station ownership & roles ──
+// owner_id: user ID of the station owner (can manage users, settings, etc.)
+try { db.exec('ALTER TABLE stations ADD COLUMN owner_id TEXT DEFAULT ""'); } catch {}
+// is_hidden: 1 = not listed in public /stations directory, 0 = listed
+try { db.exec('ALTER TABLE stations ADD COLUMN is_hidden INTEGER DEFAULT 0'); } catch {}
+// is_super_admin: users with cirya.co email OR manually marked as super admin
+try { db.exec('ALTER TABLE users ADD COLUMN is_super_admin INTEGER DEFAULT 0'); } catch {}
 
 // ── Playlist types & scheduling ──
 // type: 'music' (default rotation), 'jingles', 'ads', 'sweepers', 'stingers', 'intros', 'outros'

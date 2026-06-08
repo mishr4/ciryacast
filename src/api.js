@@ -166,29 +166,71 @@ const upload = multer({
 
 router.get('/stations', (req, res) => {
   const db = req.app.get('db');
-  const stations = db.prepare('SELECT * FROM stations ORDER BY created_at').all();
+  // Show only non-hidden stations in public list
+  const stations = db.prepare('SELECT * FROM stations WHERE is_hidden = 0 ORDER BY created_at').all();
   const streamEngine = req.app.get('streamEngine');
 
-  const result = stations.map(s => ({
-    ...s,
-    listeners: streamEngine.getListenerCount(s.id),
-    now_playing: streamEngine.getNowPlaying(s.id),
-    autodj_running: req.app.get('autoDJ').isRunning(s.id),
-    live: streamEngine.isLive(s.id),
-  }));
+  const result = stations.map(s => {
+    const owner = s.owner_id ? db.prepare('SELECT id, email, display_name FROM users WHERE id = ?').get(s.owner_id) : null;
+    const memberCount = db.prepare('SELECT COUNT(*) as c FROM station_members WHERE station_id = ?').get(s.id).c;
+    return {
+      ...s,
+      owner: owner ? { id: owner.id, email: owner.email, display_name: owner.display_name } : null,
+      member_count: memberCount,
+      listeners: streamEngine.getListenerCount(s.id),
+      now_playing: streamEngine.getNowPlaying(s.id),
+      autodj_running: req.app.get('autoDJ').isRunning(s.id),
+      live: streamEngine.isLive(s.id),
+    };
+  });
+  res.json(result);
+});
+
+// Get stations for a specific user (authenticated endpoint)
+// Pass ?user_id=<id> to get user's stations, or pass user_id in body for auth
+router.get('/users/:userId/stations', (req, res) => {
+  const db = req.app.get('db');
+  const userId = req.params.userId;
+
+  // Get stations user owns or is a member of
+  const stations = db.prepare(`
+    SELECT DISTINCT s.* FROM stations s
+    LEFT JOIN station_members sm ON sm.station_id = s.id
+    WHERE s.owner_id = ? OR sm.user_id = ?
+    ORDER BY s.created_at DESC
+  `).all(userId, userId);
+
+  const streamEngine = req.app.get('streamEngine');
+  const result = stations.map(s => {
+    const owner = s.owner_id ? db.prepare('SELECT id, email, display_name FROM users WHERE id = ?').get(s.owner_id) : null;
+    const memberCount = db.prepare('SELECT COUNT(*) as c FROM station_members WHERE station_id = ?').get(s.id).c;
+    const userRole = db.prepare('SELECT role FROM station_members WHERE station_id = ? AND user_id = ?').get(s.id, userId);
+    const isOwner = s.owner_id === userId;
+
+    return {
+      ...s,
+      owner: owner ? { id: owner.id, email: owner.email, display_name: owner.display_name } : null,
+      member_count: memberCount,
+      my_role: userRole?.role || (isOwner ? 'owner' : null),
+      listeners: streamEngine.getListenerCount(s.id),
+      now_playing: streamEngine.getNowPlaying(s.id),
+      autodj_running: req.app.get('autoDJ').isRunning(s.id),
+      live: streamEngine.isLive(s.id),
+    };
+  });
   res.json(result);
 });
 
 router.post('/stations', (req, res) => {
   const db = req.app.get('db');
-  const { name, description, genre, bitrate } = req.body;
+  const { name, description, genre, bitrate, owner_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
   const id = uuid();
   db.prepare(`
-    INSERT INTO stations (id, name, description, genre, bitrate)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, name, description || '', genre || 'Various', bitrate || 128);
+    INSERT INTO stations (id, name, description, genre, bitrate, owner_id)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, name, description || '', genre || 'Various', bitrate || 128, owner_id || '');
 
   // Create default playlist
   const plId = uuid();
@@ -196,6 +238,15 @@ router.post('/stations', (req, res) => {
     INSERT INTO playlists (id, station_id, name, is_default, weight)
     VALUES (?, ?, ?, 1, 1)
   `).run(plId, id, 'General Rotation');
+
+  // If owner_id provided, add them to station_members with 'owner' role
+  if (owner_id) {
+    const memberId = uuid();
+    db.prepare(`
+      INSERT INTO station_members (id, station_id, user_id, role)
+      VALUES (?, ?, ?, 'owner')
+    `).run(memberId, id, owner_id);
+  }
 
   const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(id);
   req.app.get('broadcast')('station_created', station);
@@ -1712,6 +1763,115 @@ router.delete('/stations/:id/voicetracks/:filename', (req, res) => {
   const filePath = path.join(VT_DIR, req.params.id, req.params.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   fs.unlinkSync(filePath);
+  res.json({ ok: true });
+});
+
+// ════════════════════════════════════
+// USERS & STATION MEMBERS (ROLES)
+// ════════════════════════════════════
+
+// Get all users (super admin only)
+router.get('/admin/users', (req, res) => {
+  const db = req.app.get('db');
+  // Check if current user is super admin (would need auth middleware)
+  const users = db.prepare(`
+    SELECT id, email, display_name, is_super_admin, is_active, created_at, last_login
+    FROM users ORDER BY created_at DESC
+  `).all();
+  res.json(users);
+});
+
+// Create a user
+router.post('/admin/users', (req, res) => {
+  const db = req.app.get('db');
+  const { email, display_name, is_super_admin } = req.body;
+  if (!email || !email.includes('@')) return res.status(400).json({ error: 'Valid email required' });
+
+  const id = uuid();
+  try {
+    db.prepare(`
+      INSERT INTO users (id, email, display_name, is_super_admin, password_hash)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, email, display_name || email.split('@')[0], is_super_admin ? 1 : 0, '');
+
+    const user = db.prepare('SELECT id, email, display_name, is_super_admin FROM users WHERE id = ?').get(id);
+    res.status(201).json(user);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Get station members (with roles)
+router.get('/stations/:id/members', (req, res) => {
+  const db = req.app.get('db');
+  const members = db.prepare(`
+    SELECT sm.id, sm.user_id, sm.role, sm.created_at,
+           u.email, u.display_name, u.is_super_admin
+    FROM station_members sm
+    JOIN users u ON u.id = sm.user_id
+    WHERE sm.station_id = ?
+    ORDER BY sm.role DESC, u.email
+  `).all(req.params.id);
+  res.json(members);
+});
+
+// Add a user to a station with a role
+router.post('/stations/:id/members', (req, res) => {
+  const db = req.app.get('db');
+  const { user_id, role } = req.body;
+  if (!user_id || !['owner', 'admin', 'dj'].includes(role)) {
+    return res.status(400).json({ error: 'user_id and role (owner/admin/dj) required' });
+  }
+
+  const id = uuid();
+  try {
+    db.prepare(`
+      INSERT INTO station_members (id, station_id, user_id, role)
+      VALUES (?, ?, ?, ?)
+    `).run(id, req.params.id, user_id, role);
+
+    const member = db.prepare(`
+      SELECT sm.id, sm.user_id, sm.role, sm.created_at, u.email, u.display_name
+      FROM station_members sm
+      JOIN users u ON u.id = sm.user_id
+      WHERE sm.id = ?
+    `).get(id);
+    res.status(201).json(member);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Update a station member's role
+router.patch('/stations/:stationId/members/:userId', (req, res) => {
+  const db = req.app.get('db');
+  const { role } = req.body;
+  if (!role || !['owner', 'admin', 'dj'].includes(role)) {
+    return res.status(400).json({ error: 'role (owner/admin/dj) required' });
+  }
+
+  db.prepare(`
+    UPDATE station_members SET role = ? WHERE station_id = ? AND user_id = ?
+  `).run(role, req.params.stationId, req.params.userId);
+
+  const member = db.prepare(`
+    SELECT sm.id, sm.user_id, sm.role, sm.created_at, u.email, u.display_name
+    FROM station_members sm
+    JOIN users u ON u.id = sm.user_id
+    WHERE sm.station_id = ? AND sm.user_id = ?
+  `).get(req.params.stationId, req.params.userId);
+
+  if (!member) return res.status(404).json({ error: 'Member not found' });
+  res.json(member);
+});
+
+// Remove a user from a station
+router.delete('/stations/:stationId/members/:userId', (req, res) => {
+  const db = req.app.get('db');
+  db.prepare(`
+    DELETE FROM station_members WHERE station_id = ? AND user_id = ?
+  `).run(req.params.stationId, req.params.userId);
+
   res.json({ ok: true });
 });
 
