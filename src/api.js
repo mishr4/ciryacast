@@ -1737,6 +1737,29 @@ router.post('/stations/:id/voicetracks', vtUpload.array('files', 50), (req, res)
   res.json({ ok: true, count: req.files.length, files: req.files.map(f => f.filename) });
 });
 
+// Record voice track from browser (binary MP3 data)
+router.post('/stations/:id/voicetracks/record', express.raw({ type: 'audio/mpeg', limit: '50mb' }), (req, res) => {
+  if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'No audio data' });
+
+  const { title, presenter } = req.query;
+  if (!title) return res.status(400).json({ error: 'title query param required' });
+
+  const stationDir = path.join(VT_DIR, req.params.id);
+  if (!fs.existsSync(stationDir)) fs.mkdirSync(stationDir, { recursive: true });
+
+  const presenterName = presenter || 'Presenter';
+  const filename = `${presenterName} - ${title}.mp3`;
+  const filePath = path.join(stationDir, filename);
+
+  try {
+    fs.writeFileSync(filePath, req.body);
+    console.log(`  🎙 Voice track recorded: ${filename}`);
+    res.json({ ok: true, filename, size: req.body.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // List voice tracks for a station
 router.get('/stations/:id/voicetracks', (req, res) => {
   const dir = path.join(VT_DIR, req.params.id);
