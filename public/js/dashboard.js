@@ -899,14 +899,14 @@ function playStationAudio(stationId) {
   if (audio.src && audio.src.includes(stationId) && !audio.paused) {
     // Stop if already playing this station
     audio.pause();
-    label.textContent = 'Listen';
-    btn.classList.remove('active');
+    if (label) label.textContent = 'Listen';
+    if (btn) btn.classList.remove('active');
   } else {
     // Play station audio
     audio.src = `/listen/${stationId}/radio.mp3?t=${Date.now()}`;
     audio.play().catch(err => toast(`Failed to play: ${err.message}`));
-    label.textContent = 'Stop';
-    btn.classList.add('active');
+    if (label) label.textContent = 'Stop';
+    if (btn) btn.classList.add('active');
   }
 }
 
