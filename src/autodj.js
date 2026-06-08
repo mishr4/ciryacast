@@ -4,6 +4,18 @@ const path = require('path');
 const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 const MEDIA_DIR = VOLUME ? path.join(VOLUME, 'media') : path.join(__dirname, '..', 'media');
 
+// Valid MPEG audio silence frame (128kbps, 44100Hz, stereo, ~26ms)
+// Keeps the browser's MP3 decoder alive during track transitions
+const SILENCE_FRAME = Buffer.from(
+  'fffb9004000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '0000000000000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '0000000000000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '0000000000000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '0000000000000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '0000000000000000000000000000000000000000000000000000000000000000000000000000000000' +
+  '00000000000000000000000000000000000000000000000000000000000000', 'hex'
+);
+
 /**
  * AutoDJ — clock-based MP3 streamer.
  *
@@ -270,25 +282,25 @@ class AutoDJ {
 
     if (!fs.existsSync(filePath)) {
       console.log(`  ⚠ Missing: ${meta.title}, skip`);
-      setTimeout(() => this._next(stationId), 200);
+      this._next(stationId);
       return;
     }
 
     let buf;
     try { buf = fs.readFileSync(filePath); } catch (e) {
       console.log(`  ⚠ Read error: ${e.message}`);
-      setTimeout(() => this._next(stationId), 500);
+      this._next(stationId);
       return;
     }
     if (buf.length < 1000) {
-      setTimeout(() => this._next(stationId), 200);
+      this._next(stationId);
       return;
     }
 
     buf = stripID3(buf);
     buf = alignFrame(buf);
     if (buf.length < 500) {
-      setTimeout(() => this._next(stationId), 200);
+      this._next(stationId);
       return;
     }
 
@@ -331,9 +343,12 @@ class AutoDJ {
     }
 
     if (s.offset >= s.buf.length) {
-      // Track done → next
+      // Track done — transition immediately (no setTimeout gap!)
+      // Push a tiny silence frame to keep the stream alive during transition
+      this.streamEngine.pushAudio(stationId, SILENCE_FRAME);
       s.buf = null;
-      s.timer = setTimeout(() => this._next(stationId), 0);
+      // Call _next synchronously so file loading happens before the next tick
+      this._next(stationId);
       return;
     }
 
