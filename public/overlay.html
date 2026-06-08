@@ -51,12 +51,27 @@
   }
   .station-logo {
     width: 52px; height: 52px; border-radius: 14px;
-    object-fit: contain; background: rgba(255,255,255,0.08);
+    object-fit: contain;
+    background: linear-gradient(135deg, #7C4DFF, #FF48BC, #0ED7FF, #7C4DFF);
+    background-size: 300% 300%;
+    animation: gradient-shift 8s ease infinite;
+    padding: 6px;
   }
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
   .station-text h3 {
     font-family: 'Lexend', sans-serif;
     font-size: 18px; font-weight: 600;
     letter-spacing: -0.2px;
+  }
+  .show-name {
+    font-size: 12px; color: rgba(124, 77, 255, 0.9);
+    font-weight: 600; margin-top: 2px; letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
   .on-air-pill {
     display: inline-flex; align-items: center; gap: 5px; margin-top: 3px;
@@ -191,12 +206,16 @@
     <img class="station-logo" id="station-logo" src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">
     <div class="station-text">
       <h3 id="station-name">Loading...</h3>
+      <div id="show-name-wrap" class="show-name" style="display:none">📻 <span id="show-name"></span></div>
       <div class="on-air-pill">
         <div class="on-air-dot" id="status-dot" style="background:#00C853"></div>
         <span id="status-text">ON AIR</span>
       </div>
     </div>
   </div>
+
+  <!-- Audio playback -->
+  <audio id="stream-audio" crossorigin="anonymous" style="display:none"></audio>
 
   <div class="listeners" id="listeners-wrap">
     <span id="listener-count">0</span> listening
@@ -249,6 +268,23 @@
   const params = new URLSearchParams(location.search);
   const mode = params.get('mode') || 'full';
 
+  // ── Audio playback ──
+  const audioEl = document.getElementById('stream-audio');
+  const streamUrl = `/listen/${stationId}/radio.mp3?skip_buffer=1`;
+
+  // Auto-play on user interaction (browser autoplay policy)
+  function ensureAudioPlaying() {
+    audioEl.src = streamUrl;
+    audioEl.play().catch(() => {
+      // Autoplay failed — wait for user interaction
+      if (!audioEl.hasListener) {
+        document.addEventListener('click', ensureAudioPlaying, { once: true });
+        audioEl.hasListener = true;
+      }
+    });
+  }
+  ensureAudioPlaying();
+
   if (mode === 'bar') {
     document.getElementById('overlay-full').style.display = 'none';
     document.getElementById('overlay-bar').style.display = 'flex';
@@ -289,6 +325,24 @@
     }
   }, 1000);
 
+  // Parse day spec: '1,3,5' or '1-5' or '0' (every day)
+  function parseScheduleDays(daysStr) {
+    if (!daysStr || daysStr === '0') return [0, 1, 2, 3, 4, 5, 6];
+    const days = new Set();
+    const parts = daysStr.split(',');
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [start, end] = part.split('-').map(Number);
+        for (let i = start; i <= end; i++) {
+          days.add(i % 7);
+        }
+      } else {
+        days.add(Number(part) % 7);
+      }
+    }
+    return Array.from(days).sort((a, b) => a - b);
+  }
+
   let lastMediaId = null;
   async function refresh() {
     try {
@@ -296,6 +350,41 @@
       if (!r.ok) return;
       const d = await r.json();
       const np = d.now_playing;
+
+      // Check for active scheduled show
+      let activeShow = null;
+      try {
+        const showsR = await fetch(`/api/stations/${stationId}/shows`);
+        if (showsR.ok) {
+          const shows = await showsR.json();
+          const now = new Date();
+          const dayOfWeek = now.getDay();
+          const hours = String(now.getHours()).padStart(2, '0');
+          const mins = String(now.getMinutes()).padStart(2, '0');
+          const currentTime = `${hours}:${mins}`;
+
+          for (const show of shows) {
+            if (!show.is_enabled) continue;
+
+            if (show.schedule_type === 'weekly') {
+              const days = parseScheduleDays(show.days_of_week);
+              if (days.includes(dayOfWeek) && show.start_time === currentTime) {
+                activeShow = show;
+                break;
+              }
+            }
+          }
+        }
+      } catch {}
+
+      // Display show name if there's an active scheduled show
+      const showNameWrap = document.getElementById('show-name-wrap');
+      if (activeShow && np && np.artist === activeShow.title) {
+        document.getElementById('show-name').textContent = activeShow.title;
+        showNameWrap.style.display = 'block';
+      } else {
+        showNameWrap.style.display = 'none';
+      }
 
       if (mode === 'full') {
         document.getElementById('station-name').textContent = d.station.name;
