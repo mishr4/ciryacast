@@ -475,17 +475,40 @@ router.get('/stations/:id/playlists', (req, res) => {
 
 router.post('/stations/:id/playlists', (req, res) => {
   const db = req.app.get('db');
-  const { name, weight } = req.body;
+  const { name, weight, type, schedule_rule, play_every_n, play_mode } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
   const id = uuid();
   db.prepare(`
-    INSERT INTO playlists (id, station_id, name, weight)
-    VALUES (?, ?, ?, ?)
-  `).run(id, req.params.id, name, weight || 1);
+    INSERT INTO playlists (id, station_id, name, weight, type, schedule_rule, play_every_n, play_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, req.params.id, name, weight || 1,
+    type || 'music', schedule_rule || '', play_every_n || 3, play_mode || 'shuffle');
 
   const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
   res.status(201).json(playlist);
+});
+
+router.put('/playlists/:id', (req, res) => {
+  const db = req.app.get('db');
+  const { name, weight, type, schedule_rule, play_every_n, play_mode, is_enabled } = req.body;
+
+  db.prepare(`
+    UPDATE playlists SET
+      name = COALESCE(?, name),
+      weight = COALESCE(?, weight),
+      type = COALESCE(?, type),
+      schedule_rule = COALESCE(?, schedule_rule),
+      play_every_n = COALESCE(?, play_every_n),
+      play_mode = COALESCE(?, play_mode),
+      is_enabled = COALESCE(?, is_enabled)
+    WHERE id = ?
+  `).run(name, weight, type, schedule_rule, play_every_n, play_mode,
+    is_enabled !== undefined ? (is_enabled ? 1 : 0) : null, req.params.id);
+
+  const playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(req.params.id);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found' });
+  res.json(playlist);
 });
 
 router.delete('/playlists/:id', (req, res) => {
@@ -493,6 +516,51 @@ router.delete('/playlists/:id', (req, res) => {
   db.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(req.params.id);
   db.prepare('DELETE FROM playlists WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// Update media folder/genre
+router.patch('/media/:id/meta', (req, res) => {
+  const db = req.app.get('db');
+  const { folder, genre, title, artist, album } = req.body;
+
+  db.prepare(`
+    UPDATE media SET
+      folder = COALESCE(?, folder),
+      genre = COALESCE(?, genre),
+      title = COALESCE(?, title),
+      artist = COALESCE(?, artist),
+      album = COALESCE(?, album)
+    WHERE id = ?
+  `).run(folder, genre, title, artist, album, req.params.id);
+
+  const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+  if (!media) return res.status(404).json({ error: 'Media not found' });
+  res.json(media);
+});
+
+// List unique folders for a station
+router.get('/stations/:id/folders', (req, res) => {
+  const db = req.app.get('db');
+  const folders = db.prepare(
+    "SELECT DISTINCT folder FROM media WHERE station_id = ? AND folder != '' ORDER BY folder"
+  ).all(req.params.id).map(r => r.folder);
+  res.json(folders);
+});
+
+// Batch move media to a folder
+router.post('/stations/:id/media/move', (req, res) => {
+  const db = req.app.get('db');
+  const { media_ids, folder } = req.body;
+  if (!Array.isArray(media_ids) || folder === undefined) {
+    return res.status(400).json({ error: 'media_ids array and folder required' });
+  }
+  const stmt = db.prepare('UPDATE media SET folder = ? WHERE id = ? AND station_id = ?');
+  let updated = 0;
+  for (const id of media_ids) {
+    const r = stmt.run(folder, id, req.params.id);
+    updated += r.changes;
+  }
+  res.json({ ok: true, updated });
 });
 
 // ════════════════════════════════════

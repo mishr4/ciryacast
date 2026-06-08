@@ -38,7 +38,15 @@ class AutoDJ {
       priorityQueue: [],
       playNowId: null,
       // Voice tracking — insert presenter audio between songs
-      lastPlayedMusic: false,  // true if last item was a music track (not VT)
+      lastPlayedMusic: false,
+      // Jingle/ad/sweeper counters
+      songsSinceLastJingle: 0,
+      songsSinceLastAd: 0,
+      songsSinceLastSweeper: 0,
+      lastTopOfHour: -1,      // hour number of last TOH jingle
+      lastBottomOfHour: -1,   // hour of last BOH
+      // Per-playlist sequential indices (for 'sequential' play_mode)
+      seqIndices: {},
     };
     this.sessions.set(stationId, session);
     this._buildQueue(stationId);
@@ -103,41 +111,127 @@ class AutoDJ {
     if (!s || !s.active) return;
     this._cancelTimer(s);
 
-    // ── Voice tracking: if last item was music, try to insert a VT before next song ──
-    if (s.lastPlayedMusic) {
-      const vt = this._pickVoiceTrack(stationId);
-      if (vt) {
-        s.lastPlayedMusic = false;
-        this._streamFile(stationId, vt.filePath, {
-          title: vt.title || 'Voice Break',
-          artist: vt.presenter || 'Presenter',
-          album: '', duration: 0, media_id: null,
-          artwork_url: '', is_request: false, _isVT: true,
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    // ── 1) Top of hour jingle (within first 2 minutes of the hour) ──
+    if (currentMinute < 2 && s.lastTopOfHour !== currentHour) {
+      const tohTrack = this._pickFromPlaylistType(stationId, 'top_of_hour');
+      if (tohTrack) {
+        s.lastTopOfHour = currentHour;
+        console.log(`  🕐 Top of hour jingle`);
+        this._streamFile(stationId, path.join(MEDIA_DIR, tohTrack.filename), {
+          title: tohTrack.title || 'Station ID', artist: tohTrack.artist || 'CiryaCast',
+          album: '', duration: tohTrack.duration || 0, media_id: tohTrack.id,
+          artwork_url: tohTrack.artwork_url || '', _isVT: true,
         });
         return;
       }
     }
 
-    // Rebuild queue if needed
+    // ── 2) Bottom of hour (within first 2 minutes past :30) ──
+    if (currentMinute >= 30 && currentMinute < 32 && s.lastBottomOfHour !== currentHour) {
+      const bohTrack = this._pickFromPlaylistType(stationId, 'bottom_of_hour');
+      if (bohTrack) {
+        s.lastBottomOfHour = currentHour;
+        console.log(`  🕐 Bottom of hour`);
+        this._streamFile(stationId, path.join(MEDIA_DIR, bohTrack.filename), {
+          title: bohTrack.title || 'Station ID', artist: bohTrack.artist || 'CiryaCast',
+          album: '', duration: bohTrack.duration || 0, media_id: bohTrack.id,
+          artwork_url: bohTrack.artwork_url || '', _isVT: true,
+        });
+        return;
+      }
+    }
+
+    // ── 3) Sweepers between every song ──
+    if (s.lastPlayedMusic) {
+      const sweeper = this._pickFromPlaylistType(stationId, 'between_every_song');
+      if (sweeper) {
+        s.lastPlayedMusic = false;
+        this._streamFile(stationId, path.join(MEDIA_DIR, sweeper.filename), {
+          title: sweeper.title || 'Sweeper', artist: sweeper.artist || 'CiryaCast',
+          album: '', duration: sweeper.duration || 0, media_id: sweeper.id,
+          artwork_url: sweeper.artwork_url || '', _isVT: true,
+        });
+        return;
+      }
+    }
+
+    // ── 4) Jingles every N songs ──
+    if (s.lastPlayedMusic) {
+      const jinglePl = this._getScheduledPlaylist(stationId, 'every_N_songs', 'jingles');
+      if (jinglePl && s.songsSinceLastJingle >= (jinglePl.play_every_n || 3)) {
+        const jingle = this._pickFromPlaylist(stationId, jinglePl);
+        if (jingle) {
+          s.songsSinceLastJingle = 0;
+          s.lastPlayedMusic = false;
+          console.log(`  🔔 Jingle: ${jingle.title}`);
+          this._streamFile(stationId, path.join(MEDIA_DIR, jingle.filename), {
+            title: jingle.title || 'Jingle', artist: jingle.artist || 'CiryaCast',
+            album: '', duration: jingle.duration || 0, media_id: jingle.id,
+            artwork_url: jingle.artwork_url || '', _isVT: true,
+          });
+          return;
+        }
+      }
+    }
+
+    // ── 5) Ads every N songs ──
+    if (s.lastPlayedMusic) {
+      const adPl = this._getScheduledPlaylist(stationId, 'every_N_songs', 'ads');
+      if (adPl && s.songsSinceLastAd >= (adPl.play_every_n || 5)) {
+        const ad = this._pickFromPlaylist(stationId, adPl);
+        if (ad) {
+          s.songsSinceLastAd = 0;
+          s.lastPlayedMusic = false;
+          console.log(`  📢 Ad: ${ad.title}`);
+          this._streamFile(stationId, path.join(MEDIA_DIR, ad.filename), {
+            title: ad.title || 'Advertisement', artist: ad.artist || 'CiryaCast',
+            album: '', duration: ad.duration || 0, media_id: ad.id,
+            artwork_url: ad.artwork_url || '', _isVT: true,
+          });
+          return;
+        }
+      }
+    }
+
+    // ── 6) Voice tracking ──
+    if (s.lastPlayedMusic) {
+      const vt = this._pickVoiceTrack(stationId);
+      if (vt) {
+        s.lastPlayedMusic = false;
+        this._streamFile(stationId, vt.filePath, {
+          title: vt.title || 'Voice Break', artist: vt.presenter || 'Presenter',
+          album: '', duration: 0, media_id: null,
+          artwork_url: '', _isVT: true,
+        });
+        return;
+      }
+    }
+
+    // ── 7) Music: playNow > priorityQueue > requests > shuffle ──
     if (!s.queue.length || s.queueIndex >= s.queue.length) {
       this._buildQueue(stationId);
     }
     if (!s.queue.length) {
-      // No media — retry in 5s
       console.log(`  ⏸ ${stationId}: no media, retrying in 5s`);
       s.timer = setTimeout(() => this._next(stationId), 5000);
       return;
     }
 
-    // ── Pick track: playNow > priorityQueue > requests > shuffle ──
     const track = this._pickTrack(stationId, s);
     if (!track) {
       s.timer = setTimeout(() => this._next(stationId), 2000);
       return;
     }
 
-    // Mark that we're playing a music track (VT may follow)
+    // Update counters
     s.lastPlayedMusic = true;
+    s.songsSinceLastJingle++;
+    s.songsSinceLastAd++;
+    s.songsSinceLastSweeper++;
 
     // Read + prepare file
     const filePath = path.join(MEDIA_DIR, track.filename);
@@ -245,6 +339,38 @@ class AutoDJ {
 
     // Schedule next tick in 50ms — smoother delivery, less jitter
     s.timer = setTimeout(() => this._tick(stationId), 50);
+  }
+
+  /** Get a playlist matching a schedule rule and optional type */
+  _getScheduledPlaylist(stationId, rule, type = null) {
+    let query = 'SELECT * FROM playlists WHERE station_id = ? AND schedule_rule = ? AND is_enabled = 1';
+    const params = [stationId, rule];
+    if (type) { query += ' AND type = ?'; params.push(type); }
+    return this.db.prepare(query).get(...params);
+  }
+
+  /** Pick a random/sequential item from a specific playlist */
+  _pickFromPlaylist(stationId, playlist) {
+    const items = this.db.prepare(`
+      SELECT m.* FROM media m
+      JOIN playlist_items pi ON pi.media_id = m.id
+      WHERE pi.playlist_id = ?
+    `).all(playlist.id);
+    if (!items.length) return null;
+
+    if (playlist.play_mode === 'sequential') {
+      const s = this.sessions.get(stationId);
+      const idx = (s?.seqIndices?.[playlist.id] || 0) % items.length;
+      if (s) { if (!s.seqIndices) s.seqIndices = {}; s.seqIndices[playlist.id] = idx + 1; }
+      return items[idx];
+    }
+    return items[Math.floor(Math.random() * items.length)];
+  }
+
+  /** Pick from any playlist matching a schedule rule (e.g. 'top_of_hour') */
+  _pickFromPlaylistType(stationId, rule) {
+    const pl = this._getScheduledPlaylist(stationId, rule);
+    return pl ? this._pickFromPlaylist(stationId, pl) : null;
   }
 
   /** Pick a random voice track for a station (if any exist) */

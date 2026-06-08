@@ -145,8 +145,31 @@ try { db.exec('ALTER TABLE media ADD COLUMN tm_track_id TEXT DEFAULT ""'); } cat
 try { db.exec('ALTER TABLE stations ADD COLUMN logo_url TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE stations ADD COLUMN website_url TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE stations ADD COLUMN location TEXT DEFAULT ""'); } catch {}
-// stream_url in media allows external stream URLs as sources
 try { db.exec('ALTER TABLE media ADD COLUMN stream_url TEXT DEFAULT ""'); } catch {}
+
+// ── Playlist types & scheduling ──
+// type: 'music' (default rotation), 'jingles', 'ads', 'sweepers', 'stingers', 'intros', 'outros'
+try { db.exec('ALTER TABLE playlists ADD COLUMN type TEXT DEFAULT "music"'); } catch {}
+// schedule_rule: when items from this playlist should play
+//   '' = normal rotation (weighted shuffle with other music playlists)
+//   'every_N_songs' = play one after every N music tracks
+//   'top_of_hour' = play at :00 each hour
+//   'bottom_of_hour' = play at :30 each hour
+//   'once_per_hour' = play once per hour at random point
+//   'between_every_song' = play between every song (for sweepers)
+try { db.exec('ALTER TABLE playlists ADD COLUMN schedule_rule TEXT DEFAULT ""'); } catch {}
+// How many songs between plays (for 'every_N_songs' rule)
+try { db.exec('ALTER TABLE playlists ADD COLUMN play_every_n INTEGER DEFAULT 3'); } catch {}
+// play_mode: 'shuffle' (random pick), 'sequential' (round-robin), 'once' (play once then disable)
+try { db.exec('ALTER TABLE playlists ADD COLUMN play_mode TEXT DEFAULT "shuffle"'); } catch {}
+// enabled flag (separate from is_default)
+try { db.exec('ALTER TABLE playlists ADD COLUMN is_enabled INTEGER DEFAULT 1'); } catch {}
+
+// ── Media folders/categories ──
+// folder: organizational tag like 'Top Hits', 'Hawaiian', 'Throwbacks', 'Daily Top 40'
+try { db.exec('ALTER TABLE media ADD COLUMN folder TEXT DEFAULT ""'); } catch {}
+// genre tag for individual tracks
+try { db.exec('ALTER TABLE media ADD COLUMN genre TEXT DEFAULT ""'); } catch {}
 
 // ── Seed default station if none exist ──
 const count = db.prepare('SELECT COUNT(*) as c FROM stations').get();
