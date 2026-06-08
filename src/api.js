@@ -1767,6 +1767,71 @@ router.delete('/stations/:id/voicetracks/:filename', (req, res) => {
 });
 
 // ════════════════════════════════════
+// SCHEDULED SHOWS
+// ════════════════════════════════════
+
+router.get('/stations/:id/shows', (req, res) => {
+  const db = req.app.get('db');
+  const shows = db.prepare(`
+    SELECT ss.*, p.name as playlist_name
+    FROM scheduled_shows ss
+    LEFT JOIN playlists p ON p.id = ss.playlist_id
+    WHERE ss.station_id = ?
+    ORDER BY ss.start_time, ss.days_of_week
+  `).all(req.params.id);
+  res.json(shows);
+});
+
+router.post('/stations/:id/shows', (req, res) => {
+  const db = req.app.get('db');
+  const { title, description, playlist_id, schedule_type, start_time, days_of_week, duration_minutes, target_date, created_by } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title required' });
+
+  const showId = uuid();
+  db.prepare(`
+    INSERT INTO scheduled_shows
+    (id, station_id, title, description, playlist_id, schedule_type, start_time, days_of_week, duration_minutes, target_date, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(showId, req.params.id, title, description || '', playlist_id || null,
+    schedule_type || 'weekly', start_time || '09:00', days_of_week || '1-5',
+    duration_minutes || 60, target_date || '', created_by || '');
+
+  const show = db.prepare('SELECT * FROM scheduled_shows WHERE id = ?').get(showId);
+  res.status(201).json(show);
+});
+
+router.put('/shows/:id', (req, res) => {
+  const db = req.app.get('db');
+  const { title, description, playlist_id, schedule_type, start_time, days_of_week, duration_minutes, target_date, is_enabled } = req.body;
+
+  db.prepare(`
+    UPDATE scheduled_shows SET
+      title = COALESCE(?, title),
+      description = COALESCE(?, description),
+      playlist_id = COALESCE(?, playlist_id),
+      schedule_type = COALESCE(?, schedule_type),
+      start_time = COALESCE(?, start_time),
+      days_of_week = COALESCE(?, days_of_week),
+      duration_minutes = COALESCE(?, duration_minutes),
+      target_date = COALESCE(?, target_date),
+      is_enabled = COALESCE(?, is_enabled),
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(title, description, playlist_id, schedule_type, start_time, days_of_week,
+    duration_minutes, target_date, is_enabled !== undefined ? (is_enabled ? 1 : 0) : null, req.params.id);
+
+  const show = db.prepare('SELECT * FROM scheduled_shows WHERE id = ?').get(req.params.id);
+  if (!show) return res.status(404).json({ error: 'Show not found' });
+  res.json(show);
+});
+
+router.delete('/shows/:id', (req, res) => {
+  const db = req.app.get('db');
+  db.prepare('DELETE FROM scheduled_shows WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ════════════════════════════════════
 // USERS & STATION MEMBERS (ROLES)
 // ════════════════════════════════════
 

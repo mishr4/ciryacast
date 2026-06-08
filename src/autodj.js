@@ -117,6 +117,63 @@ class AutoDJ {
     s.offset = 0;
   }
 
+  /** Check if a scheduled show is active right now */
+  _getActiveScheduledShow(stationId) {
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const currentHour = String(now.getHours()).padStart(2, '0');
+    const currentMin = String(now.getMinutes()).padStart(2, '0');
+    const currentTime = `${currentHour}:${currentMin}`;
+    const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const shows = this.db.prepare(`
+      SELECT * FROM scheduled_shows WHERE station_id = ? AND is_enabled = 1
+    `).all(stationId);
+
+    for (const show of shows) {
+      let isActive = false;
+
+      if (show.schedule_type === 'daily' && show.start_time === currentTime) {
+        isActive = true;
+      } else if (show.schedule_type === 'weekly') {
+        // Parse days_of_week: '1,3,5' or '1-5' or '0'
+        const days = this._parseDays(show.days_of_week);
+        if (days.includes(dayOfWeek) && show.start_time === currentTime) {
+          isActive = true;
+        }
+      } else if (show.schedule_type === 'once' && show.target_date === today && show.start_time === currentTime) {
+        isActive = true;
+      }
+
+      if (isActive && show.playlist_id) {
+        return show;
+      }
+    }
+
+    return null;
+  }
+
+  /** Parse days_of_week string: '1,3,5' or '1-5' or '0' */
+  _parseDays(daysStr) {
+    if (!daysStr || daysStr === '0') return [0, 1, 2, 3, 4, 5, 6]; // every day
+
+    const days = new Set();
+    const parts = daysStr.split(',');
+
+    for (const part of parts) {
+      if (part.includes('-')) {
+        const [start, end] = part.split('-').map(Number);
+        for (let i = start; i <= end; i++) {
+          days.add(i % 7);
+        }
+      } else {
+        days.add(Number(part) % 7);
+      }
+    }
+
+    return Array.from(days).sort((a, b) => a - b);
+  }
+
   /** Pick the next track and start streaming it */
   _next(stationId) {
     const s = this.sessions.get(stationId);
@@ -126,6 +183,25 @@ class AutoDJ {
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
+
+    // ── 0) Check for active scheduled shows (highest priority) ──
+    const activeShow = this._getActiveScheduledShow(stationId);
+    if (activeShow && activeShow.playlist_id) {
+      const showTrack = this._pickFromPlaylist(stationId, { id: activeShow.playlist_id });
+      if (showTrack) {
+        console.log(`  📻 Scheduled show: ${activeShow.title}`);
+        this._streamFile(stationId, path.join(MEDIA_DIR, showTrack.filename), {
+          title: showTrack.title || showTrack.original_name,
+          artist: activeShow.title || 'Scheduled Show',
+          album: '',
+          duration: showTrack.duration || 0,
+          media_id: showTrack.id,
+          artwork_url: showTrack.artwork_url || '',
+          is_request: false,
+        });
+        return;
+      }
+    }
 
     // ── 1) Top of hour jingle (within first 2 minutes of the hour) ──
     if (currentMinute < 2 && s.lastTopOfHour !== currentHour) {

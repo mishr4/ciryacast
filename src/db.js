@@ -180,6 +180,38 @@ try { db.exec('ALTER TABLE media ADD COLUMN folder TEXT DEFAULT ""'); } catch {}
 // genre tag for individual tracks
 try { db.exec('ALTER TABLE media ADD COLUMN genre TEXT DEFAULT ""'); } catch {}
 
+// ── Scheduled Shows ──
+// Create scheduled_shows table for time-based show automation
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_shows (
+      id TEXT PRIMARY KEY,
+      station_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      playlist_id TEXT,
+      is_enabled INTEGER DEFAULT 1,
+      -- Schedule: 'daily', 'weekly', 'monthly', 'once'
+      schedule_type TEXT DEFAULT 'weekly',
+      -- Time to start (HH:MM in 24h format)
+      start_time TEXT DEFAULT '09:00',
+      -- Days: '1,3,5' = Mon,Wed,Fri; '0' = every day; '1-5' = weekdays; '6,0' = weekend
+      days_of_week TEXT DEFAULT '1-5',
+      -- Duration in minutes
+      duration_minutes INTEGER DEFAULT 60,
+      -- For once-only shows: target date (YYYY-MM-DD)
+      target_date TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      created_by TEXT DEFAULT '',
+      FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+      FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_shows_station ON scheduled_shows(station_id);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_shows_enabled ON scheduled_shows(is_enabled);
+  `);
+} catch {}
+
 // ── Seed default station if none exist ──
 const count = db.prepare('SELECT COUNT(*) as c FROM stations').get();
 if (count.c === 0) {
