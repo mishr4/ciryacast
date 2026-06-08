@@ -270,7 +270,8 @@
 
   // ── Audio playback with auto-reconnect ──
   const audioEl = document.getElementById('stream-audio');
-  const streamUrl = `/listen/${stationId}/radio.mp3?skip_buffer=1`;
+  // Use normal buffering (skip_buffer=1 for low-latency was causing cuts)
+  const streamUrl = `/listen/${stationId}/radio.mp3`;
   let audioReconnectTimer = null;
 
   function connectAudio() {

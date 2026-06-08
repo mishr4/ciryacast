@@ -420,8 +420,11 @@ class AutoDJ {
 
     if (s.offset >= s.buf.length) {
       // Track done — transition immediately (no setTimeout gap!)
-      // Push a tiny silence frame to keep the stream alive during transition
-      this.streamEngine.pushAudio(stationId, SILENCE_FRAME);
+      // Push padding/silence to keep the stream alive during transition
+      // Send multiple silence frames to fill the gap (~100ms worth)
+      for (let i = 0; i < 4; i++) {
+        this.streamEngine.pushAudio(stationId, SILENCE_FRAME);
+      }
       s.buf = null;
       // Call _next synchronously so file loading happens before the next tick
       this._next(stationId);
