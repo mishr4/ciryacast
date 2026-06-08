@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["nodejs_22", "python3", "gcc", "gnumake", "ffmpeg"]
+nixPkgs = ["nodejs_22", "python3", "python3Packages.pip", "gcc", "gnumake", "ffmpeg", "rustc", "cargo", "openssl", "pkg-config"]
 
 [phases.install]
-cmds = ["npm ci", "pip install spotdl"]
+cmds = ["npm ci", "pip install --break-system-packages spotdl"]
 
 [start]
 cmd = "node server.js"
