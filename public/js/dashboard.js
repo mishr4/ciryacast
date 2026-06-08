@@ -1295,6 +1295,9 @@ let liveMicRecorder = null;
 let liveMicWS = null;
 let liveMicAnalyser = null;
 let isBroadcasting = false;
+let liveMicProcessor = null;
+let liveMicEncoder = null;
+let liveMicSource = null;
 
 function goLive(stationId) {
   const s = stations.find(st => st.id === stationId);
@@ -1355,29 +1358,56 @@ async function startBroadcast() {
   liveMicWS = new WebSocket(wsUrl);
   liveMicWS.binaryType = 'arraybuffer';
 
-  liveMicWS.onopen = () => {
+  liveMicWS.onopen = async () => {
     document.getElementById('mic-status').textContent = '🔴 BROADCASTING';
     document.getElementById('mic-start-btn').style.display = 'none';
     document.getElementById('mic-btn').style.display = 'block';
     isBroadcasting = true;
 
-    // Create recorder
+    // Set up MP3 encoding and audio capture
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    liveMicRecorder = new MediaRecorder(liveMicStream, { mimeType: 'audio/webm' });
+    const sampleRate = audioCtx.sampleRate;
 
-    liveMicRecorder.ondataavailable = (e) => {
-      if (liveMicWS.readyState === WebSocket.OPEN && e.data.size > 0) {
-        liveMicWS.send(e.data);
-      }
-    };
+    // Initialize lamejs MP3 encoder (mono, 128kbps)
+    liveMicEncoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
 
-    liveMicRecorder.onerror = (e) => {
-      console.error('Recorder error:', e);
+    liveMicSource = audioCtx.createMediaStreamSource(liveMicStream);
+
+    try {
+      const bufferSize = 4096;
+      liveMicProcessor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
+
+      liveMicProcessor.onaudioprocess = (e) => {
+        if (!isBroadcasting || !liveMicWS || liveMicWS.readyState !== WebSocket.OPEN) return;
+
+        // Get mono PCM data from input buffer
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        // Convert float32 to int16 for lamejs encoder
+        const int16Data = float32ToInt16(inputData);
+
+        // Encode PCM to MP3
+        if (liveMicEncoder) {
+          const mp3Chunk = liveMicEncoder.encodeBuffer(int16Data);
+          if (mp3Chunk.length > 0 && liveMicWS.readyState === WebSocket.OPEN) {
+            try {
+              liveMicWS.send(mp3Chunk);
+            } catch (e) {
+              console.log('WS send error:', e.message);
+            }
+          }
+        }
+      };
+
+      liveMicSource.connect(liveMicProcessor);
+      liveMicProcessor.connect(audioCtx.destination);
+
+      showToast('🎤 Broadcasting live!');
+    } catch (e) {
+      console.error('Audio setup error:', e);
+      document.getElementById('mic-status').textContent = '❌ Audio setup failed';
       stopBroadcast();
-    };
-
-    liveMicRecorder.start(500); // Send chunks every 500ms
-    showToast('🎤 Broadcasting live!');
+    }
   };
 
   liveMicWS.onerror = (e) => {
@@ -1387,15 +1417,49 @@ async function startBroadcast() {
   };
 }
 
+function float32ToInt16(float32Array) {
+  const int16Array = new Int16Array(float32Array.length);
+  for (let i = 0; i < float32Array.length; i++) {
+    // Clamp float to [-1, 1]
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    // Convert to int16 range [-32768, 32767]
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return int16Array;
+}
+
 function stopBroadcast() {
   isBroadcasting = false;
-  if (liveMicRecorder && liveMicRecorder.state !== 'inactive') {
-    liveMicRecorder.stop();
+
+  // Flush any remaining MP3 data
+  if (liveMicEncoder && liveMicWS && liveMicWS.readyState === WebSocket.OPEN) {
+    const finalMp3 = liveMicEncoder.flush();
+    if (finalMp3.length > 0) {
+      try {
+        liveMicWS.send(finalMp3);
+      } catch (e) {
+        console.log('Final flush error:', e.message);
+      }
+    }
   }
+
+  // Clean up audio nodes
+  if (liveMicProcessor) {
+    liveMicProcessor.disconnect();
+    liveMicProcessor = null;
+  }
+  if (liveMicSource) {
+    liveMicSource.disconnect();
+    liveMicSource = null;
+  }
+  liveMicEncoder = null;
+
+  // Close WebSocket
   if (liveMicWS) {
     liveMicWS.close();
     liveMicWS = null;
   }
+
   document.getElementById('mic-status').textContent = '✅ Microphone ready';
   document.getElementById('mic-btn').style.display = 'none';
   document.getElementById('mic-start-btn').style.display = 'block';
@@ -1404,10 +1468,17 @@ function stopBroadcast() {
 
 function closeLiveMic() {
   if (isBroadcasting) stopBroadcast();
+
+  // Stop all microphone tracks
   if (liveMicStream) {
     liveMicStream.getTracks().forEach(t => t.stop());
     liveMicStream = null;
   }
+
+  // Clear encoder
+  liveMicEncoder = null;
+  liveMicAnalyser = null;
+
   closeModal('modal-live-mic');
 }
 
