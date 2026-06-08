@@ -45,6 +45,18 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       <span>History</span>
     </button>
+    <button class="nav-item" data-view="scheduling">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      <span>Scheduling</span>
+    </button>
+    <button class="nav-item" data-view="playlists">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg>
+      <span>Playlists</span>
+    </button>
+    <button class="nav-item" data-view="voicetracks">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      <span>Voice Tracks</span>
+    </button>
   </nav>
   <div class="sidebar-footer">
     <div class="sidebar-user" id="sidebar-user">
@@ -352,6 +364,56 @@
             </div>
             <h3>No history yet</h3>
             <p>Tracks will appear here as they play</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scheduling -->
+    <div class="view" id="view-scheduling">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">Scheduled Shows</div>
+          <button class="btn btn-green btn-sm" onclick="showScheduleModal()">+ New Show</button>
+        </div>
+        <div id="shows-list">
+          <div class="empty-state">
+            <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+            <h3>No scheduled shows</h3><p>Create a show to automate playback at specific times</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Playlists (Jingles, Ads, Sweepers) -->
+    <div class="view" id="view-playlists">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header">
+          <div class="card-title">Rotation Playlists</div>
+          <button class="btn btn-green btn-sm" onclick="showPlaylistModal()">+ New Playlist</button>
+        </div>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Jingles, ads, sweepers, and other rotation content</p>
+        <div id="playlists-list">
+          <div class="empty-state">
+            <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg></div>
+            <h3>No rotation playlists</h3><p>Create playlists for jingles, ads, and sweepers</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Voice Tracks -->
+    <div class="view" id="view-voicetracks">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Voice Tracks Library</div>
+          <button class="btn btn-green btn-sm" onclick="showRecordVTModal()">🎤 Record New</button>
+        </div>
+        <p style="font-size:13px;color:#666;margin-bottom:16px">Presenter intros, outros, and station IDs</p>
+        <div id="voicetracks-list">
+          <div class="empty-state">
+            <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div>
+            <h3>No voice tracks</h3><p>Record or upload voice tracks for auto-injection</p>
           </div>
         </div>
       </div>

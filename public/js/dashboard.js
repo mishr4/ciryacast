@@ -112,6 +112,9 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (view === 'requests') refreshRequests();
     if (view === 'djs') refreshDJs();
     if (view === 'users') refreshUsers();
+    if (view === 'scheduling') loadScheduledShows();
+    if (view === 'playlists') loadPlaylists();
+    if (view === 'voicetracks') loadVoiceTracks();
     closeMobileSidebar();
   });
 });
@@ -1643,6 +1646,131 @@ function closeVTModal() {
   vtEncoder = null;
   vtMp3Chunks = [];
   closeModal('modal-record-vt');
+}
+
+// ════════════════════════════════════
+// SCHEDULED SHOWS
+// ════════════════════════════════════
+async function loadScheduledShows() {
+  const currentStation = getSelectedStation();
+  if (!currentStation) return;
+
+  const shows = await api(`/stations/${currentStation.id}/shows`);
+  const list = document.getElementById('shows-list');
+
+  if (!shows || shows.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div><h3>No scheduled shows</h3><p>Create a show to automate playback at specific times</p></div>';
+    return;
+  }
+
+  list.innerHTML = shows.map(s => `
+    <div style="padding:16px;border:1px solid #eee;border-radius:8px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <strong>${esc(s.title)}</strong>
+          <div style="font-size:12px;color:#666;margin-top:2px">${s.schedule_type.toUpperCase()} at ${s.start_time}</div>
+          ${s.playlist_name ? `<div style="font-size:11px;color:#999">Playlist: ${esc(s.playlist_name)}</div>` : ''}
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-danger btn-sm" onclick="deleteScheduledShow('${s.id}')">Delete</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showScheduleModal() {
+  alert('Schedule management UI coming soon!\n\nFor now, use the API:\nPOST /api/stations/{id}/shows\n\n{\n  "title": "Morning Show",\n  "schedule_type": "weekly",\n  "start_time": "09:00",\n  "days_of_week": "1-5",\n  "duration_minutes": 120,\n  "playlist_id": "..."\n}');
+}
+
+async function deleteScheduledShow(showId) {
+  if (!confirm('Delete this scheduled show?')) return;
+  await api(`/shows/${showId}`, { method: 'DELETE' });
+  loadScheduledShows();
+}
+
+// ════════════════════════════════════
+// PLAYLISTS (Jingles, Ads, Sweepers)
+// ════════════════════════════════════
+async function loadPlaylists() {
+  const currentStation = getSelectedStation();
+  if (!currentStation) return;
+
+  const playlists = await api(`/stations/${currentStation.id}/playlists`);
+  const list = document.getElementById('playlists-list');
+
+  // Filter to only non-default playlists
+  const rotationPlaylists = playlists ? playlists.filter(p => !p.is_default) : [];
+
+  if (!rotationPlaylists.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg></div><h3>No rotation playlists</h3><p>Create playlists for jingles, ads, and sweepers</p></div>';
+    return;
+  }
+
+  list.innerHTML = rotationPlaylists.map(p => `
+    <div style="padding:16px;border:1px solid #eee;border-radius:8px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="flex:1">
+          <strong>${esc(p.name)}</strong>
+          <div style="font-size:12px;color:#666;margin-top:4px">
+            Type: <span style="color:#7C4DFF;font-weight:600">${p.type || 'music'}</span>
+            ${p.schedule_rule ? `• Rule: ${p.schedule_rule}` : ''}
+            ${p.play_every_n ? `• Every ${p.play_every_n} songs` : ''}
+            ${p.item_count ? `• ${p.item_count} item${p.item_count !== 1 ? 's' : ''}` : ''}
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deletePlaylist('${p.id}')">Delete</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function showPlaylistModal() {
+  alert('Playlist management UI coming soon!\n\nFor now, use the API:\nPOST /api/stations/{id}/playlists\n\n{\n  "name": "Station Jingles",\n  "type": "jingles",\n  "schedule_rule": "every_N_songs",\n  "play_every_n": 3,\n  "play_mode": "shuffle"\n}');
+}
+
+async function deletePlaylist(playlistId) {
+  if (!confirm('Delete this playlist?')) return;
+  await api(`/playlists/${playlistId}`, { method: 'DELETE' });
+  loadPlaylists();
+}
+
+// ════════════════════════════════════
+// VOICE TRACKS
+// ════════════════════════════════════
+async function loadVoiceTracks() {
+  const currentStation = getSelectedStation();
+  if (!currentStation) return;
+
+  const tracks = await api(`/stations/${currentStation.id}/voicetracks`);
+  const list = document.getElementById('voicetracks-list');
+
+  if (!tracks || tracks.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div><h3>No voice tracks</h3><p>Record or upload voice tracks for auto-injection</p></div>';
+    return;
+  }
+
+  list.innerHTML = tracks.map(t => `
+    <div style="padding:16px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <strong>${esc(t.presenter)} - ${esc(t.title)}</strong>
+        <div style="font-size:12px;color:#666;margin-top:4px">${(t.size / 1024 / 1024).toFixed(1)}MB • ${new Date(t.uploaded_at).toLocaleDateString()}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteVoiceTrack('${currentStation.id}', '${esc(t.filename)}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+function showRecordVTModal() {
+  const currentStation = getSelectedStation();
+  if (!currentStation) return;
+  recordVoiceTrack(currentStation.id);
+}
+
+async function deleteVoiceTrack(stationId, filename) {
+  if (!confirm('Delete this voice track?')) return;
+  await api(`/stations/${stationId}/voicetracks/${filename}`, { method: 'DELETE' });
+  loadVoiceTracks();
 }
 
 // ════════════════════════════════════
