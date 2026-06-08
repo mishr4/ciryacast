@@ -2,6 +2,7 @@ const path = require('path');
 const http = require('http');
 const express = require('express');
 const { WebSocketServer } = require('ws');
+const { spawn } = require('child_process');
 const db = require('./src/db');
 const api = require('./src/api');
 const { StreamEngine } = require('./src/stream');
@@ -258,7 +259,7 @@ app.get('*', (req, res) => {
 // ════════════════════════════════════
 // WEBSOCKET HANDLERS
 // ════════════════════════════════════
-const wsLiveMics = new Map(); // station_id -> { ws, userId, username }
+const wsLiveMics = new Map(); // ws -> { stationId, ffmpeg, userId, username }
 
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -268,15 +269,45 @@ wss.on('connection', (ws, req) => {
   const username = url.searchParams.get('name') || 'Anonymous';
 
   if (type === 'livemic' && stationId) {
-    // ── Live mic input stream ──
+    // ── Live mic input stream with real-time WebM->MP3 conversion ──
     console.log(`  🎤 Live mic connected: ${stationId} (${username})`);
-    wsLiveMics.set(ws, { stationId, userId, username });
 
+    // Start ffmpeg process to convert WebM to MP3
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', 'pipe:0',           // input from stdin
+      '-f', 'mp3',              // output format
+      '-b:a', '128k',           // bitrate
+      '-q:a', '5',              // quality
+      'pipe:1',                 // output to stdout
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    wsLiveMics.set(ws, { stationId, ffmpeg, userId, username });
+
+    // Handle ffmpeg output (MP3 data)
+    ffmpeg.stdout.on('data', (chunk) => {
+      if (chunk.length > 0) {
+        streamEngine.pushLiveAudio(stationId, chunk);
+      }
+    });
+
+    ffmpeg.stderr.on('data', (data) => {
+      const msg = data.toString();
+      if (msg.includes('error') || msg.includes('Error')) {
+        console.log(`  ⚠ FFmpeg error: ${msg.trim().substring(0, 80)}`);
+      }
+    });
+
+    ffmpeg.on('error', (e) => {
+      console.log(`  ⚠ FFmpeg process error: ${e.message}`);
+    });
+
+    // Handle incoming WebM chunks from browser
     ws.on('message', (data) => {
       try {
-        // Expect binary audio chunks from browser MediaRecorder
-        if (Buffer.isBuffer(data)) {
-          streamEngine.pushLiveAudio(stationId, data);
+        if (Buffer.isBuffer(data) && ffmpeg.stdin.writable) {
+          ffmpeg.stdin.write(data);
         }
       } catch (e) {
         console.log(`  ⚠ Live mic error: ${e.message}`);
@@ -284,6 +315,16 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('close', () => {
+      // Close ffmpeg gracefully
+      if (ffmpeg && ffmpeg.stdin) {
+        ffmpeg.stdin.end();
+      }
+      setTimeout(() => {
+        if (ffmpeg && !ffmpeg.killed) {
+          ffmpeg.kill('SIGKILL');
+        }
+      }, 1000);
+
       wsLiveMics.delete(ws);
       console.log(`  🎤 Live mic disconnected: ${stationId}`);
     });
