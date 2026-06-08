@@ -845,7 +845,7 @@ router.post('/media/:id/enrich', async (req, res) => {
   }
 });
 
-// Bulk enrich all media for a station
+// Bulk enrich all media for a station (Deezer — free, no auth)
 router.post('/stations/:id/enrich', async (req, res) => {
   const db = req.app.get('db');
   const media = db.prepare(
@@ -853,39 +853,38 @@ router.post('/stations/:id/enrich', async (req, res) => {
   ).all(req.params.id);
 
   let enriched = 0;
+  let failed = 0;
   for (const m of media) {
-    const query = `${m.artist !== 'Unknown' ? m.artist + ' ' : ''}${m.title}`;
+    const query = `${m.artist !== 'Unknown' ? m.artist + ' ' : ''}${m.title}`.trim();
+    if (!query) { failed++; continue; }
     try {
-      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
+      const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
       const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const results = await resp.json();
+      const data = await resp.json();
 
-      if (Array.isArray(results) && results.length > 0) {
-        const track = results[0];
-        db.prepare(`
-          UPDATE media SET
-            title = COALESCE(?, title),
-            artist = COALESCE(?, artist),
-            album = COALESCE(?, album),
-            artwork_url = COALESCE(?, artwork_url),
-            tm_track_id = COALESCE(?, tm_track_id)
-          WHERE id = ?
-        `).run(
-          track.title || null,
-          track.artist || null,
-          track.album_name || null,
-          track.album_art || null,
-          track.deezer_id || track.spotify_id || null,
-          m.id
-        );
-        enriched++;
-      }
-      // Rate limit: small delay between API calls
-      await new Promise(r => setTimeout(r, 200));
-    } catch {}
+      if (data.data?.length > 0) {
+        const t = data.data[0];
+        const art = t.album?.cover_big || t.album?.cover_medium || '';
+        const albumName = t.album?.title || '';
+        const deezerId = t.id ? String(t.id) : '';
+
+        if (art) {
+          db.prepare(`
+            UPDATE media SET
+              artwork_url = ?,
+              album = CASE WHEN album = '' OR album IS NULL THEN ? ELSE album END,
+              tm_track_id = CASE WHEN tm_track_id = '' OR tm_track_id IS NULL THEN ? ELSE tm_track_id END
+            WHERE id = ?
+          `).run(art, albumName, deezerId, m.id);
+          enriched++;
+        } else { failed++; }
+      } else { failed++; }
+      // Deezer rate limit: max 50 req/5s → 300ms between
+      await new Promise(r => setTimeout(r, 300));
+    } catch { failed++; }
   }
 
-  res.json({ total: media.length, enriched });
+  res.json({ total: media.length, enriched, failed });
 });
 
 // ════════════════════════════════════

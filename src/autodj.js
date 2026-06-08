@@ -480,28 +480,60 @@ class AutoDJ {
 
   async _autoEnrich(track) {
     try {
-      const q = `${track.artist} ${track.title}`;
-      const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(q)}`;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      const results = await resp.json();
-      if (Array.isArray(results) && results.length > 0 && results[0].album_art) {
-        const t = results[0];
-        this.db.prepare(`
-          UPDATE media SET artwork_url = ?, tm_track_id = COALESCE(?, tm_track_id)
-          WHERE id = ? AND (artwork_url IS NULL OR artwork_url = '')
-        `).run(t.album_art, t.deezer_id || null, track.id);
-        track.artwork_url = t.album_art;
-        // Update live now-playing
-        for (const [sid] of this.sessions) {
-          const np = this.streamEngine.getNowPlaying(sid);
-          if (np && np.media_id === track.id) {
-            np.artwork_url = t.album_art;
-            this.broadcast('nowplaying', { stationId: sid, ...np });
+      const q = `${track.artist} ${track.title}`.trim();
+      if (!q || q === 'Unknown') return;
+
+      // Try Deezer search (free, no auth, has album art)
+      const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const data = await resp.json();
+
+      if (data.data?.length > 0) {
+        const t = data.data[0];
+        const art = t.album?.cover_big || t.album?.cover_medium || t.album?.cover || '';
+        const albumName = t.album?.title || '';
+        const deezerId = t.id ? String(t.id) : '';
+
+        if (art) {
+          this.db.prepare(`
+            UPDATE media SET
+              artwork_url = ?,
+              album = CASE WHEN album = '' OR album IS NULL THEN ? ELSE album END,
+              tm_track_id = CASE WHEN tm_track_id = '' OR tm_track_id IS NULL THEN ? ELSE tm_track_id END
+            WHERE id = ? AND (artwork_url IS NULL OR artwork_url = '')
+          `).run(art, albumName, deezerId, track.id);
+
+          track.artwork_url = art;
+          if (!track.album && albumName) track.album = albumName;
+
+          // Update live now-playing immediately
+          for (const [sid] of this.sessions) {
+            const np = this.streamEngine.getNowPlaying(sid);
+            if (np && np.media_id === track.id) {
+              np.artwork_url = art;
+              if (albumName) np.album = albumName;
+              this.broadcast('nowplaying', { stationId: sid, ...np });
+            }
+          }
+          console.log(`  🎨 Enriched: ${track.artist} — ${track.title} (${art.substring(0, 50)}...)`);
+        }
+      }
+    } catch (e) {
+      // Deezer search failed — try TypicalMedia as fallback
+      try {
+        const q2 = `${track.artist} ${track.title}`;
+        const resp2 = await fetch(`https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(q2)}`, { signal: AbortSignal.timeout(5000) });
+        const results = await resp2.json();
+        if (Array.isArray(results) && results.length > 0 && results[0].album_art) {
+          this.db.prepare('UPDATE media SET artwork_url = ? WHERE id = ? AND (artwork_url IS NULL OR artwork_url = "")').run(results[0].album_art, track.id);
+          track.artwork_url = results[0].album_art;
+          for (const [sid] of this.sessions) {
+            const np = this.streamEngine.getNowPlaying(sid);
+            if (np && np.media_id === track.id) { np.artwork_url = results[0].album_art; this.broadcast('nowplaying', { stationId: sid, ...np }); }
           }
         }
-        console.log(`  🎨 Enriched: ${track.artist} — ${track.title}`);
-      }
-    } catch {}
+      } catch {}
+    }
   }
 }
 
