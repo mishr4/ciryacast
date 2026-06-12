@@ -169,6 +169,11 @@ sourceServer.on('error', (e) => {
 });
 sourceServer.listen(ICECAST_PORT, () => {
   console.log(`  🎚 Icecast source port listening on :${ICECAST_PORT} (expose via Railway TCP Proxy)`);
+  const pubHost = process.env.ICECAST_PUBLIC_HOST || process.env.RAILWAY_TCP_PROXY_DOMAIN;
+  const pubPort = process.env.ICECAST_PUBLIC_PORT || process.env.RAILWAY_TCP_PROXY_PORT;
+  console.log(pubHost
+    ? `  🎚 Public DJ address: ${pubHost}:${pubPort}`
+    : '  🎚 No public TCP proxy vars found (RAILWAY_TCP_PROXY_DOMAIN unset — redeploy after creating the proxy, or set ICECAST_PUBLIC_HOST/PORT)');
 });
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -202,14 +207,17 @@ app.get('/api/stations/:id/connection-info', (req, res) => {
   const station = db.prepare('SELECT id, name FROM stations WHERE id = ?').get(req.params.id);
   if (!station) return res.status(404).json({ error: 'Station not found' });
 
-  const proxyDomain = process.env.RAILWAY_TCP_PROXY_DOMAIN || '';
-  const proxyPort = Number(process.env.RAILWAY_TCP_PROXY_PORT) || 0;
+  // Manual override wins (set ICECAST_PUBLIC_HOST/PORT in Railway Variables),
+  // then Railway's auto-injected TCP proxy vars (only present in deployments
+  // created AFTER the proxy was added — they're snapshotted at deploy time)
+  const proxyDomain = process.env.ICECAST_PUBLIC_HOST || process.env.RAILWAY_TCP_PROXY_DOMAIN || '';
+  const proxyPort = Number(process.env.ICECAST_PUBLIC_PORT) || Number(process.env.RAILWAY_TCP_PROXY_PORT) || 0;
 
   res.json({
-    configured: !!proxyDomain,
+    configured: !!(proxyDomain && proxyPort),
     type: 'Icecast 2',
     host: proxyDomain || req.hostname,
-    port: proxyDomain ? proxyPort : Number(ICECAST_PORT),
+    port: (proxyDomain && proxyPort) ? proxyPort : Number(ICECAST_PORT),
     mount: `/live/${station.id}`,
     login: 'source',
     station_name: station.name,
