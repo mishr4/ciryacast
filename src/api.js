@@ -7,6 +7,30 @@ const { v4: uuid } = require('uuid');
 
 const router = express.Router();
 
+// ── Access control: banned emails + IP capture ──
+// Emails in the BANNED_EMAILS env var are always banned (survives DB resets);
+// the banned_emails table holds bans added live from the dashboard.
+const ENV_BANNED = new Set(
+  (process.env.BANNED_EMAILS || '').split(',').map(s => s.toLowerCase().trim()).filter(Boolean)
+);
+
+function normEmail(e) { return (e || '').toLowerCase().trim(); }
+
+function clientIp(req) {
+  const fwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return fwd || req.socket?.remoteAddress || req.ip || '';
+}
+
+function isEmailBanned(db, email) {
+  const e = normEmail(email);
+  if (!e) return false;
+  if (ENV_BANNED.has(e)) return true;
+  try { return !!db.prepare('SELECT 1 FROM banned_emails WHERE email = ?').get(e); }
+  catch { return false; }
+}
+
+const BAN_MESSAGE = 'You have been banned from Cirya Utility and services.';
+
 // ── Audio normalization (EBU R128 loudnorm — broadcast standard) ──
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -1103,13 +1127,41 @@ router.post('/stations/:id/live/kick', (req, res) => {
 // USER AUTH & MANAGEMENT
 // ════════════════════════════════════
 
+// Validate an active session — called by the dashboard on load and whenever
+// a force_reload is broadcast. Logs the caller's IP against their email so
+// admins can retrieve an abuser's IP, and reports ban status.
+router.post('/auth/validate', (req, res) => {
+  const db = req.app.get('db');
+  const email = normEmail(req.body.email);
+  const ip = clientIp(req);
+  if (email) {
+    try {
+      db.prepare('INSERT INTO access_log (email, ip, user_agent) VALUES (?, ?, ?)')
+        .run(email, ip, (req.headers['user-agent'] || '').slice(0, 300));
+    } catch {}
+  }
+  const banned = isEmailBanned(db, email);
+  res.json({ banned, message: banned ? BAN_MESSAGE : '', your_ip: ip });
+});
+
 // Login with email + password
 router.post('/auth/login', (req, res) => {
   const db = req.app.get('db');
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email.toLowerCase().trim());
+  const cleanEmail = normEmail(email);
+
+  // Log the attempt's IP and block banned emails before checking credentials
+  try {
+    db.prepare('INSERT INTO access_log (email, ip, user_agent) VALUES (?, ?, ?)')
+      .run(cleanEmail, clientIp(req), (req.headers['user-agent'] || '').slice(0, 300));
+  } catch {}
+  if (isEmailBanned(db, cleanEmail)) {
+    return res.status(403).json({ error: BAN_MESSAGE, banned: true });
+  }
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(cleanEmail);
   if (!user || !verifyPassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
@@ -1132,6 +1184,62 @@ router.post('/auth/login', (req, res) => {
     },
     stations: stations,
   });
+});
+
+// ════════════════════════════════════
+// BANS & IP CAPTURE (abuse mitigation)
+// ════════════════════════════════════
+
+// Ban an email — kicks them out of the dashboard and forces every connected
+// session to reload (banned ones land on the ban screen). Returns any IPs
+// we've already logged for that email so they can be IP-banned elsewhere.
+router.post('/admin/ban', (req, res) => {
+  const db = req.app.get('db');
+  const email = normEmail(req.body.email);
+  if (!email) return res.status(400).json({ error: 'email required' });
+
+  db.prepare('INSERT OR REPLACE INTO banned_emails (email, reason, banned_by) VALUES (?, ?, ?)')
+    .run(email, req.body.reason || '', req.body.by || 'admin');
+
+  // Kick any live DJ matching this email's display name is out of scope here;
+  // the force_reload + ban gate handles dashboard sessions.
+  try { req.app.get('broadcast')('force_reload', { reason: 'ban' }); } catch {}
+
+  const ips = db.prepare(
+    "SELECT DISTINCT ip FROM access_log WHERE email = ? AND ip != '' ORDER BY at DESC LIMIT 25"
+  ).all(email).map(r => r.ip);
+
+  console.log(`  ⛔ BANNED ${email} — known IPs: ${ips.join(', ') || 'none yet'}`);
+  res.json({ ok: true, email, message: BAN_MESSAGE, known_ips: ips });
+});
+
+// Lift a ban (env-var bans cannot be lifted here — remove them in Railway)
+router.post('/admin/unban', (req, res) => {
+  const db = req.app.get('db');
+  const email = normEmail(req.body.email);
+  if (!email) return res.status(400).json({ error: 'email required' });
+  db.prepare('DELETE FROM banned_emails WHERE email = ?').run(email);
+  const stillEnv = ENV_BANNED.has(email);
+  res.json({ ok: true, email, env_locked: stillEnv });
+});
+
+// List active bans
+router.get('/admin/banned', (req, res) => {
+  const db = req.app.get('db');
+  const rows = db.prepare('SELECT email, reason, banned_by, banned_at FROM banned_emails ORDER BY banned_at DESC').all();
+  const envBans = [...ENV_BANNED].map(email => ({ email, reason: 'env BANNED_EMAILS', banned_by: 'railway', banned_at: '' }));
+  res.json([...envBans, ...rows]);
+});
+
+// IP log for an email — for IP-banning an abuser in Cirya / Cloudflare / etc.
+router.get('/admin/access-log', (req, res) => {
+  const db = req.app.get('db');
+  const email = normEmail(req.query.email);
+  const rows = email
+    ? db.prepare('SELECT email, ip, user_agent, at FROM access_log WHERE email = ? ORDER BY at DESC LIMIT 100').all(email)
+    : db.prepare('SELECT email, ip, user_agent, at FROM access_log ORDER BY at DESC LIMIT 100').all();
+  const uniqueIps = [...new Set(rows.map(r => r.ip).filter(Boolean))];
+  res.json({ email: email || null, unique_ips: uniqueIps, entries: rows });
 });
 
 // List all users (admin only — no middleware yet, rely on CiryaSSO admin)

@@ -408,6 +408,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/media', express.static(mediaDir));
 
+// Trust Railway's proxy so req IPs / x-forwarded-for resolve to the real client
+app.set('trust proxy', true);
+
 // ── API routes ──
 app.use('/api', api);
 

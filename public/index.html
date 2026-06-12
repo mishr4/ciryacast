@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CiryaCast — Dashboard</title>
-<link rel="stylesheet" href="/css/dashboard.css?v=6">
+<link rel="stylesheet" href="/css/dashboard.css?v=7">
 </head>
 <body>
 
@@ -249,7 +249,7 @@
           Invite User
         </button>
       </div>
-      <div class="card">
+      <div class="card" style="margin-bottom:16px">
         <div class="card-header">
           <div class="card-title">Station Managers</div>
           <span class="badge badge-purple" id="user-count">0</span>
@@ -260,6 +260,21 @@
             <h3>No users</h3><p>Invite a user and assign them a station to manage</p>
           </div>
         </div>
+      </div>
+
+      <!-- Ban management -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🚫 Banned from Cirya Utility</div>
+          <span class="badge" style="background:#FFF0F0;color:#FF2A2A" id="ban-count">0</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+          <input type="email" id="ban-email-input" placeholder="email@cirya.co" style="flex:1;min-width:200px;padding:9px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none">
+          <button class="btn btn-danger btn-sm" onclick="banUser()">Ban &amp; force reload</button>
+          <button class="btn btn-ghost btn-sm" onclick="lookupIPs()">Look up IPs</button>
+        </div>
+        <div id="ban-ip-result" style="display:none;background:#fafafa;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:12px;font-size:12px;margin-bottom:14px"></div>
+        <div id="banned-list"></div>
       </div>
     </div>
 
@@ -895,6 +910,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=6"></script>
+<script src="/js/dashboard.js?v=7"></script>
 </body>
 </html>

@@ -86,6 +86,12 @@ function connectWS() {
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onmessage = (e) => {
     const { type, data } = JSON.parse(e.data);
+    if (type === 'force_reload') {
+      // Re-check access first: banned users hit the ban screen and stay there,
+      // everyone else gets a fresh reload.
+      validateAccess().then(ok => { if (ok) location.reload(); });
+      return;
+    }
     if (type === 'nowplaying' || type === 'track_change') refreshDashboard();
     if (type === 'listeners') refreshDashboard();
     if (type === 'media_uploaded') { refreshMedia(); refreshDashboard(); }
@@ -1406,6 +1412,8 @@ async function refreshUsers() {
   document.getElementById('user-count').textContent = users.length;
   const el = document.getElementById('users-list');
 
+  loadBannedList();
+
   // Populate station checkboxes in invite modal
   const stationsDiv = document.getElementById('input-user-stations');
   if (stationsDiv && stations?.length) {
@@ -2134,10 +2142,119 @@ async function deleteVoiceTrack(stationId, filename) {
 }
 
 // ════════════════════════════════════
+// ACCESS CONTROL — ban gate
+// ════════════════════════════════════
+function showBanScreen(message) {
+  try { sessionStorage.clear(); } catch {}
+  try { if (typeof ws !== 'undefined' && ws) ws.close(); } catch {}
+  document.title = 'Access Denied';
+  document.body.innerHTML = `
+    <div style="position:fixed;inset:0;background:#0a0a12;display:flex;align-items:center;justify-content:center;padding:24px;z-index:99999;font-family:'Instrument Sans',system-ui,sans-serif">
+      <div style="text-align:center;max-width:460px">
+        <div style="width:84px;height:84px;margin:0 auto 24px;border-radius:50%;background:rgba(255,42,42,0.12);display:flex;align-items:center;justify-content:center">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#FF2A2A" stroke-width="2" style="width:42px;height:42px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        </div>
+        <h1 style="color:#fff;font-family:'Lexend',sans-serif;font-size:26px;font-weight:700;margin:0 0 12px">Access Denied</h1>
+        <p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 8px">${message || 'You have been banned from Cirya Utility and services.'}</p>
+        <p style="color:rgba(255,255,255,0.35);font-size:13px;margin-top:20px">If you believe this is a mistake, contact a Cirya administrator.</p>
+      </div>
+    </div>`;
+}
+
+async function validateAccess() {
+  const u = getCurrentUser();
+  try {
+    const res = await fetch('/api/auth/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: u?.email || '' }),
+    });
+    const data = await res.json();
+    if (data.banned) { showBanScreen(data.message); return false; }
+  } catch (e) { console.error('Access validation failed:', e); }
+  return true;
+}
+
+async function banUser() {
+  const input = document.getElementById('ban-email-input');
+  const email = input.value.trim().toLowerCase();
+  if (!email) { showToast('Enter an email to ban', 'error'); return; }
+  if (!confirm(`Ban ${email} from Cirya Utility? Everyone currently signed in will be reloaded.`)) return;
+
+  const me = getCurrentUser();
+  const res = await api('/admin/ban', {
+    method: 'POST',
+    body: JSON.stringify({ email, by: me?.email || 'admin' }),
+  });
+  if (res?.ok) {
+    input.value = '';
+    const ips = res.known_ips?.length ? res.known_ips.join(', ') : 'none captured yet';
+    showToast(`Banned ${email}`);
+    const box = document.getElementById('ban-ip-result');
+    box.style.display = 'block';
+    box.innerHTML = `<strong>${esc(email)}</strong> banned & all sessions reloaded.<br>Known IP(s) for an IP-ban: <code style="user-select:all">${esc(ips)}</code>`;
+    loadBannedList();
+  } else {
+    showToast(res?.error || 'Ban failed', 'error');
+  }
+}
+
+async function lookupIPs() {
+  const email = document.getElementById('ban-email-input').value.trim().toLowerCase();
+  if (!email) { showToast('Enter an email to look up', 'error'); return; }
+  const res = await api(`/admin/access-log?email=${encodeURIComponent(email)}`);
+  const box = document.getElementById('ban-ip-result');
+  box.style.display = 'block';
+  if (!res || !res.entries?.length) {
+    box.innerHTML = `No access logged yet for <strong>${esc(email)}</strong>. The IP is captured the next time they load the dashboard (e.g. after a ban + reload).`;
+    return;
+  }
+  box.innerHTML = `
+    <div style="margin-bottom:8px"><strong>${esc(email)}</strong> — unique IPs (copy into Cirya/Cloudflare):</div>
+    <code style="user-select:all;display:block;margin-bottom:10px">${esc(res.unique_ips.join(', ') || 'none')}</code>
+    <div style="max-height:160px;overflow:auto;font-size:11px;color:#666">
+      ${res.entries.map(e => `<div>${esc(e.ip || '?')} · ${esc((e.at || '').replace('T',' '))} · ${esc((e.user_agent || '').slice(0,40))}</div>`).join('')}
+    </div>`;
+}
+
+async function loadBannedList() {
+  const rows = await api('/admin/banned') || [];
+  const el = document.getElementById('banned-list');
+  const count = document.getElementById('ban-count');
+  if (count) count.textContent = rows.length;
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = `<p style="text-align:center;color:#999;font-size:13px;padding:12px 0">No banned users</p>`;
+    return;
+  }
+  el.innerHTML = rows.map(b => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid rgba(0,0,0,0.06);border-radius:10px;margin-bottom:8px">
+      <div>
+        <strong style="font-size:13px">${esc(b.email)}</strong>
+        <div style="font-size:11px;color:#999">${b.banned_by ? 'by ' + esc(b.banned_by) : ''}${b.reason ? ' · ' + esc(b.reason) : ''}</div>
+      </div>
+      ${b.banned_by === 'railway'
+        ? '<span class="badge" style="background:#eee;color:#666">env-locked</span>'
+        : `<button class="btn btn-ghost btn-sm" onclick="unbanUser('${esc(b.email)}')">Unban</button>`}
+    </div>`).join('');
+}
+
+async function unbanUser(email) {
+  if (!confirm(`Lift the ban on ${email}?`)) return;
+  const res = await api('/admin/unban', { method: 'POST', body: JSON.stringify({ email }) });
+  if (res?.env_locked) showToast(`${email} is locked by BANNED_EMAILS — remove it in Railway`, 'error');
+  else showToast(`Unbanned ${email}`);
+  loadBannedList();
+}
+
+// ════════════════════════════════════
 // INIT
 // ════════════════════════════════════
 try { connectWS(); } catch (e) { console.error('WS init error:', e); }
-refreshDashboard().then(() => checkRecordingStates()).catch(e => console.error('Init error:', e));
+validateAccess().then(ok => {
+  if (!ok) return; // banned — ban screen is showing, stop booting
+  refreshDashboard().then(() => checkRecordingStates()).catch(e => console.error('Init error:', e));
+});
 
 // Auto-refresh now-playing every 2s for progress bar
 setInterval(() => {

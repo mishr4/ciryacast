@@ -138,6 +138,24 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_station_members_station ON station_members(station_id);
   CREATE INDEX IF NOT EXISTS idx_station_members_user ON station_members(user_id);
+
+  -- Banned staff emails — blocked from the dashboard / Cirya Utility
+  CREATE TABLE IF NOT EXISTS banned_emails (
+    email TEXT PRIMARY KEY,
+    reason TEXT DEFAULT '',
+    banned_by TEXT DEFAULT '',
+    banned_at TEXT DEFAULT (datetime('now'))
+  );
+
+  -- Access log — captures IP per email so admins can IP-ban abusers
+  CREATE TABLE IF NOT EXISTS access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT DEFAULT '',
+    ip TEXT DEFAULT '',
+    user_agent TEXT DEFAULT '',
+    at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_access_log_email ON access_log(email);
 `);
 
 // ── Migrations: add columns if missing ──
