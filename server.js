@@ -156,10 +156,17 @@ server.headersTimeout = 60000;
 // Second plain-HTTP listener for Icecast source clients (Mixxx, BUTT, etc).
 // Railway's HTTPS edge can't accept raw Icecast connections on 443 — point a
 // Railway TCP Proxy at this port and use that host:port in your DJ software.
-const ICECAST_PORT = process.env.ICECAST_PORT || 8005;
+// RAILWAY_TCP_APPLICATION_PORT is set by Railway to whatever port the TCP
+// proxy targets, so the listener always matches the proxy config.
+const ICECAST_PORT = process.env.RAILWAY_TCP_APPLICATION_PORT || process.env.ICECAST_PORT || 8005;
 const sourceServer = http.createServer(rootHandler);
 sourceServer.requestTimeout = 0;
 sourceServer.headersTimeout = 60000;
+sourceServer.on('error', (e) => {
+  // Don't take the whole app down if the source port is busy — the main
+  // HTTP server (and its /live handler) still works
+  console.log(`  ⚠ Icecast source port :${ICECAST_PORT} unavailable: ${e.message}`);
+});
 sourceServer.listen(ICECAST_PORT, () => {
   console.log(`  🎚 Icecast source port listening on :${ICECAST_PORT} (expose via Railway TCP Proxy)`);
 });
@@ -186,6 +193,28 @@ app.use('/media', express.static(mediaDir));
 
 // ── API routes ──
 app.use('/api', api);
+
+// ── DJ connection info (for Mixxx / BUTT / external streaming software) ──
+// Reads Railway's TCP proxy env vars so the dashboard can show the exact
+// host:port DJs must use. RAILWAY_TCP_PROXY_DOMAIN/PORT are injected by
+// Railway when a TCP proxy is configured on the service.
+app.get('/api/stations/:id/connection-info', (req, res) => {
+  const station = db.prepare('SELECT id, name FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+
+  const proxyDomain = process.env.RAILWAY_TCP_PROXY_DOMAIN || '';
+  const proxyPort = Number(process.env.RAILWAY_TCP_PROXY_PORT) || 0;
+
+  res.json({
+    configured: !!proxyDomain,
+    type: 'Icecast 2',
+    host: proxyDomain || req.hostname,
+    port: proxyDomain ? proxyPort : Number(ICECAST_PORT),
+    mount: `/live/${station.id}`,
+    login: 'source',
+    station_name: station.name,
+  });
+});
 
 // ── Clean stream URL redirect ──
 app.get('/stream/:stationId', (req, res) => {

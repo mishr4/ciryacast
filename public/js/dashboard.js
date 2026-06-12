@@ -1041,15 +1041,24 @@ async function refreshDJs() {
   if (!sid) return;
   populateDJStationSelect();
 
-  // Set connection info
+  // Set connection info from the server (Railway TCP proxy host/port —
+  // DJ software can NOT connect through the normal HTTPS domain)
   const hostEl = document.getElementById('dj-host');
   const portEl = document.getElementById('dj-port');
   const mountEl = document.getElementById('dj-mount');
-  const hostname = location.hostname;
-  const port = location.port || (location.protocol === 'https:' ? '443' : '80');
-  if (hostEl) hostEl.textContent = hostname;
-  if (portEl) portEl.textContent = port;
-  if (mountEl) mountEl.textContent = `/live/${sid}`;
+  const warnEl = document.getElementById('dj-conn-warning');
+  try {
+    const info = await api(`/stations/${sid}/connection-info`);
+    if (hostEl) hostEl.textContent = info.host;
+    if (portEl) portEl.textContent = info.port;
+    if (mountEl) mountEl.textContent = info.mount;
+    if (warnEl) warnEl.style.display = info.configured ? 'none' : 'block';
+    window._djConnInfo = info;
+  } catch {
+    if (hostEl) hostEl.textContent = location.hostname;
+    if (portEl) portEl.textContent = '8005';
+    if (mountEl) mountEl.textContent = `/live/${sid}`;
+  }
 
   // Integration URLs
   const origin = location.origin;
@@ -1093,7 +1102,7 @@ async function refreshDJs() {
 
   el.innerHTML = `<table class="media-table">
     <thead><tr>
-      <th>DJ</th><th>Username</th><th>Stream Key</th><th>Status</th><th>Last Live</th><th style="width:120px">Actions</th>
+      <th>DJ</th><th>Username</th><th>Stream Key</th><th>Status</th><th>Last Live</th><th style="width:150px">Actions</th>
     </tr></thead>
     <tbody>${accounts.map(a => `
       <tr>
@@ -1111,6 +1120,7 @@ async function refreshDJs() {
         <td class="dim">${a.last_connected ? timeAgo(a.last_connected) : 'Never'}</td>
         <td>
           <div style="display:flex;gap:4px">
+            <button class="btn btn-ghost btn-sm" onclick="copyMixxxConfig('${a.id}')" title="Copy full Mixxx settings for this DJ">📋</button>
             <button class="btn btn-ghost btn-sm" onclick="toggleDJ('${a.id}', ${a.is_active ? 0 : 1})" title="${a.is_active ? 'Disable' : 'Enable'}">
               ${a.is_active ? '⏸' : '▶'}
             </button>
@@ -1122,6 +1132,35 @@ async function refreshDJs() {
       </tr>
     `).join('')}</tbody>
   </table>`;
+
+  window._djAccounts = accounts;
+}
+
+// Click-to-copy a single connection field
+function copyConnField(el) {
+  navigator.clipboard.writeText(el.textContent.trim());
+  showToast(`Copied: ${el.textContent.trim()}`);
+}
+
+// Copy a ready-to-paste Mixxx config block for one DJ account
+function copyMixxxConfig(accountId) {
+  const a = (window._djAccounts || []).find(x => x.id === accountId);
+  const info = window._djConnInfo;
+  if (!a || !info) { showToast('Connection info not loaded yet', 'error'); return; }
+
+  const block = [
+    `Mixxx → Preferences → Live Broadcasting`,
+    `Type:     Icecast 2`,
+    `Host:     ${info.host}`,
+    `Port:     ${info.port}`,
+    `Mount:    ${info.mount}`,
+    `Login:    source`,
+    `Password: ${a.stream_key}`,
+    `Format:   MP3, 128 kbps, Stereo`,
+  ].join('\n');
+
+  navigator.clipboard.writeText(block);
+  showToast(`📋 Mixxx settings for ${a.display_name || a.username} copied!`);
 }
 
 async function createDJAccount() {

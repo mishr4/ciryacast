@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CiryaCast — Dashboard</title>
-<link rel="stylesheet" href="/css/dashboard.css?v=5">
+<link rel="stylesheet" href="/css/dashboard.css?v=6">
 </head>
 <body>
 
@@ -276,26 +276,31 @@
       <!-- Connection Info -->
       <div class="card" style="margin-bottom:16px">
         <div class="card-header">
-          <div class="card-title">Connection Settings</div>
+          <div class="card-title">🎚 Mixxx / DJ Software Setup</div>
           <span class="badge" id="live-status-badge" style="display:none">LIVE</span>
         </div>
         <div style="padding:0 0 8px">
-          <p style="font-size:12px;color:#666;margin-bottom:12px">Use these settings in <strong>BUTT</strong>, <strong>Mixxx</strong>, or any Icecast source client:</p>
+          <div id="dj-conn-warning" style="display:none;background:#FFF3E0;border:1px solid #FFB74D;color:#7a4a00;border-radius:10px;padding:10px 14px;font-size:12px;margin-bottom:12px">
+            ⚠ No Railway TCP Proxy detected — DJ software can't connect yet. In Railway: <strong>Settings → Networking → TCP Proxy</strong> → target port <strong>8005</strong>, then redeploy.
+          </div>
+          <p style="font-size:12px;color:#666;margin-bottom:12px">
+            In <strong>Mixxx</strong>: Preferences → Live Broadcasting → set these values. Type must be <strong>Icecast 2</strong>. Click any value to copy it.
+          </p>
           <div style="display:grid;grid-template-columns:100px 1fr;gap:6px 12px;font-size:13px;align-items:center">
             <span style="color:#777;font-weight:600">Type</span>
-            <span>Icecast</span>
+            <span>Icecast 2</span>
             <span style="color:#777;font-weight:600">Host</span>
-            <code id="dj-host" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
+            <code id="dj-host" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
             <span style="color:#777;font-weight:600">Port</span>
-            <code id="dj-port" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
+            <code id="dj-port" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
             <span style="color:#777;font-weight:600">Mount</span>
-            <code id="dj-mount" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all"></code>
-            <span style="color:#777;font-weight:600">Username</span>
-            <code style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all">source</code>
+            <code id="dj-mount" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
+            <span style="color:#777;font-weight:600">Login</span>
+            <code onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer">source</code>
             <span style="color:#777;font-weight:600">Password</span>
-            <span style="color:#999;font-size:12px">Use the stream key from the account below</span>
+            <span style="color:#999;font-size:12px">A stream key from the table below (📋 copies the full Mixxx config)</span>
             <span style="color:#777;font-weight:600">Format</span>
-            <span>MP3</span>
+            <span>MP3, 128 kbps, Stereo</span>
           </div>
         </div>
       </div>
@@ -890,6 +895,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=5"></script>
+<script src="/js/dashboard.js?v=6"></script>
 </body>
 </html>
