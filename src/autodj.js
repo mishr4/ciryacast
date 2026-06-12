@@ -421,9 +421,10 @@ class AutoDJ {
       s.offset += toSend;
     }
 
-    // Detect and warn if we're falling behind (drift > 2 seconds worth of data)
-    if (drift > 2 * 1000 * s.bytesPerMs && s.offset < s.buf.length * 0.5) {
-      console.warn(`  ⏱ Drift detected on ${stationId}: ${Math.round(drift / s.bytesPerMs)}ms behind`);
+    // Warn if the event loop fell badly behind (throttled to once per 30s)
+    if (drift > 2000 * s.bytesPerMs && Date.now() - (s._lastDriftWarn || 0) > 30000) {
+      s._lastDriftWarn = Date.now();
+      console.warn(`  ⏱ AutoDJ drift on ${stationId}: ${Math.round(drift / s.bytesPerMs)}ms behind (event loop stall?)`);
     }
 
     if (s.offset >= s.buf.length) {
@@ -435,8 +436,9 @@ class AutoDJ {
       return;
     }
 
-    // Schedule next tick in 25ms — precise clock-based delivery, minimal jitter
-    s.timer = setTimeout(() => this._tick(stationId), 25);
+    // 50ms tick — the clock-based math above self-corrects for any jitter,
+    // so a faster tick adds CPU wakeups without reducing latency
+    s.timer = setTimeout(() => this._tick(stationId), 50);
   }
 
   /** Get a playlist matching a schedule rule and optional type */

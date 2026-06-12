@@ -26,7 +26,6 @@ class StreamEngine {
         buffer: [],
         bufferSize: 0,
         live: false,
-        _elapsedTimer: null,
         // Recording state
         recording: null, // { id, stream, startedAt, title }
       });
@@ -38,11 +37,10 @@ class StreamEngine {
   pushAudio(stationId, chunk) {
     const s = this._ensure(stationId);
 
-    // Ring buffer — keep ~512KB (~32s at 128kbps) for reliable burst-on-connect
-    // Larger buffer = new listeners get more audio immediately = less initial buffering
+    // Ring buffer — keep ~256KB so a burst tail is always available
     s.buffer.push(chunk);
     s.bufferSize += chunk.length;
-    while (s.bufferSize > 512 * 1024 && s.buffer.length > 1) {
+    while (s.bufferSize > 256 * 1024 && s.buffer.length > 1) {
       s.bufferSize -= s.buffer.shift().length;
     }
 
@@ -80,17 +78,19 @@ class StreamEngine {
     const s = this._ensure(stationId);
     s.listeners.add(res);
 
-    // Burst buffer on connect — gives the browser ~32s of audio immediately
-    // so playback starts fast and survives network jitter + browser buffering
+    // Burst on connect: send only the LAST ~96KB (~6s at 128kbps).
+    // Enough for the browser to start playing instantly, but keeps the
+    // listener close to live. Bursting the whole ring buffer put every
+    // listener 15-30s behind real time — that was the delay.
     if (!skipBuffer && s.buffer.length > 0) {
-      const burstData = Buffer.concat(s.buffer);
-      if (burstData.length > 0) {
-        try {
-          res.write(burstData);
-          // Force flush to browser
-          if (res.flush) res.flush();
-        } catch {}
+      const BURST_BYTES = 96 * 1024;
+      const tail = [];
+      let total = 0;
+      for (let i = s.buffer.length - 1; i >= 0 && total < BURST_BYTES; i--) {
+        tail.unshift(s.buffer[i]);
+        total += s.buffer[i].length;
       }
+      try { res.write(Buffer.concat(tail)); } catch {}
     }
 
     this.broadcast('listeners', { stationId, count: s.listeners.size });
@@ -212,23 +212,21 @@ class StreamEngine {
       duration: meta.duration || 0,
       artwork_url: meta.artwork_url || '',
       started_at: new Date(startedAt).toISOString(),
-      elapsed: 0,
+      _startedAtMs: startedAt,
       media_id: meta.media_id || null,
       is_request: meta.is_request || false,
     };
 
-    if (s._elapsedTimer) clearInterval(s._elapsedTimer);
-    s._elapsedTimer = setInterval(() => {
-      if (s.nowPlaying) {
-        s.nowPlaying.elapsed = Math.floor((Date.now() - startedAt) / 1000);
-      }
-    }, 1000);
-
-    this.broadcast('nowplaying', { stationId, ...s.nowPlaying });
+    this.broadcast('nowplaying', { stationId, ...this.getNowPlaying(stationId) });
   }
 
   getNowPlaying(stationId) {
-    return this.stations.get(stationId)?.nowPlaying || null;
+    const np = this.stations.get(stationId)?.nowPlaying;
+    if (!np) return null;
+    // Compute elapsed on read — no per-station timers needed
+    const { _startedAtMs, ...pub } = np;
+    pub.elapsed = Math.floor((Date.now() - _startedAtMs) / 1000);
+    return pub;
   }
 
   getListenerCount(stationId) {

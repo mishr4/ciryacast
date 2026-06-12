@@ -195,36 +195,33 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
 });
 
 // ── Now Playing API (public — no auth) ──
-app.get('/api/nowplaying', (req, res) => {
-  // Only show public (non-hidden) stations
-  const stations = db.prepare('SELECT * FROM stations WHERE is_hidden = 0 OR is_hidden IS NULL').all();
-  const result = stations.map(s => {
-    // Get owner name if owner_id exists
-    let ownerName = '';
-    if (s.owner_id) {
-      const owner = db.prepare('SELECT display_name FROM users WHERE id = ?').get(s.owner_id);
-      ownerName = owner?.display_name || '';
-    }
-    // Get member count from station_members table
-    const memberCount = db.prepare('SELECT COUNT(*) as count FROM station_members WHERE station_id = ?').get(s.id)?.count || 0;
+// Prepared once — this endpoint is polled by every public visitor
+const stmtPublicStations = db.prepare(`
+  SELECT s.*, u.display_name AS owner_name,
+    (SELECT COUNT(*) FROM station_members m WHERE m.station_id = s.id) AS member_count
+  FROM stations s
+  LEFT JOIN users u ON u.id = s.owner_id
+  WHERE s.is_hidden = 0 OR s.is_hidden IS NULL
+`);
 
-    return {
-      station: {
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        genre: s.genre,
-        logo_url: s.logo_url || '',
-        location: s.location || '',
-        owner_name: ownerName,
-        member_count: memberCount
-      },
-      now_playing: streamEngine.getNowPlaying(s.id),
-      listeners: { current: streamEngine.getListenerCount(s.id) },
-      live: streamEngine.isLive(s.id),
-      listen_url: `/listen/${s.id}/radio.mp3`,
-    };
-  });
+app.get('/api/nowplaying', (req, res) => {
+  const stations = stmtPublicStations.all();
+  const result = stations.map(s => ({
+    station: {
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      genre: s.genre,
+      logo_url: s.logo_url || '',
+      location: s.location || '',
+      owner_name: s.owner_name || '',
+      member_count: s.member_count || 0,
+    },
+    now_playing: streamEngine.getNowPlaying(s.id),
+    listeners: { current: streamEngine.getListenerCount(s.id) },
+    live: streamEngine.isLive(s.id),
+    listen_url: `/listen/${s.id}/radio.mp3`,
+  }));
   res.json(result);
 });
 
@@ -293,12 +290,16 @@ wss.on('connection', (ws, req) => {
     // ── Live mic input stream with real-time WebM->MP3 conversion ──
     console.log(`  🎤 Live mic connected: ${stationId} (${username})`);
 
-    // Start ffmpeg process to convert WebM to MP3
+    // Start ffmpeg process to convert WebM to MP3 (low-latency flags:
+    // small probe window + flush every packet so audio reaches listeners fast)
     const ffmpeg = spawn('ffmpeg', [
+      '-fflags', 'nobuffer',
+      '-probesize', '32768',
+      '-analyzeduration', '500000',
       '-i', 'pipe:0',           // input from stdin
       '-f', 'mp3',              // output format
       '-b:a', '128k',           // bitrate
-      '-q:a', '5',              // quality
+      '-flush_packets', '1',    // push each packet immediately
       'pipe:1',                 // output to stdout
     ], {
       stdio: ['pipe', 'pipe', 'pipe']

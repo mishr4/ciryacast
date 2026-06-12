@@ -168,76 +168,116 @@ function renderDashboardStations() {
     const progress = duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0;
 
     return `
-      <div class="card now-playing-card" style="margin-bottom:16px;background-image:url('${esc(artUrl)}');background-size:cover;background-position:center">
-        <div class="np-art">
-          ${!artUrl ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>` : ''}
-        </div>
+      <div class="card now-playing-card" style="margin-bottom:16px">
+        <div class="np-hero${artUrl ? '' : ' np-hero-fallback'}"${artUrl ? ` style="background-image:url('${esc(artUrl).replace(/'/g, '%27')}')"` : ''}>
+          <div class="np-shade"></div>
 
-        <!-- Station Logo & Status Badge (top-left) -->
-        <div style="position:absolute;top:16px;left:16px;z-index:3;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap">
-          ${s.logo_url ? `<img src="${esc(s.logo_url)}" style="width:48px;height:48px;border-radius:8px;background:#000;box-shadow:0 2px 8px rgba(0,0,0,0.4)">` : ''}
-          ${s.live
-            ? '<span class="badge" style="background:#ff1744;color:#fff;box-shadow:0 2px 8px rgba(255,23,68,0.4)">🎙 LIVE</span>'
-            : `<span class="badge ${running ? 'badge-green' : 'badge-red'}" style="box-shadow:0 2px 8px rgba(0,0,0,0.3)">${running ? 'ON AIR' : 'OFFLINE'}</span>`
-          }
-        </div>
+          <div class="np-topleft">
+            ${s.logo_url ? `<img class="np-logo" src="${esc(s.logo_url)}" alt="">` : ''}
+            ${s.live
+              ? '<span class="badge" style="background:#ff1744;color:#fff">🎙 LIVE</span>'
+              : `<span class="badge ${running ? 'badge-green' : 'badge-red'}">${running ? 'ON AIR' : 'OFFLINE'}</span>`
+            }
+            ${np?.is_request ? '<span class="badge badge-purple">REQUEST</span>' : ''}
+          </div>
 
-        <!-- Listeners (top-right) -->
-        <div style="position:absolute;top:16px;right:16px;z-index:3;background:rgba(0,0,0,0.6);padding:8px 12px;border-radius:8px;text-align:center;backdrop-filter:blur(8px)">
-          <div style="color:#fff;font-size:13px;font-weight:700">${s.listeners}</div>
-          <div style="color:rgba(255,255,255,0.7);font-size:10px;font-weight:600">listening</div>
-        </div>
+          <div class="np-topright">
+            <div class="np-listeners">${s.listeners}</div>
+            <div class="np-listeners-label">listening</div>
+          </div>
 
-        <!-- Content & Metadata (center/bottom) -->
-        <div class="np-info">
-          <div style="flex:1"></div>
-          <div class="np-meta">
-            <h3>${esc(s.name)}</h3>
-            ${np ? `<p><strong>${esc(np.artist)}</strong></p><p>${esc(np.title)}</p>` : '<p style="opacity:0.8">Nothing playing</p>'}
-            ${np && duration > 0 ? `<div style="margin-top:8px;font-size:11px;opacity:0.8">${formatDuration(elapsed)} / ${formatDuration(duration)}</div>` : ''}
+          <div class="np-bottom">
+            <div class="np-meta">
+              <h3>${esc(s.name)}</h3>
+              <div class="np-owner">
+                ${s.owner ? `Owner: ${esc(s.owner.display_name || s.owner.email)}` : 'No owner'}
+                ${s.member_count ? ` • ${s.member_count} member${s.member_count !== 1 ? 's' : ''}` : ''}
+              </div>
+              ${np ? `<p><strong>${esc(np.artist)}</strong> — ${esc(np.title)}</p>` : '<p class="np-idle">Nothing playing</p>'}
+              ${np && duration > 0 ? `
+                <div class="np-progress-row">
+                  <span>${formatDuration(elapsed)}</span>
+                  <div class="np-progress"><div style="width:${progress}%"></div></div>
+                  <span>${formatDuration(duration)}</span>
+                </div>
+              ` : ''}
+            </div>
+            <button class="np-play-btn" onclick="playStationAudio('${s.id}')" id="listen-btn-${s.id}" title="Monitor audio">
+              <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+              <svg class="icon-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            </button>
           </div>
         </div>
-        <!-- Play Button (bottom-right, large) -->
-        <button class="btn btn-primary btn-sm" onclick="playStationAudio('${s.id}')" id="listen-btn-${s.id}" title="Monitor audio" style="position:absolute;bottom:16px;right:16px;z-index:3;width:48px;height:48px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center">
-          <svg viewBox="0 0 24 24" fill="currentColor" style="width:24px;height:24px"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-        </button>
 
-        <!-- Bottom Control Panel (hidden by default, shown on hover) -->
-        <div class="np-controls" style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(to top,rgba(0,0,0,0.8),transparent);padding:16px;display:flex;gap:8px;flex-wrap:wrap;opacity:0;transition:opacity 0.2s">
+        <div class="np-controls">
           ${running
-            ? `<button class="btn btn-ghost btn-sm" onclick="skipTrack('${s.id}')" style="color:#fff;border-color:rgba(255,255,255,0.3)">
+            ? `<button class="btn btn-ghost btn-sm" onclick="skipTrack('${s.id}')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>
                 Skip
               </button>
-              <button class="btn btn-danger btn-sm" onclick="stopAutoDJ('${s.id}')" style="background:rgba(255,42,42,0.8);border:none">
+              <button class="btn btn-danger btn-sm" onclick="stopAutoDJ('${s.id}')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
                 Stop
               </button>`
-            : `<button class="btn btn-green btn-sm" onclick="startAutoDJ('${s.id}')" style="background:rgba(0,200,83,0.8);border:none;color:#fff">
+            : `<button class="btn btn-green btn-sm" onclick="startAutoDJ('${s.id}')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                AutoDJ
+                Start AutoDJ
               </button>`
           }
-          <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')" style="color:#fff;border-color:rgba(255,255,255,0.3)">
+          <button class="btn btn-ghost btn-sm" onclick="toggleRecording('${s.id}')" id="rec-btn-${s.id}" title="Record">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+            <span id="rec-label-${s.id}">Record</span>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="recordVoiceTrack('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            Record VT
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="goLive('${s.id}')">
+            🎤 Live
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Settings
           </button>
-          <a class="btn btn-ghost btn-sm" href="/player/${s.id}" target="_blank" style="color:#fff;border-color:rgba(255,255,255,0.3)">
+          <button class="btn btn-ghost btn-sm" onclick="manageMembers('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Members
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="copyListenUrl('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy URL
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="goToStationMedia('${s.id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            Media
+          </button>
+          <a class="btn btn-ghost btn-sm" href="/player/${s.id}" target="_blank">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
             Player
           </a>
+          <a class="btn btn-ghost btn-sm" href="/overlay/${s.id}" target="_blank" title="OBS Full Overlay">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            OBS
+          </a>
+          <a class="btn btn-ghost btn-sm" href="/stations" target="_blank" title="Public stations page">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Public
+          </a>
         </div>
       </div>
-      <script>
-        document.querySelector('[id="listen-btn-${s.id}"]')?.parentElement?.addEventListener('mouseenter', function() {
-          this.querySelector('.np-controls').style.opacity = '1';
-        });
-        document.querySelector('[id="listen-btn-${s.id}"]')?.parentElement?.addEventListener('mouseleave', function() {
-          this.querySelector('.np-controls').style.opacity = '0';
-        });
-      </script>
     `;
   }).join('');
+
+  restoreMonitorButtonState();
+}
+
+// Re-apply the active state to the Listen button after a dashboard re-render
+// (the 5s refresh wipes the DOM, but the shared <audio> element keeps playing)
+function restoreMonitorButtonState() {
+  const audio = document.getElementById('station-monitor-audio');
+  if (!audio || audio.paused || !audio.src) return;
+  const m = audio.src.match(/\/listen\/([^/]+)\//);
+  if (m) document.getElementById(`listen-btn-${m[1]}`)?.classList.add('active');
 }
 
 // ════════════════════════════════════
@@ -315,7 +355,7 @@ async function editStation(id) {
     allUsers.forEach(user => {
       const option = document.createElement('option');
       option.value = user.id;
-      option.textContent = `${user.display_name || user.email}${currentUser?.id === user.id ? ' (You)' : ''}`;
+      option.textContent = `${user.display_name || user.email}${getCurrentUser()?.id === user.id ? ' (You)' : ''}`;
       ownerSelect.appendChild(option);
     });
     ownerSelect.value = s.owner_id || '';
@@ -893,39 +933,32 @@ async function updateRequest(id, status) {
 // Audio monitoring for staff
 function playStationAudio(stationId) {
   const audio = document.getElementById('station-monitor-audio');
+  if (!audio) return;
   const btn = document.getElementById(`listen-btn-${stationId}`);
-  const label = document.getElementById(`listen-label-${stationId}`);
 
   if (audio.src && audio.src.includes(stationId) && !audio.paused) {
     // Stop if already playing this station
     audio.pause();
-    if (label) label.textContent = 'Listen';
+    audio.removeAttribute('src');
     if (btn) btn.classList.remove('active');
   } else {
-    // Play station audio
+    // Switching stations — clear active state everywhere first
+    document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
     audio.src = `/listen/${stationId}/radio.mp3?t=${Date.now()}`;
     audio.play().catch(err => toast(`Failed to play: ${err.message}`));
-    if (label) label.textContent = 'Stop';
     if (btn) btn.classList.add('active');
   }
 }
 
-// Update button state when audio ends or is paused elsewhere
-document.addEventListener('DOMContentLoaded', () => {
+// Clear button state when audio ends or is paused
+(function initMonitorAudio() {
   const audio = document.getElementById('station-monitor-audio');
-  if (audio) {
-    audio.addEventListener('ended', () => {
-      document.querySelectorAll('[id^="listen-label-"]').forEach(el => el.textContent = 'Listen');
-      document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
-    });
-    audio.addEventListener('pause', () => {
-      if (audio.src) {
-        document.querySelectorAll('[id^="listen-label-"]').forEach(el => el.textContent = 'Listen');
-        document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
-      }
-    });
-  }
-});
+  if (!audio) return;
+  const clearActive = () =>
+    document.querySelectorAll('[id^="listen-btn-"]').forEach(el => el.classList.remove('active'));
+  audio.addEventListener('ended', clearActive);
+  audio.addEventListener('pause', clearActive);
+})();
 
 async function enrichAllMedia() {
   const sid = currentStationId || stations?.[0]?.id;

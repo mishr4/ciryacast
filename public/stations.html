@@ -153,8 +153,7 @@
     color: var(--text);
     height: 100%;
     position: relative;
-    background-size: cover !important;
-    background-position: center !important;
+    aspect-ratio: 1;
   }
 
   .station-card::before {
@@ -217,6 +216,16 @@
     filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
   }
 
+  /* Artwork layer — sits over the gradient; if the image fails to load
+     it's removed and the animated gradient shows through */
+  .card-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
   @keyframes gradient-shift {
     0% { background-position: 0% 50%; }
     50% { background-position: 100% 50%; }
@@ -248,7 +257,8 @@
     flex-direction: column;
     position: relative;
     z-index: 2;
-    justify-content: space-between;
+    justify-content: flex-end;
+    min-height: 0;
   }
 
   .card-name {
@@ -275,7 +285,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-top: auto;
     line-height: 1.4;
     text-shadow: 0 1px 4px rgba(0,0,0,0.3);
   }
@@ -437,20 +446,21 @@
       const artUrl = s.station.logo_url || (np?.artwork_url) || '';
 
       return `
-        <a class="station-card" href="/player/${s.station.id}" style="background-image:url('${esc(artUrl)}');background-size:cover;background-position:center">
-          <div class="card-logo" ${!artUrl ? '' : 'style="display:none"'}>
+        <div class="station-card" onclick="location.href='/player/${s.station.id}'" role="link" tabindex="0">
+          <div class="card-logo">
             <div class="card-logo-placeholder">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
             </div>
-            ${live ? `<div class="live-badge"><div class="live-dot"></div>LIVE</div>` : ''}
-            ${s.listeners.current > 0 ? `<div class="listeners-badge">${s.listeners.current} listening</div>` : ''}
+            ${artUrl ? `<img class="card-art" src="${esc(artUrl)}" alt="" loading="lazy" onerror="this.remove()">` : ''}
           </div>
+          ${live ? `<div class="live-badge"><div class="live-dot"></div>LIVE</div>` : ''}
+          ${s.listeners.current > 0 ? `<div class="listeners-badge">${s.listeners.current} listening</div>` : ''}
           <div class="card-info">
             <div class="card-name">${esc(s.station.name)}</div>
             <div class="card-genre">${esc(s.station.genre || s.station.description || 'Radio')}</div>
             ${hasAudio
               ? `<div class="card-np"><strong>${esc(np.artist)}</strong> — ${esc(np.title)}</div>`
-              : `<div class="card-np" style="color:rgba(255,255,255,0.25)">${live ? 'Broadcasting live' : 'Offline'}</div>`
+              : `<div class="card-np" style="color:rgba(255,255,255,0.45)">${live ? 'Broadcasting live' : 'Offline'}</div>`
             }
           </div>
           <div class="card-actions">
@@ -458,12 +468,12 @@
               <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
               Listen
             </a>
-            <button class="card-action" onclick="event.preventDefault();event.stopPropagation();copyStream('${s.listen_url}')" title="Copy stream URL">
+            <button class="card-action" onclick="event.stopPropagation();copyStream('${s.listen_url}')" title="Copy stream URL">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               Stream
             </button>
           </div>
-        </a>
+        </div>
       `;
     }).join('');
   }
@@ -486,9 +496,15 @@
   load();
   setInterval(load, 10000);
 
+  // WS events nudge a refresh, debounced so a burst of broadcasts
+  // (listeners join/leave, track changes) doesn't hammer the API
+  let wsLoadTimer = null;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onmessage = load;
+  ws.onmessage = () => {
+    clearTimeout(wsLoadTimer);
+    wsLoadTimer = setTimeout(load, 750);
+  };
   ws.onclose = () => setTimeout(() => location.reload(), 5000);
 </script>
 </body>
