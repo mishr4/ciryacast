@@ -1616,15 +1616,21 @@ function closeLiveMic() {
 }
 
 // ════════════════════════════════════
-// VOICE TRACK RECORDING
+// VOICE TRACK RECORDING (native MediaRecorder — no external encoder needed;
+// the server converts whatever format the browser produces to MP3)
 // ════════════════════════════════════
 let vtStream = null;
-let vtProcessor = null;
-let vtEncoder = null;
-let vtAnalyser = null;
+let vtRecorder = null;
 let vtAnalyserNode = null;
 let vtIsRecording = false;
-let vtMp3Chunks = [];
+let vtChunks = [];
+let vtBlob = null;
+
+function vtPickMimeType() {
+  if (!window.MediaRecorder) return null;
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+  return candidates.find(m => MediaRecorder.isTypeSupported(m)) || '';
+}
 
 function recordVoiceTrack(stationId) {
   if (!stationId) {
@@ -1642,7 +1648,8 @@ function recordVoiceTrack(stationId) {
   document.getElementById('vt-save-btn').style.display = 'none';
   document.getElementById('vt-status').textContent = 'Requesting microphone access...';
   vtIsRecording = false;
-  vtMp3Chunks = [];
+  vtChunks = [];
+  vtBlob = null;
 
   showModal('modal-record-vt');
 
@@ -1691,42 +1698,45 @@ function startVTRecording() {
   console.log('VT: startVTRecording called');
   if (!vtStream) {
     console.error('VT: No microphone stream available');
-    alert('Microphone not ready - please click button again and allow access');
+    alert('Microphone not ready - please close and reopen this dialog, then allow mic access');
     return;
   }
 
-  if (!window.lamejs) {
-    console.error('VT: lamejs library not loaded');
-    alert('MP3 encoder library failed to load. Please refresh page.');
+  if (!window.MediaRecorder) {
+    alert('Recording is not supported in this browser. Try Chrome, Edge, or Firefox.');
     return;
   }
 
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const sampleRate = audioCtx.sampleRate;
+  const mime = vtPickMimeType();
+  console.log('VT: Recording with MediaRecorder, mime:', mime || '(browser default)');
 
-  // Initialize encoder
-  vtEncoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
-  vtMp3Chunks = [];
+  vtChunks = [];
+  vtBlob = null;
+  try {
+    vtRecorder = new MediaRecorder(vtStream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : undefined);
+  } catch (e) {
+    console.error('VT: MediaRecorder failed:', e);
+    alert('Could not start recorder: ' + e.message);
+    return;
+  }
 
-  const source = audioCtx.createMediaStreamSource(vtStream);
-  vtProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-
-  vtProcessor.onaudioprocess = (e) => {
-    if (!vtIsRecording) return;
-
-    const inputData = e.inputBuffer.getChannelData(0);
-    const int16Data = float32ToInt16(inputData);
-
-    if (vtEncoder) {
-      const mp3Chunk = vtEncoder.encodeBuffer(int16Data);
-      if (mp3Chunk.length > 0) {
-        vtMp3Chunks.push(new Uint8Array(mp3Chunk));
-      }
-    }
+  vtRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) vtChunks.push(e.data);
   };
 
-  source.connect(vtProcessor);
-  vtProcessor.connect(audioCtx.destination);
+  vtRecorder.onstop = () => {
+    vtBlob = new Blob(vtChunks, { type: vtRecorder.mimeType || 'audio/webm' });
+    console.log(`VT: Recording stopped — ${(vtBlob.size / 1024).toFixed(0)} KB (${vtBlob.type})`);
+    document.getElementById('vt-status').textContent = `✅ Recorded ${(vtBlob.size / 1024).toFixed(0)} KB — ready to save`;
+    document.getElementById('vt-save-btn').style.display = 'block';
+  };
+
+  vtRecorder.onerror = (e) => {
+    console.error('VT: Recorder error:', e.error);
+    document.getElementById('vt-status').textContent = '❌ Recorder error: ' + (e.error?.message || 'unknown');
+  };
+
+  vtRecorder.start(250); // collect data every 250ms
 
   vtIsRecording = true;
   document.getElementById('vt-status').textContent = '🔴 RECORDING...';
@@ -1738,27 +1748,12 @@ function startVTRecording() {
 
 function stopVTRecording() {
   vtIsRecording = false;
-
-  // Flush encoder
-  if (vtEncoder) {
-    const finalMp3 = vtEncoder.flush();
-    if (finalMp3.length > 0) {
-      vtMp3Chunks.push(new Uint8Array(finalMp3));
-    }
+  if (vtRecorder && vtRecorder.state !== 'inactive') {
+    vtRecorder.stop(); // onstop fires and reveals the Save button
   }
-
-  // Clean up audio nodes
-  if (vtProcessor) {
-    vtProcessor.disconnect();
-    vtProcessor = null;
-  }
-  vtEncoder = null;
-
-  document.getElementById('vt-status').textContent = '✅ Recording saved';
+  document.getElementById('vt-status').textContent = 'Finishing...';
   document.getElementById('vt-start-btn').style.display = 'none';
   document.getElementById('vt-stop-btn').style.display = 'none';
-  document.getElementById('vt-save-btn').style.display = 'block';
-  showToast('✅ Voice track recorded');
 }
 
 async function saveVoiceTrack() {
@@ -1770,31 +1765,26 @@ async function saveVoiceTrack() {
     alert('Please enter a track title');
     return;
   }
-
-  // Combine chunks into single buffer
-  const totalLength = vtMp3Chunks.reduce((a, b) => a + b.length, 0);
-  const mp3Data = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of vtMp3Chunks) {
-    mp3Data.set(chunk, offset);
-    offset += chunk.length;
+  if (!vtBlob || vtBlob.size === 0) {
+    alert('Nothing recorded yet — record something first');
+    return;
   }
 
-  // Upload
   document.getElementById('vt-save-btn').disabled = true;
-  document.getElementById('vt-status').textContent = 'Uploading...';
+  document.getElementById('vt-status').textContent = 'Uploading & converting...';
 
   try {
     const response = await fetch(`/api/stations/${stationId}/voicetracks/record?title=${encodeURIComponent(title)}&presenter=${encodeURIComponent(presenter)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'audio/mpeg' },
-      body: mp3Data.buffer,
+      headers: { 'Content-Type': vtBlob.type || 'audio/webm' },
+      body: vtBlob,
     });
 
     const result = await response.json();
     if (response.ok) {
       showToast('🎙️ Voice track saved!');
       closeVTModal();
+      if (typeof loadVoiceTracks === 'function') loadVoiceTracks();
     } else {
       alert('Error: ' + result.error);
       document.getElementById('vt-status').textContent = '❌ Upload failed';
@@ -1809,16 +1799,16 @@ async function saveVoiceTrack() {
 
 function closeVTModal() {
   vtIsRecording = false;
+  if (vtRecorder && vtRecorder.state !== 'inactive') {
+    try { vtRecorder.stop(); } catch {}
+  }
+  vtRecorder = null;
   if (vtStream) {
     vtStream.getTracks().forEach(t => t.stop());
     vtStream = null;
   }
-  if (vtProcessor) {
-    vtProcessor.disconnect();
-    vtProcessor = null;
-  }
-  vtEncoder = null;
-  vtMp3Chunks = [];
+  vtChunks = [];
+  vtBlob = null;
   closeModal('modal-record-vt');
 }
 

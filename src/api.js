@@ -1795,9 +1795,13 @@ router.post('/stations/:id/voicetracks', vtUpload.array('files', 50), (req, res)
   res.json({ ok: true, count: req.files.length, files: req.files.map(f => f.filename) });
 });
 
-// Record voice track from browser (binary MP3 data)
-router.post('/stations/:id/voicetracks/record', express.raw({ type: 'audio/mpeg', limit: '50mb' }), (req, res) => {
-  if (!req.body || req.body.length === 0) return res.status(400).json({ error: 'No audio data' });
+// Record voice track from browser. Accepts ANY audio the browser's
+// MediaRecorder produces (webm/opus, mp4, ogg, or raw mp3) and converts
+// to MP3 server-side, then loudness-normalizes to match the music.
+router.post('/stations/:id/voicetracks/record', express.raw({ type: () => true, limit: '100mb' }), async (req, res) => {
+  if (!req.body || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+    return res.status(400).json({ error: 'No audio data' });
+  }
 
   const { title, presenter } = req.query;
   if (!title) return res.status(400).json({ error: 'title query param required' });
@@ -1805,16 +1809,43 @@ router.post('/stations/:id/voicetracks/record', express.raw({ type: 'audio/mpeg'
   const stationDir = path.join(VT_DIR, req.params.id);
   if (!fs.existsSync(stationDir)) fs.mkdirSync(stationDir, { recursive: true });
 
-  const presenterName = presenter || 'Presenter';
-  const filename = `${presenterName} - ${title}.mp3`;
+  // Keep "Presenter - Title.mp3" naming but strip path/separator characters
+  const clean = (s) => String(s).replace(/[\\/:*?"<>|]/g, '').replace(/ - /g, '—').trim();
+  const presenterName = clean(presenter || 'Presenter') || 'Presenter';
+  const filename = `${presenterName} - ${clean(title)}.mp3`;
   const filePath = path.join(stationDir, filename);
 
+  const contentType = (req.headers['content-type'] || '').toLowerCase();
+  const isMp3 = contentType.includes('mpeg') || contentType.includes('mp3');
+
   try {
-    fs.writeFileSync(filePath, req.body);
-    console.log(`  🎙 Voice track recorded: ${filename}`);
-    res.json({ ok: true, filename, size: req.body.length });
+    if (isMp3) {
+      fs.writeFileSync(filePath, req.body);
+    } else {
+      // Convert browser recording (webm/ogg/mp4) to MP3
+      const tmpIn = path.join(os.tmpdir(), `vt-${Date.now()}-${Math.random().toString(36).slice(2)}.in`);
+      fs.writeFileSync(tmpIn, req.body);
+      try {
+        await execFileAsync('ffmpeg', [
+          '-i', tmpIn, '-vn',
+          '-codec:a', 'libmp3lame', '-b:a', '128k', '-ar', '44100',
+          '-y', filePath,
+        ], { timeout: 120000 });
+      } finally {
+        try { fs.unlinkSync(tmpIn); } catch {}
+      }
+    }
+
+    // Match broadcast loudness so VTs sit at the same level as songs
+    try { await normalizeAudio(filePath); } catch {}
+
+    const size = fs.statSync(filePath).size;
+    console.log(`  🎙 Voice track recorded: ${filename} (${(size / 1024).toFixed(0)} KB, from ${contentType || 'unknown'})`);
+    res.json({ ok: true, filename, size });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.log(`  ⚠ VT record failed: ${e.message}`);
+    try { fs.unlinkSync(filePath); } catch {}
+    res.status(500).json({ error: 'Conversion failed: ' + e.message });
   }
 });
 

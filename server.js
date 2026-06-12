@@ -81,7 +81,7 @@ function handleLiveSource(req, res, stationId) {
     return;
   }
 
-  if (liveSources.has(stationId)) {
+  if (liveSources.has(stationId) || streamEngine.isLive(stationId)) {
     res.writeHead(409);
     res.end('Another DJ is already live');
     return;
@@ -130,8 +130,8 @@ function handleLiveSource(req, res, stationId) {
   req.on('error', cleanup);
 }
 
-// Raw HTTP server that intercepts live source requests BEFORE Express
-const server = http.createServer((req, res) => {
+// Raw HTTP handler that intercepts live source requests BEFORE Express
+function rootHandler(req, res) {
   // Match /live/:stationId for PUT, POST, and SOURCE methods
   const liveMatch = req.url?.match(/^\/live\/([a-zA-Z0-9_-]+)/);
   const method = req.method?.toUpperCase();
@@ -145,6 +145,23 @@ const server = http.createServer((req, res) => {
 
   // Everything else goes to Express
   app(req, res);
+}
+
+const server = http.createServer(rootHandler);
+// Source connections stream their request body for hours — Node's default
+// requestTimeout (300s) would kill every live DJ after 5 minutes.
+server.requestTimeout = 0;
+server.headersTimeout = 60000;
+
+// Second plain-HTTP listener for Icecast source clients (Mixxx, BUTT, etc).
+// Railway's HTTPS edge can't accept raw Icecast connections on 443 — point a
+// Railway TCP Proxy at this port and use that host:port in your DJ software.
+const ICECAST_PORT = process.env.ICECAST_PORT || 8005;
+const sourceServer = http.createServer(rootHandler);
+sourceServer.requestTimeout = 0;
+sourceServer.headersTimeout = 60000;
+sourceServer.listen(ICECAST_PORT, () => {
+  console.log(`  🎚 Icecast source port listening on :${ICECAST_PORT} (expose via Railway TCP Proxy)`);
 });
 
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -154,6 +171,12 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Pages, JS, CSS, and API must revalidate every load (cheap 304s) so
+  // deploys take effect immediately — stale dashboard.js hid all the buttons.
+  // Media and audio streams stay cacheable/streamed as-is.
+  if (!req.path.startsWith('/media') && !req.path.startsWith('/listen')) {
+    res.header('Cache-Control', 'no-cache');
+  }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -288,6 +311,15 @@ wss.on('connection', (ws, req) => {
 
   if (type === 'livemic' && stationId) {
     // ── Live mic input stream with real-time WebM->MP3 conversion ──
+
+    // Refuse if something is already live on this station — two MP3 sources
+    // interleaved into one stream produces corrupted, stuttering audio
+    if (streamEngine.isLive(stationId)) {
+      console.log(`  🎤 Live mic refused (already live): ${stationId}`);
+      ws.close(4009, 'Station is already live');
+      return;
+    }
+
     console.log(`  🎤 Live mic connected: ${stationId} (${username})`);
 
     // Start ffmpeg process to convert WebM to MP3 (low-latency flags:
@@ -305,7 +337,18 @@ wss.on('connection', (ws, req) => {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
-    wsLiveMics.set(ws, { stationId, ffmpeg, userId, username });
+    // Take over the stream: pause AutoDJ so mic audio is the ONLY source
+    const wasRunning = autoDJ.isRunning(stationId);
+    if (wasRunning) autoDJ.stop(stationId);
+    streamEngine.setLive(stationId, true);
+    streamEngine.setNowPlaying(stationId, {
+      title: 'Live Broadcast',
+      artist: username,
+      album: '', duration: 0, media_id: null, artwork_url: '',
+    });
+    broadcast('live_start', { stationId, dj: username });
+
+    wsLiveMics.set(ws, { stationId, ffmpeg, userId, username, wasRunning });
 
     // Handle ffmpeg output (MP3 data)
     ffmpeg.stdout.on('data', (chunk) => {
@@ -348,6 +391,12 @@ wss.on('connection', (ws, req) => {
       }, 1000);
 
       wsLiveMics.delete(ws);
+      streamEngine.setLive(stationId, false);
+      broadcast('live_end', { stationId });
+      if (wasRunning) {
+        console.log(`  ▶ AutoDJ resuming after live mic: ${stationId}`);
+        autoDJ.start(stationId);
+      }
       console.log(`  🎤 Live mic disconnected: ${stationId}`);
     });
 
