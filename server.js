@@ -1,5 +1,6 @@
 const path = require('path');
 const http = require('http');
+const net = require('net');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { spawn } = require('child_process');
@@ -55,8 +56,7 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 const liveSources = new Map();
 app.set('liveSources', liveSources);
 
-function authenticateDJ(req, stationId) {
-  const authHeader = req.headers.authorization;
+function authenticateDJByHeader(authHeader, stationId) {
   if (!authHeader || !authHeader.startsWith('Basic ')) return null;
 
   const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
@@ -73,6 +73,44 @@ function authenticateDJ(req, stationId) {
   return db.prepare(
     'SELECT * FROM dj_accounts WHERE station_id = ? AND username = ? AND stream_key = ? AND is_active = 1'
   ).get(stationId, username, password) || null;
+}
+
+function authenticateDJ(req, stationId) {
+  return authenticateDJByHeader(req.headers.authorization, stationId);
+}
+
+// Take a station live for an authenticated DJ. Returns a cleanup function.
+// `conn` must have .destroy() — an http req or a raw socket — so the
+// dashboard "kick DJ" action works for both source paths.
+function startLiveSession(stationId, station, dj, conn) {
+  console.log(`  🎙 LIVE: ${dj.display_name || dj.username} → "${station.name}"`);
+
+  const wasRunning = autoDJ.isRunning(stationId);
+  if (wasRunning) autoDJ.stop(stationId);
+
+  streamEngine.setLive(stationId, true);
+  db.prepare("UPDATE dj_accounts SET last_connected = datetime('now') WHERE id = ?").run(dj.id);
+
+  streamEngine.setNowPlaying(stationId, {
+    title: 'Live Broadcast',
+    artist: dj.display_name || dj.username,
+    album: '', duration: 0, media_id: null, artwork_url: '',
+  });
+
+  broadcast('live_start', { stationId, dj: dj.display_name || dj.username });
+  liveSources.set(stationId, { req: conn, dj, wasRunning });
+
+  return function cleanup() {
+    if (!liveSources.has(stationId)) return; // already cleaned up
+    console.log(`  🎙 OFF: ${dj.display_name || dj.username} ← "${station.name}"`);
+    liveSources.delete(stationId);
+    streamEngine.setLive(stationId, false);
+    broadcast('live_end', { stationId });
+    if (wasRunning) {
+      console.log(`  ▶ AutoDJ resuming: "${station.name}"`);
+      autoDJ.start(stationId);
+    }
+  };
 }
 
 function handleLiveSource(req, res, stationId) {
@@ -96,47 +134,23 @@ function handleLiveSource(req, res, stationId) {
     return;
   }
 
-  console.log(`  🎙 LIVE: ${dj.display_name || dj.username} → "${station.name}"`);
+  const cleanup = startLiveSession(stationId, station, dj, req);
 
-  // Pause AutoDJ
-  const wasRunning = autoDJ.isRunning(stationId);
-  if (wasRunning) autoDJ.stop(stationId);
-
-  streamEngine.setLive(stationId, true);
-  db.prepare("UPDATE dj_accounts SET last_connected = datetime('now') WHERE id = ?").run(dj.id);
-
-  streamEngine.setNowPlaying(stationId, {
-    title: 'Live Broadcast',
-    artist: dj.display_name || dj.username,
-    album: '', duration: 0, media_id: null, artwork_url: '',
-  });
-
-  broadcast('live_start', { stationId, dj: dj.display_name || dj.username });
-  liveSources.set(stationId, { req, dj, wasRunning });
-
-  // Icecast expects a simple 200 OK — no content-type needed
+  // Icecast clients wait for the 200 before streaming — flush it now
   res.writeHead(200, { 'Connection': 'keep-alive' });
+  res.flushHeaders();
 
   // Relay audio
   req.on('data', (chunk) => {
     streamEngine.pushAudio(stationId, chunk);
   });
 
-  function cleanup() {
-    if (!liveSources.has(stationId)) return; // already cleaned up
-    console.log(`  🎙 OFF: ${dj.display_name || dj.username} ← "${station.name}"`);
-    liveSources.delete(stationId);
-    streamEngine.setLive(stationId, false);
-    broadcast('live_end', { stationId });
-    if (wasRunning) {
-      console.log(`  ▶ AutoDJ resuming: "${station.name}"`);
-      autoDJ.start(stationId);
-    }
+  const endSession = () => {
+    cleanup();
     try { res.end(); } catch {}
-  }
-
-  req.on('close', cleanup);
-  req.on('error', cleanup);
+  };
+  req.on('close', endSession);
+  req.on('error', endSession);
 }
 
 // Raw HTTP handler that intercepts live source requests BEFORE Express
@@ -168,13 +182,125 @@ server.headersTimeout = 60000;
 // RAILWAY_TCP_APPLICATION_PORT is set by Railway to whatever port the TCP
 // proxy targets, so the listener always matches the proxy config.
 const ICECAST_PORT = process.env.RAILWAY_TCP_APPLICATION_PORT || process.env.ICECAST_PORT || 8005;
-// Railway may set PORT to the TCP proxy's application port, which makes
-// PORT === ICECAST_PORT. In that case the main server already handles /live
-// source connections on the shared port — starting a second listener on the
-// same port crashes the app (EADDRINUSE).
-const sourceServer = http.createServer(rootHandler);
-sourceServer.requestTimeout = 0;
-sourceServer.headersTimeout = 60000;
+// ════════════════════════════════════════════════════
+// RAW ICECAST SOURCE SERVER (Mixxx, BUTT, libshout...)
+//
+// Real Icecast source clients are not valid HTTP: they send SOURCE/PUT
+// with NO Content-Length and stream the body forever, and they wait for
+// an immediate "HTTP/1.0 200 OK" before sending audio. Node's HTTP parser
+// treats a length-less request as bodyless and "completes" it instantly,
+// which made Mixxx connect, flash ON AIR, then drop to reconnecting.
+// So this port speaks raw TCP and implements the protocol directly.
+// ════════════════════════════════════════════════════
+function handleIcecastSocket(socket) {
+  socket.setNoDelay(true);
+  socket.setTimeout(0);
+
+  let headerBuf = Buffer.alloc(0);
+  let headersDone = false;
+  let session = null; // { stationId, cleanup }
+
+  socket.on('data', (chunk) => {
+    if (headersDone) {
+      if (session) streamEngine.pushAudio(session.stationId, chunk);
+      return;
+    }
+
+    headerBuf = Buffer.concat([headerBuf, chunk]);
+    if (headerBuf.length > 32 * 1024) { socket.destroy(); return; } // header flood guard
+    const idx = headerBuf.indexOf('\r\n\r\n');
+    if (idx === -1) return;
+
+    headersDone = true;
+    const head = headerBuf.subarray(0, idx).toString('utf8');
+    const earlyAudio = headerBuf.subarray(idx + 4);
+    headerBuf = Buffer.alloc(0);
+    handleRequest(head, earlyAudio);
+  });
+
+  function handleRequest(head, earlyAudio) {
+    const lines = head.split('\r\n');
+    const [method = '', rawPath = ''] = lines[0].split(' ');
+    const headers = {};
+    for (let i = 1; i < lines.length; i++) {
+      const c = lines[i].indexOf(':');
+      if (c > 0) headers[lines[i].slice(0, c).trim().toLowerCase()] = lines[i].slice(c + 1).trim();
+    }
+
+    // Mixxx/libshout sends metadata updates as separate GET requests
+    if (method.toUpperCase() === 'GET' && rawPath.startsWith('/admin/metadata')) {
+      return handleMetadataUpdate(rawPath, headers);
+    }
+
+    const m = rawPath.match(/^\/live\/([a-zA-Z0-9_-]+)/);
+    if (!m || !['SOURCE', 'PUT', 'POST'].includes(method.toUpperCase())) {
+      socket.end('HTTP/1.0 404 Not Found\r\nConnection: Close\r\n\r\n');
+      return;
+    }
+
+    const stationId = m[1];
+    const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+    if (!station) {
+      socket.end('HTTP/1.0 404 Not Found\r\nConnection: Close\r\n\r\n');
+      return;
+    }
+
+    const dj = authenticateDJByHeader(headers.authorization, stationId);
+    if (!dj) {
+      socket.end('HTTP/1.0 401 Unauthorized\r\nWWW-Authenticate: Basic realm="CiryaCast"\r\nConnection: Close\r\n\r\n');
+      return;
+    }
+
+    if (liveSources.has(stationId) || streamEngine.isLive(stationId)) {
+      socket.end('HTTP/1.0 409 Conflict\r\nConnection: Close\r\n\r\n');
+      return;
+    }
+
+    // Accept — libshout waits for this before it starts streaming
+    if ((headers.expect || '').toLowerCase().includes('100-continue')) {
+      socket.write('HTTP/1.1 100 Continue\r\n\r\n');
+    }
+    socket.write('HTTP/1.0 200 OK\r\nServer: CiryaCast/1.0\r\nAllow: GET, SOURCE\r\nCache-Control: no-cache\r\n\r\n');
+
+    const cleanup = startLiveSession(stationId, station, dj, socket);
+    session = { stationId, cleanup };
+
+    if (earlyAudio.length) streamEngine.pushAudio(stationId, earlyAudio);
+  }
+
+  function handleMetadataUpdate(rawPath, headers) {
+    try {
+      const url = new URL(rawPath, 'http://localhost');
+      const mount = url.searchParams.get('mount') || '';
+      const song = (url.searchParams.get('song') || '').trim();
+      const m = mount.match(/^\/live\/([a-zA-Z0-9_-]+)/);
+      const stationId = m && m[1];
+      const dj = stationId && authenticateDJByHeader(headers.authorization, stationId);
+
+      if (dj && song && streamEngine.isLive(stationId)) {
+        // "Artist - Title" convention; fall back to the whole string as title
+        const dash = song.indexOf(' - ');
+        streamEngine.setNowPlaying(stationId, {
+          title: dash > 0 ? song.slice(dash + 3) : song,
+          artist: dash > 0 ? song.slice(0, dash) : (dj.display_name || dj.username),
+          album: '', duration: 0, media_id: null, artwork_url: '',
+        });
+        console.log(`  🎙 Live metadata: ${song}`);
+      }
+      socket.end('HTTP/1.0 200 OK\r\nContent-Type: text/xml\r\nConnection: Close\r\n\r\n<?xml version="1.0"?><iceresponse><message>Metadata update successful</message><return>1</return></iceresponse>');
+    } catch {
+      socket.end('HTTP/1.0 400 Bad Request\r\nConnection: Close\r\n\r\n');
+    }
+  }
+
+  const endSession = () => {
+    if (session) { session.cleanup(); session = null; }
+  };
+  socket.on('close', endSession);
+  socket.on('error', endSession);
+}
+
+const sourceServer = net.createServer(handleIcecastSocket);
 sourceServer.on('error', (e) => {
   // Don't take the whole app down if the source port is busy — the main
   // HTTP server (and its /live handler) still works
