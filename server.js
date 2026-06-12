@@ -159,6 +159,10 @@ server.headersTimeout = 60000;
 // RAILWAY_TCP_APPLICATION_PORT is set by Railway to whatever port the TCP
 // proxy targets, so the listener always matches the proxy config.
 const ICECAST_PORT = process.env.RAILWAY_TCP_APPLICATION_PORT || process.env.ICECAST_PORT || 8005;
+// Railway may set PORT to the TCP proxy's application port, which makes
+// PORT === ICECAST_PORT. In that case the main server already handles /live
+// source connections on the shared port — starting a second listener on the
+// same port crashes the app (EADDRINUSE).
 const sourceServer = http.createServer(rootHandler);
 sourceServer.requestTimeout = 0;
 sourceServer.headersTimeout = 60000;
@@ -167,14 +171,22 @@ sourceServer.on('error', (e) => {
   // HTTP server (and its /live handler) still works
   console.log(`  ⚠ Icecast source port :${ICECAST_PORT} unavailable: ${e.message}`);
 });
-sourceServer.listen(ICECAST_PORT, () => {
-  console.log(`  🎚 Icecast source port listening on :${ICECAST_PORT} (expose via Railway TCP Proxy)`);
-  const pubHost = process.env.ICECAST_PUBLIC_HOST || process.env.RAILWAY_TCP_PROXY_DOMAIN;
-  const pubPort = process.env.ICECAST_PUBLIC_PORT || process.env.RAILWAY_TCP_PROXY_PORT;
-  console.log(pubHost
-    ? `  🎚 Public DJ address: ${pubHost}:${pubPort}`
-    : '  🎚 No public TCP proxy vars found (RAILWAY_TCP_PROXY_DOMAIN unset — redeploy after creating the proxy, or set ICECAST_PUBLIC_HOST/PORT)');
-});
+
+function startSourceServer() {
+  if (Number(ICECAST_PORT) === Number(PORT)) {
+    console.log(`  🎚 PORT and ICECAST_PORT are both ${PORT} — /live source connections are served on the main port (no separate listener)`);
+    return;
+  }
+  sourceServer.listen(ICECAST_PORT, () => {
+    console.log(`  🎚 Icecast source port listening on :${ICECAST_PORT} (expose via Railway TCP Proxy)`);
+  });
+}
+
+const pubHost = process.env.ICECAST_PUBLIC_HOST || process.env.RAILWAY_TCP_PROXY_DOMAIN;
+const pubPort = process.env.ICECAST_PUBLIC_PORT || process.env.RAILWAY_TCP_PROXY_PORT;
+console.log(pubHost
+  ? `  🎚 Public DJ address: ${pubHost}:${pubPort}`
+  : '  🎚 No public TCP proxy vars found (RAILWAY_TCP_PROXY_DOMAIN unset — redeploy after creating the proxy, or set ICECAST_PUBLIC_HOST/PORT)');
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 
@@ -449,6 +461,16 @@ wss.on('connection', (ws, req) => {
 });
 
 // ── Start ──
+// The main HTTP server must bind first — if it can't, log clearly and exit
+// once instead of crash-looping via an unhandled 'error' on the WSS.
+server.on('error', (e) => {
+  console.error(`  ✖ Fatal: main HTTP server failed to bind :${PORT} — ${e.message}`);
+  process.exit(1);
+});
+wss.on('error', (e) => {
+  console.error(`  ⚠ WebSocketServer error: ${e.message}`);
+});
+
 server.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗
@@ -460,6 +482,10 @@ server.listen(PORT, () => {
   ║   API:        http://localhost:${PORT}/api   ║
   ╚══════════════════════════════════════════╝
   `);
+
+  // Optional second listener for DJ source connections — started only after
+  // the main server owns its port, and skipped entirely on a port collision
+  startSourceServer();
 
   const stations = db.prepare('SELECT * FROM stations WHERE autodj_enabled = 1').all();
   stations.forEach(s => {
