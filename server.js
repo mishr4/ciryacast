@@ -8,7 +8,16 @@ const api = require('./src/api');
 const { StreamEngine } = require('./src/stream');
 const { AutoDJ } = require('./src/autodj');
 
-const PORT = process.env.PORT || 8420;
+// HTTP port. When a Railway TCP proxy exists, Railway injects PORT as the
+// proxy's APPLICATION port (e.g. 8005) — but the HTTP edge domains forward
+// to 8080. If PORT collides with the TCP application port, it's wrong for
+// HTTP: fall back to HTTP_PORT (default 8080) so the site stays up.
+let PORT = process.env.PORT || 8420;
+if (process.env.RAILWAY_TCP_APPLICATION_PORT &&
+    String(PORT) === String(process.env.RAILWAY_TCP_APPLICATION_PORT)) {
+  PORT = Number(process.env.HTTP_PORT) || 8080;
+  console.log(`  ⚠ PORT env equals the TCP proxy application port — using :${PORT} for HTTP instead`);
+}
 const app = express();
 
 // ── WebSocket for real-time dashboard updates ──
