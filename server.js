@@ -79,6 +79,40 @@ function authenticateDJ(req, stationId) {
   return authenticateDJByHeader(req.headers.authorization, stationId);
 }
 
+// ── Artwork for live metadata ──
+// Mixxx only sends "Artist - Title" strings, so find album art ourselves:
+// station media library first, then Deezer (free, no auth). Cached per track.
+const liveArtCache = new Map();
+
+async function lookupLiveArtwork(stationId, artist, title) {
+  const key = `${artist}|${title}`.toLowerCase();
+  if (liveArtCache.has(key)) return liveArtCache.get(key);
+
+  let art = '';
+  try {
+    const row = db.prepare(`
+      SELECT artwork_url FROM media
+      WHERE station_id = ? AND artwork_url != ''
+        AND lower(title) = lower(?) AND lower(artist) = lower(?)
+      LIMIT 1
+    `).get(stationId, title, artist);
+    if (row) art = row.artwork_url;
+  } catch {}
+
+  if (!art) {
+    try {
+      const q = encodeURIComponent(`${artist} ${title}`.trim());
+      const resp = await fetch(`https://api.deezer.com/search?q=${q}&limit=1`, { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      art = data.data?.[0]?.album?.cover_big || data.data?.[0]?.album?.cover_medium || '';
+    } catch {}
+  }
+
+  if (liveArtCache.size > 300) liveArtCache.clear();
+  liveArtCache.set(key, art);
+  return art;
+}
+
 // Take a station live for an authenticated DJ. Returns a cleanup function.
 // `conn` must have .destroy() — an http req or a raw socket — so the
 // dashboard "kick DJ" action works for both source paths.
@@ -100,12 +134,27 @@ function startLiveSession(stationId, station, dj, conn) {
   broadcast('live_start', { stationId, dj: dj.display_name || dj.username });
   liveSources.set(stationId, { req: conn, dj, wasRunning });
 
+  // Auto-record every live broadcast (skipped if a manual recording is
+  // already running — that one keeps going and wins)
+  let autoRec = null;
+  if (!streamEngine.isRecording(stationId)) {
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    autoRec = streamEngine.startRecording(stationId, `Live — ${dj.display_name || dj.username} (${stamp} UTC)`);
+  }
+
   return function cleanup() {
     if (!liveSources.has(stationId)) return; // already cleaned up
     console.log(`  🎙 OFF: ${dj.display_name || dj.username} ← "${station.name}"`);
     liveSources.delete(stationId);
     streamEngine.setLive(stationId, false);
     broadcast('live_end', { stationId });
+
+    // Stop the auto-recording, but never a manual one started mid-show
+    const current = streamEngine.isRecording(stationId);
+    if (autoRec && current && current.id === autoRec.id) {
+      streamEngine.stopRecording(stationId);
+    }
+
     if (wasRunning) {
       console.log(`  ▶ AutoDJ resuming: "${station.name}"`);
       autoDJ.start(stationId);
@@ -280,12 +329,28 @@ function handleIcecastSocket(socket) {
       if (dj && song && streamEngine.isLive(stationId)) {
         // "Artist - Title" convention; fall back to the whole string as title
         const dash = song.indexOf(' - ');
+        const liveTitle = dash > 0 ? song.slice(dash + 3) : song;
+        const liveArtist = dash > 0 ? song.slice(0, dash) : (dj.display_name || dj.username);
+
         streamEngine.setNowPlaying(stationId, {
-          title: dash > 0 ? song.slice(dash + 3) : song,
-          artist: dash > 0 ? song.slice(0, dash) : (dj.display_name || dj.username),
+          title: liveTitle,
+          artist: liveArtist,
           album: '', duration: 0, media_id: null, artwork_url: '',
         });
         console.log(`  🎙 Live metadata: ${song}`);
+
+        // Find album art async and update once we have it — players refresh
+        // via the nowplaying broadcast
+        lookupLiveArtwork(stationId, liveArtist, liveTitle).then(art => {
+          if (!art || !streamEngine.isLive(stationId)) return;
+          const np = streamEngine.getNowPlaying(stationId);
+          if (!np || np.title !== liveTitle) return; // track changed already
+          streamEngine.setNowPlaying(stationId, {
+            title: liveTitle, artist: liveArtist,
+            album: np.album || '', duration: 0, media_id: null,
+            artwork_url: art,
+          });
+        });
       }
       socket.end('HTTP/1.0 200 OK\r\nContent-Type: text/xml\r\nConnection: Close\r\n\r\n<?xml version="1.0"?><iceresponse><message>Metadata update successful</message><return>1</return></iceresponse>');
     } catch {
@@ -521,18 +586,20 @@ wss.on('connection', (ws, req) => {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
-    // Take over the stream: pause AutoDJ so mic audio is the ONLY source
-    const wasRunning = autoDJ.isRunning(stationId);
-    if (wasRunning) autoDJ.stop(stationId);
-    streamEngine.setLive(stationId, true);
-    streamEngine.setNowPlaying(stationId, {
-      title: 'Live Broadcast',
-      artist: username,
-      album: '', duration: 0, media_id: null, artwork_url: '',
+    // Take over the stream via the shared live session (pauses AutoDJ,
+    // sets live state + now-playing, starts the auto-recording)
+    const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
+    if (!station) {
+      ws.close(4004, 'Station not found');
+      ffmpeg.kill('SIGKILL');
+      return;
+    }
+    const micDj = { id: null, username, display_name: username };
+    const endLiveSession = startLiveSession(stationId, station, micDj, {
+      destroy: () => { try { ws.close(); } catch {} },
     });
-    broadcast('live_start', { stationId, dj: username });
 
-    wsLiveMics.set(ws, { stationId, ffmpeg, userId, username, wasRunning });
+    wsLiveMics.set(ws, { stationId, ffmpeg, userId, username });
 
     // Handle ffmpeg output (MP3 data)
     ffmpeg.stdout.on('data', (chunk) => {
@@ -575,12 +642,7 @@ wss.on('connection', (ws, req) => {
       }, 1000);
 
       wsLiveMics.delete(ws);
-      streamEngine.setLive(stationId, false);
-      broadcast('live_end', { stationId });
-      if (wasRunning) {
-        console.log(`  ▶ AutoDJ resuming after live mic: ${stationId}`);
-        autoDJ.start(stationId);
-      }
+      endLiveSession();
       console.log(`  🎤 Live mic disconnected: ${stationId}`);
     });
 
