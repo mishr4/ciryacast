@@ -6,10 +6,18 @@
 <title>CiryaCast Player</title>
 <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  /* Theme accents — recolored at runtime from the current album art so the
+     player matches the music instead of a one-size-fits-all gradient.
+     Defaults are a calm single-hue indigo, not the rainbow. */
+  :root {
+    --accent: #5B5BD6;
+    --accent-2: #3A3A8C;
+    --accent-soft: rgba(91,91,214,0.16);
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: 'Instrument Sans', 'Inter', sans-serif;
-    background: linear-gradient(90deg, #fef6f0 0%, #fdf2fd 100%);
+    background: #faf8fb;
     color: #000;
     min-height: 100vh;
     display: flex;
@@ -17,6 +25,7 @@
     justify-content: center;
     -webkit-font-smoothing: antialiased;
     padding: 20px;
+    transition: background 0.8s ease;
   }
 
   .player-wrap {
@@ -49,13 +58,14 @@
     height: 180px;
     margin: 0 auto 24px;
     border-radius: 22px;
-    background: linear-gradient(135deg, #7C4DFF 0%, #FF48BC 100%);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 12px 40px rgba(124,77,255,0.2);
+    box-shadow: 0 16px 44px var(--accent-soft);
+    transition: box-shadow 0.8s ease;
   }
   .art-container::before {
     content: '';
@@ -70,7 +80,7 @@
   .art-container svg { position: relative; z-index: 1; width: 48px; height: 48px; color: rgba(255,255,255,0.9); }
   .art-container img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
 
-  .station-name { font-size: 12px; color: #7C4DFF; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .station-name { font-size: 12px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; transition: color 0.8s ease; }
   .track-title { font-family: 'Lexend', sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 4px; min-height: 30px; }
   .track-artist { font-size: 15px; color: #777; font-weight: 500; margin-bottom: 4px; }
   .track-album { font-size: 12px; color: #aaa; font-weight: 500; margin-bottom: 6px; min-height: 16px; }
@@ -79,7 +89,7 @@
   .progress-wrap { width: 100%; margin-bottom: 14px; }
   .progress-times { display: flex; justify-content: space-between; font-size: 11px; color: #999; font-weight: 500; margin-bottom: 4px; }
   .progress-bar { width: 100%; height: 4px; background: #eee; border-radius: 2px; overflow: hidden; }
-  .progress-fill { height: 100%; background: linear-gradient(90deg, #7C4DFF, #FF48BC); border-radius: 2px; transition: width 1s linear; width: 0%; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 1s linear, background 0.8s ease; width: 0%; }
 
   .request-badge {
     display: inline-flex;
@@ -87,8 +97,8 @@
     gap: 4px;
     font-size: 10px;
     font-weight: 700;
-    color: #7C4DFF;
-    background: #f0eaff;
+    color: var(--accent);
+    background: var(--accent-soft);
     padding: 3px 10px;
     border-radius: 20px;
     margin-bottom: 16px;
@@ -129,9 +139,9 @@
   .listeners-dot { width: 8px; height: 8px; border-radius: 50%; background: #00C853; box-shadow: 0 0 8px rgba(0,200,83,0.5); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-  .visualizer { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 28px; margin-bottom: 20px; }
-  .vis-bar { width: 4px; border-radius: 2px; background: linear-gradient(to top, #7C4DFF, #FF48BC); transition: height 0.12s ease; opacity: 0.3; }
-  .vis-bar.active { opacity: 0.8; }
+  .visualizer { display: flex; align-items: flex-end; justify-content: center; gap: 3px; height: 36px; margin-bottom: 20px; }
+  .vis-bar { width: 4px; border-radius: 2px; background: var(--accent); opacity: 0.25; will-change: height; }
+  .vis-bar.active { opacity: 0.85; }
 
   .play-btn {
     width: 64px; height: 64px; border-radius: 50%; background: #000; border: none; color: #fff;
@@ -140,7 +150,7 @@
   }
   .play-btn svg { width: 24px; height: 24px; }
   .play-btn:hover { transform: scale(1.06); box-shadow: 0 6px 28px rgba(0,0,0,0.2); }
-  .play-btn.playing { background: linear-gradient(135deg, #7C4DFF, #FF48BC); box-shadow: 0 4px 24px rgba(124,77,255,0.3); }
+  .play-btn.playing { background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 6px 26px var(--accent-soft); }
 
   .volume-wrap { display: flex; align-items: center; gap: 10px; justify-content: center; }
   .volume-wrap svg { width: 16px; height: 16px; color: #aaa; }
@@ -224,7 +234,7 @@
     width: 40px;
     height: 40px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
     flex-shrink: 0;
     overflow: hidden;
     display: flex;
@@ -278,7 +288,7 @@
   /* Recently played */
   .history-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(0,0,0,0.04); }
   .history-row:last-child { border-bottom: none; }
-  .history-art { width: 36px; height: 36px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: linear-gradient(135deg,#7C4DFF,#FF48BC); display: flex; align-items: center; justify-content: center; }
+  .history-art { width: 36px; height: 36px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: flex; align-items: center; justify-content: center; }
   .history-art img { width: 100%; height: 100%; object-fit: cover; }
   .history-art svg { width: 16px; height: 16px; color: rgba(255,255,255,0.85); }
   .history-meta { flex: 1; min-width: 0; }
@@ -420,7 +430,7 @@
   </div>
 </div>
 
-<audio id="audio" preload="none"></audio>
+<audio id="audio" preload="none" crossorigin="anonymous"></audio>
 
 <script>
   // The URL carries a slug or a UUID; we resolve it to the real id on first
@@ -448,11 +458,36 @@
     visBars.push(bar);
   }
 
+  // ── Real audio analysis (Web Audio API) ──
+  // The visualizer is driven by the ACTUAL stream's frequency data, not a
+  // random animation. Built once on first play (needs a user gesture).
+  let audioCtx = null, analyser = null, freqData = null, audioGraphReady = false;
+  const smooth = new Array(24).fill(0);
+
+  function setupAudioGraph() {
+    if (audioGraphReady) return true;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return false;
+      audioCtx = new Ctx();
+      const source = audioCtx.createMediaElementSource(audio);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;            // 64 frequency bins
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      analyser.connect(audioCtx.destination); // keep sound audible
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+      audioGraphReady = true;
+      return true;
+    } catch (e) {
+      console.warn('Audio analysis unavailable, using fallback:', e.message);
+      return false;
+    }
+  }
+
   // ── Play/Pause ──
   // The audio stream is ONE continuous HTTP connection — never disconnect
-  // it except when the user explicitly pauses. Track changes happen
-  // server-side; the MP3 frames just switch from one song to the next
-  // seamlessly in the same connection.
+  // it except when the user explicitly pauses.
   function togglePlay() {
     const btn = document.getElementById('play-btn');
     const art = document.getElementById('art-container');
@@ -467,7 +502,10 @@
     } else {
       audio.src = `/listen/${stationId}/radio.mp3`;
       audio.volume = document.getElementById('volume').value / 100;
-      audio.play().catch(() => {});
+      audio.play().then(() => {
+        setupAudioGraph();
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      }).catch(() => {});
       playing = true;
       btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="3" width="5" height="18"/><rect x="14" y="3" width="5" height="18"/></svg>';
       btn.classList.add('playing');
@@ -481,9 +519,89 @@
 
   function animateVis() {
     if (!playing) return;
-    visBars.forEach(b => { b.style.height = (4 + Math.random() * 24) + 'px'; });
-    setTimeout(() => requestAnimationFrame(animateVis), 120);
+
+    if (analyser && freqData) {
+      analyser.getByteFrequencyData(freqData);
+      const n = visBars.length;
+      // Map the lower ~75% of the spectrum (where music energy lives) onto the bars
+      const usable = Math.floor(freqData.length * 0.75);
+      for (let i = 0; i < n; i++) {
+        const idx = Math.floor((i / n) * usable);
+        const v = freqData[idx] / 255;          // 0..1
+        // ease + light smoothing so bars feel musical, not jittery
+        const target = Math.pow(v, 1.4);
+        smooth[i] = smooth[i] * 0.6 + target * 0.4;
+        visBars[i].style.height = (3 + smooth[i] * 33).toFixed(1) + 'px';
+      }
+    } else {
+      // Fallback: gentle idle motion if Web Audio isn't available
+      visBars.forEach((b, i) => { b.style.height = (4 + Math.abs(Math.sin(Date.now()/300 + i)) * 16).toFixed(1) + 'px'; });
+    }
+    requestAnimationFrame(animateVis);
   }
+
+  // ── Album-art theming ──
+  // Pull a vibrant colour out of the cover and recolour the player around it,
+  // the way Spotify/Apple Music do — so it never looks like a canned gradient.
+  const DEFAULT_ACCENT = '#5B5BD6', DEFAULT_ACCENT2 = '#3A3A8C';
+  let themedFor = '';
+
+  function applyTheme(accent, accent2) {
+    const root = document.documentElement.style;
+    root.setProperty('--accent', accent);
+    root.setProperty('--accent-2', accent2);
+    root.setProperty('--accent-soft', hexToRgba(accent, 0.18));
+    // a barely-there wash on the page background
+    document.body.style.background = `radial-gradient(120% 80% at 50% -10%, ${hexToRgba(accent, 0.10)} 0%, #faf8fb 60%)`;
+  }
+
+  function hexToRgba(hex, a) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  function themeFromArtwork(url) {
+    if (!url) { themedFor = ''; applyTheme(DEFAULT_ACCENT, DEFAULT_ACCENT2); return; }
+    if (url === themedFor) return;
+    themedFor = url;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const size = 24, c = document.createElement('canvas');
+        c.width = size; c.height = size;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let best = null, bestScore = -1, rs=0,gs=0,bs=0,count=0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+          if (a < 128) continue;
+          rs+=r; gs+=g; bs+=b; count++;
+          const max = Math.max(r,g,b), min = Math.min(r,g,b);
+          const sat = max === 0 ? 0 : (max - min) / max;
+          const lum = (0.299*r + 0.587*g + 0.114*b) / 255;
+          // prefer colourful, mid-bright pixels (skip near-white / near-black)
+          const score = sat * (1 - Math.abs(lum - 0.5));
+          if (score > bestScore && lum > 0.15 && lum < 0.92) { bestScore = score; best = [r,g,b]; }
+        }
+        if (!best && count) best = [Math.round(rs/count), Math.round(gs/count), Math.round(bs/count)];
+        if (!best) { applyTheme(DEFAULT_ACCENT, DEFAULT_ACCENT2); return; }
+        const accent = rgbToHex(adjust(best, 0.92));     // slightly deepen for contrast on white
+        const accent2 = rgbToHex(adjust(best, 0.55));    // darker partner for the gradient
+        applyTheme(accent, accent2);
+      } catch (e) {
+        // CORS-tainted canvas etc. — keep the default palette
+        applyTheme(DEFAULT_ACCENT, DEFAULT_ACCENT2);
+      }
+    };
+    img.onerror = () => applyTheme(DEFAULT_ACCENT, DEFAULT_ACCENT2);
+    img.src = url;
+  }
+
+  function adjust(rgb, f) { return rgb.map(v => Math.max(0, Math.min(255, Math.round(v * f)))); }
+  function rgbToHex([r,g,b]) { return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join(''); }
 
   // ── Now Playing ──
   function renderHistory(history) {
@@ -546,8 +664,12 @@
         if (!artImg || !artImg.src.includes(np.artwork_url)) {
           art.innerHTML = `<img src="${np.artwork_url}" alt="">`;
         }
+        themeFromArtwork(np.artwork_url);   // recolour the player from the cover
       } else if (artImg) {
         art.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+        themeFromArtwork('');               // back to the calm default
+      } else {
+        themeFromArtwork(np.artwork_url || '');
       }
 
       // Live badge
