@@ -69,12 +69,33 @@ function getAssignedStationIds() {
 let ws = null;
 
 // ── API helper ──
-async function api(path, opts = {}) {
+// Staff API key (only needed when the server has ADMIN_API_KEY set). Stored
+// per-browser; prompted once if a protected call comes back NEED_API_KEY.
+function getApiKey() { try { return localStorage.getItem('ciryacast_api_key') || ''; } catch { return ''; } }
+function authHeaders(extra) {
+  const k = getApiKey();
+  return Object.assign({}, extra || {}, k ? { 'x-api-key': k } : {});
+}
+function promptForApiKey() {
+  const k = prompt('This action needs the CiryaCast staff API key (set in Railway as ADMIN_API_KEY):', getApiKey());
+  if (k != null) { try { localStorage.setItem('ciryacast_api_key', k.trim()); } catch {} return k.trim(); }
+  return '';
+}
+
+async function api(path, opts = {}, _retried = false) {
   try {
     const res = await fetch(`/api${path}`, {
-      headers: { 'Content-Type': 'application/json', ...opts.headers },
       ...opts,
+      headers: authHeaders({ 'Content-Type': 'application/json', ...opts.headers }),
     });
+    if (res.status === 401 && !_retried) {
+      // Server wants the staff key — ask for it once, then retry
+      let body = null; try { body = await res.clone().json(); } catch {}
+      if (body && body.code === 'NEED_API_KEY') {
+        const k = promptForApiKey();
+        if (k) return api(path, opts, true);
+      }
+    }
     if (!res.ok) { console.error(`API ${path} → ${res.status}`); return null; }
     return await res.json();
   } catch (e) { console.error(`API ${path} failed:`, e); return null; }
@@ -417,6 +438,7 @@ async function uploadStationLogo() {
 
     const response = await fetch(`/api/stations/${stationId}/logo`, {
       method: 'POST',
+      headers: authHeaders(),
       body: formData,
     });
 
@@ -769,7 +791,7 @@ async function handleFiles(files) {
     showUploadStatus(`Uploading ${uploaded} / ${totalFiles} files... (batch ${b+1}/${batches.length})`, 'info');
 
     try {
-      const res = await fetch(`/api/stations/${currentStationId}/media`, { method: 'POST', body: form });
+      const res = await fetch(`/api/stations/${currentStationId}/media`, { method: 'POST', headers: authHeaders(), body: form });
       if (res.ok) { uploaded += (await res.json()).length; }
       else { failed += batch.length; }
     } catch { failed += batch.length; }
@@ -1378,7 +1400,7 @@ async function startAzuraCastImport() {
   try {
     const res = await fetch(`/api/stations/${sid}/import/azuracast`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         azuracast_url: azuraUrl,
         api_key: apiKey,
@@ -1823,7 +1845,7 @@ async function saveVoiceTrack() {
   try {
     const response = await fetch(`/api/stations/${stationId}/voicetracks/record?title=${encodeURIComponent(title)}&presenter=${encodeURIComponent(presenter)}`, {
       method: 'POST',
-      headers: { 'Content-Type': vtBlob.type || 'audio/webm' },
+      headers: authHeaders({ 'Content-Type': vtBlob.type || 'audio/webm' }),
       body: vtBlob,
     });
 

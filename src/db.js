@@ -166,6 +166,12 @@ try { db.exec('ALTER TABLE stations ADD COLUMN website_url TEXT DEFAULT ""'); } 
 try { db.exec('ALTER TABLE stations ADD COLUMN location TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE media ADD COLUMN stream_url TEXT DEFAULT ""'); } catch {}
 
+// Clean URL slugs for stations (e.g. /player/cirya-radio-one)
+try { db.exec('ALTER TABLE stations ADD COLUMN slug TEXT DEFAULT ""'); } catch {}
+// Artwork + album on play history so "recently played" can show covers
+try { db.exec('ALTER TABLE play_history ADD COLUMN artwork_url TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE play_history ADD COLUMN album TEXT DEFAULT ""'); } catch {}
+
 // ── Station ownership & roles ──
 // owner_id: user ID of the station owner (can manage users, settings, etc.)
 try { db.exec('ALTER TABLE stations ADD COLUMN owner_id TEXT DEFAULT ""'); } catch {}
@@ -248,5 +254,31 @@ if (count.c === 0) {
 
   console.log(`  ✓ Created default station: Cirya Radio One (${id})`);
 }
+
+// ── Slug helpers + backfill ──
+function slugify(name) {
+  return String(name || '').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'station';
+}
+
+function makeUniqueSlug(base, excludeId) {
+  const root = slugify(base);
+  let slug = root, n = 1;
+  while (true) {
+    const row = db.prepare('SELECT id FROM stations WHERE slug = ?').get(slug);
+    if (!row || row.id === excludeId) return slug;
+    n++; slug = `${root}-${n}`;
+  }
+}
+
+// Backfill slugs for any station missing one
+for (const s of db.prepare("SELECT id, name FROM stations WHERE slug IS NULL OR slug = ''").all()) {
+  db.prepare('UPDATE stations SET slug = ? WHERE id = ?').run(makeUniqueSlug(s.name, s.id), s.id);
+}
+
+db.slugify = slugify;
+db.makeUniqueSlug = makeUniqueSlug;
 
 module.exports = db;

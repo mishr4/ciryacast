@@ -275,6 +275,16 @@
   .queue-info span { color: #777; }
   .queue-by { font-size: 10px; color: #aaa; }
 
+  /* Recently played */
+  .history-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(0,0,0,0.04); }
+  .history-row:last-child { border-bottom: none; }
+  .history-art { width: 36px; height: 36px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: linear-gradient(135deg,#7C4DFF,#FF48BC); display: flex; align-items: center; justify-content: center; }
+  .history-art img { width: 100%; height: 100%; object-fit: cover; }
+  .history-art svg { width: 16px; height: 16px; color: rgba(255,255,255,0.85); }
+  .history-meta { flex: 1; min-width: 0; }
+  .history-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-artist { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
   /* Stream Link Card */
   .stream-link-card {
     background: #fff;
@@ -385,6 +395,11 @@
       <h4>Request Queue</h4>
       <div id="queue-list"></div>
     </div>
+
+    <div class="queue-section" id="history-section" style="display:none">
+      <h4>Recently Played</h4>
+      <div id="history-list"></div>
+    </div>
   </div>
 
   <!-- Direct Stream Link -->
@@ -408,7 +423,10 @@
 <audio id="audio" preload="none"></audio>
 
 <script>
-  let stationId = window.location.pathname.split('/')[2];
+  // The URL carries a slug or a UUID; we resolve it to the real id on first
+  // fetch and rewrite the address bar to the clean slug.
+  let stationId = decodeURIComponent(window.location.pathname.split('/')[2] || '');
+  let urlNormalized = false;
   const audio = document.getElementById('audio');
   let playing = false;
   let visBars = [];
@@ -417,31 +435,8 @@
   let npDuration = 0;
   let npElapsed = 0;
 
-  // If no station specified, default to "Cirya Radio One"
-  async function loadDefaultStation() {
-    if (stationId) return; // Already have a station
-
-    try {
-      const res = await fetch('/api/stations');
-      const stations = await res.json();
-
-      // Try to find Cirya Radio One first
-      let station = stations.find(s => s.name === 'Cirya Radio One');
-      if (!station && stations.length > 0) {
-        station = stations[0]; // Fallback to first
-      }
-
-      if (station) {
-        stationId = station.id;
-        window.history.replaceState(null, '', `/player/${stationId}`);
-      }
-    } catch (e) {
-      console.error('Failed to load default station:', e);
-    }
-  }
-
-  // Load default station immediately
-  loadDefaultStation();
+  // No station in the URL → send to the directory
+  if (!stationId) { window.location.replace('/stations'); }
 
   // ── Visualizer ──
   const visEl = document.getElementById('visualizer');
@@ -491,11 +486,40 @@
   }
 
   // ── Now Playing ──
+  function renderHistory(history) {
+    const section = document.getElementById('history-section');
+    const list = document.getElementById('history-list');
+    if (!history || !history.length) { section.style.display = 'none'; return; }
+    section.style.display = 'block';
+    list.innerHTML = history.map(h => `
+      <div class="history-row">
+        <div class="history-art">${h.artwork_url
+          ? `<img src="${h.artwork_url}" alt="">`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`}</div>
+        <div class="history-meta">
+          <div class="history-title">${(h.title || '—').replace(/</g,'&lt;')}</div>
+          <div class="history-artist">${(h.artist || '').replace(/</g,'&lt;')}</div>
+        </div>
+      </div>`).join('');
+  }
+
   function updateNowPlaying(data) {
     if (!data) return;
     const np = data.now_playing;
     const art = document.getElementById('art-container');
     const reqBadge = document.getElementById('request-badge');
+
+    // Resolve slug/uuid → real id, and normalize the address bar to the slug
+    if (data.station) {
+      if (data.station.id) stationId = data.station.id;
+      if (!urlNormalized && data.station.slug) {
+        history.replaceState(null, '', `/player/${data.station.slug}`);
+        const su = document.getElementById('stream-url');
+        if (su) su.value = `${location.origin}/listen/${data.station.slug}/radio.mp3`;
+        urlNormalized = true;
+      }
+    }
+    renderHistory(data.song_history);
 
     document.getElementById('station-name').textContent = data.station.name;
     document.title = `${data.station.name} — CiryaCast`;
@@ -579,17 +603,10 @@
 
   async function refreshNP() {
     try {
-      const res = await fetch(`/api/nowplaying/${stationId}`);
+      const res = await fetch(`/api/nowplaying/${encodeURIComponent(stationId)}`);
       if (res.status === 404) {
-        const allRes = await fetch('/api/nowplaying');
-        const all = await allRes.json();
-        if (Array.isArray(all) && all.length > 0) {
-          stationId = all[0].station.id;
-          history.replaceState(null, '', `/player/${stationId}`);
-          updateNowPlaying(all[0]);
-          return;
-        }
-        document.getElementById('station-name').textContent = 'No stations available';
+        // Unknown station → back to the directory
+        window.location.replace('/stations');
         return;
       }
       const data = await res.json();

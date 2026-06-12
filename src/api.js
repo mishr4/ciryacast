@@ -264,10 +264,11 @@ router.post('/stations', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name is required' });
 
   const id = uuid();
+  const slug = db.makeUniqueSlug(name);
   db.prepare(`
-    INSERT INTO stations (id, name, description, genre, bitrate, owner_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, name, description || '', genre || 'Various', bitrate || 128, owner_id || '');
+    INSERT INTO stations (id, name, slug, description, genre, bitrate, owner_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, name, slug, description || '', genre || 'Various', bitrate || 128, owner_id || '');
 
   // Create default playlist
   const plId = uuid();

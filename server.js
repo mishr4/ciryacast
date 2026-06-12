@@ -37,6 +37,13 @@ app.set('streamEngine', streamEngine);
 app.set('autoDJ', autoDJ);
 app.set('broadcast', broadcast);
 
+// Resolve a station by UUID or slug → station row (or null)
+function resolveStation(key) {
+  if (!key) return null;
+  return db.prepare('SELECT * FROM stations WHERE id = ? OR slug = ?').get(key, key) || null;
+}
+app.set('resolveStation', resolveStation);
+
 // ── Ensure directories exist ──
 const fs = require('fs');
 const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
@@ -411,6 +418,47 @@ app.use('/media', express.static(mediaDir));
 // Trust Railway's proxy so req IPs / x-forwarded-for resolve to the real client
 app.set('trust proxy', true);
 
+// ════════════════════════════════════════════════════
+// API AUTH
+// Protects mutating + secret-leaking endpoints with a shared staff key.
+// OPT-IN: only enforced when ADMIN_API_KEY is set in the environment — so
+// it never locks anyone out unexpectedly. Public, listener-facing routes
+// stay open. The dashboard sends the key as the `x-api-key` header.
+// ════════════════════════════════════════════════════
+const ADMIN_API_KEY = process.env.ADMIN_API_KEY || '';
+if (ADMIN_API_KEY) {
+  console.log('  🔒 API auth ENABLED (ADMIN_API_KEY set) — admin routes require the staff key');
+} else {
+  console.log('  🔓 API auth DISABLED — set ADMIN_API_KEY in Railway to lock down admin routes');
+}
+
+// Routes that must stay public (listener/player/login facing)
+function isPublicApiRoute(method, p) {
+  if (method === 'GET') {
+    if (p === '/nowplaying' || /^\/nowplaying\//.test(p)) return true;
+    if (p === '/stations') return true;                              // directory list
+    if (/^\/stations\/[^/]+\/shows$/.test(p)) return true;           // overlay schedule
+    if (/^\/stations\/[^/]+\/connection-info$/.test(p)) return true; // shown in dashboard, harmless
+    if (p === '/search' || /^\/search\//.test(p)) return true;       // request song search
+    if (p === '/stats') return true;
+    return false;
+  }
+  if (method === 'POST') {
+    if (p === '/auth/login' || p === '/auth/validate') return true;
+    if (/^\/stations\/[^/]+\/requests$/.test(p)) return true;        // listener song requests
+    return false;
+  }
+  return false; // all other PUT/PATCH/DELETE are protected
+}
+
+app.use('/api', (req, res, next) => {
+  if (!ADMIN_API_KEY) return next();                  // auth disabled
+  if (isPublicApiRoute(req.method, req.path)) return next();
+  const key = req.headers['x-api-key'] || req.query.api_key;
+  if (key === ADMIN_API_KEY) return next();
+  return res.status(401).json({ error: 'Staff API key required', code: 'NEED_API_KEY' });
+});
+
 // ── API routes ──
 app.use('/api', api);
 
@@ -446,7 +494,7 @@ app.get('/stream/:stationId', (req, res) => {
 
 // ── Audio stream endpoint ──
 app.get('/listen/:stationId/radio.mp3', (req, res) => {
-  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
+  const station = resolveStation(req.params.stationId);
   if (!station) return res.status(404).send('Station not found');
 
   // ?skip_buffer=1 for low-latency mode (dashboard preview, OBS)
@@ -484,6 +532,7 @@ app.get('/api/nowplaying', (req, res) => {
   const result = stations.map(s => ({
     station: {
       id: s.id,
+      slug: s.slug || s.id,
       name: s.name,
       description: s.description,
       genre: s.genre,
@@ -495,35 +544,45 @@ app.get('/api/nowplaying', (req, res) => {
     now_playing: streamEngine.getNowPlaying(s.id),
     listeners: { current: streamEngine.getListenerCount(s.id) },
     live: streamEngine.isLive(s.id),
-    listen_url: `/listen/${s.id}/radio.mp3`,
+    listen_url: `/listen/${s.slug || s.id}/radio.mp3`,
   }));
   res.json(result);
 });
 
 app.get('/api/nowplaying/:stationId', (req, res) => {
-  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.stationId);
+  const station = resolveStation(req.params.stationId);
   if (!station) return res.status(404).json({ error: 'Station not found' });
 
   const pendingRequests = db.prepare(
     "SELECT id, title, artist, requested_by FROM song_requests WHERE station_id = ? AND status = 'pending' ORDER BY created_at ASC LIMIT 5"
   ).all(station.id);
 
+  // Recently played — last 8 music tracks (AzuraCast-style song history)
+  const history = db.prepare(
+    "SELECT title, artist, album, artwork_url, played_at FROM play_history WHERE station_id = ? ORDER BY played_at DESC LIMIT 8"
+  ).all(station.id);
+
   res.json({
-    station: { id: station.id, name: station.name, description: station.description, genre: station.genre },
+    station: {
+      id: station.id,
+      slug: station.slug || station.id,
+      name: station.name,
+      description: station.description,
+      genre: station.genre,
+      logo_url: station.logo_url || '',
+    },
     now_playing: streamEngine.getNowPlaying(station.id),
     listeners: { current: streamEngine.getListenerCount(station.id) },
     live: streamEngine.isLive(station.id),
-    listen_url: `/listen/${station.id}/radio.mp3`,
+    listen_url: `/listen/${station.slug || station.id}/radio.mp3`,
     request_queue: pendingRequests,
+    song_history: history,
   });
 });
 
 // ── Public player page (no auth) ──
-app.get('/player', (req, res) => {
-  const station = db.prepare('SELECT id FROM stations LIMIT 1').get();
-  if (station) return res.redirect(`/player/${station.id}`);
-  res.sendFile(path.join(__dirname, 'public', 'player.html'));
-});
+// Bare /player → station directory (no more guessing a default)
+app.get('/player', (req, res) => res.redirect('/stations'));
 
 app.get('/player/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'player.html'));

@@ -445,8 +445,9 @@
       const hasAudio = np && np.title !== 'Unknown';
       const artUrl = s.station.logo_url || (np?.artwork_url) || '';
 
+      const slug = s.station.slug || s.station.id;
       return `
-        <div class="station-card" onclick="location.href='/player/${s.station.id}'" role="link" tabindex="0">
+        <div class="station-card" onclick="location.href='/player/${slug}'" role="link" tabindex="0">
           <div class="card-logo">
             <div class="card-logo-placeholder">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
@@ -464,7 +465,7 @@
             }
           </div>
           <div class="card-actions">
-            <a class="card-action primary" href="/player/${s.station.id}" onclick="event.stopPropagation()">
+            <a class="card-action primary" href="/player/${slug}" onclick="event.stopPropagation()">
               <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>
               Listen
             </a>

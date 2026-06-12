@@ -336,9 +336,10 @@ class AutoDJ {
     });
 
     this.db.prepare(
-      'INSERT INTO play_history (station_id, media_id, title, artist, listeners) VALUES (?,?,?,?,?)'
+      'INSERT INTO play_history (station_id, media_id, title, artist, album, artwork_url, listeners) VALUES (?,?,?,?,?,?,?)'
     ).run(stationId, track.id, track.title || track.original_name,
-          track.artist || 'Unknown', this.streamEngine.getListenerCount(stationId));
+          track.artist || 'Unknown', track.album || '', track.artwork_url || '',
+          this.streamEngine.getListenerCount(stationId));
 
     this.broadcast('track_change', {
       stationId,
