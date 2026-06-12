@@ -1232,14 +1232,29 @@ router.get('/admin/banned', (req, res) => {
 });
 
 // IP log for an email — for IP-banning an abuser in Cirya / Cloudflare / etc.
+// Excludes server-side admin tooling (curl/node) so only real browser visits
+// surface — those are the abuser's actual IPs.
 router.get('/admin/access-log', (req, res) => {
   const db = req.app.get('db');
   const email = normEmail(req.query.email);
+  const includeTools = req.query.all === '1';
   const rows = email
     ? db.prepare('SELECT email, ip, user_agent, at FROM access_log WHERE email = ? ORDER BY at DESC LIMIT 100').all(email)
     : db.prepare('SELECT email, ip, user_agent, at FROM access_log ORDER BY at DESC LIMIT 100').all();
-  const uniqueIps = [...new Set(rows.map(r => r.ip).filter(Boolean))];
-  res.json({ email: email || null, unique_ips: uniqueIps, entries: rows });
+  const isTool = (ua) => /curl|wget|node|postman|python-requests|httpie/i.test(ua || '');
+  const visible = includeTools ? rows : rows.filter(r => !isTool(r.user_agent));
+  const uniqueIps = [...new Set(visible.map(r => r.ip).filter(Boolean))];
+  res.json({ email: email || null, unique_ips: uniqueIps, entries: visible });
+});
+
+// Clear logged IPs for an email (e.g. to discard admin test noise before
+// capturing the real abuser IP)
+router.delete('/admin/access-log', (req, res) => {
+  const db = req.app.get('db');
+  const email = normEmail(req.query.email);
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const info = db.prepare('DELETE FROM access_log WHERE email = ?').run(email);
+  res.json({ ok: true, email, deleted: info.changes });
 });
 
 // List all users (admin only — no middleware yet, rely on CiryaSSO admin)
