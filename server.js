@@ -438,6 +438,7 @@ function isPublicApiRoute(method, p) {
     if (p === '/nowplaying' || /^\/nowplaying\//.test(p)) return true;
     if (p === '/stations') return true;                              // directory list
     if (/^\/stations\/[^/]+\/shows$/.test(p)) return true;           // overlay schedule
+    if (/^\/stations\/[^/]+\/library$/.test(p)) return true;         // player request browser
     if (/^\/stations\/[^/]+\/connection-info$/.test(p)) return true; // shown in dashboard, harmless
     if (p === '/search' || /^\/search\//.test(p)) return true;       // request song search
     if (p === '/stats') return true;

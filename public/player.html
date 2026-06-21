@@ -166,15 +166,37 @@
     margin-bottom: 16px;
     text-align: left;
   }
-  .request-card h3 {
-    font-family: 'Lexend', sans-serif;
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 14px;
-    text-align: center;
+  /* Toggle button (collapsed state) */
+  .request-toggle {
+    width: 100%;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 14px;
+    background: var(--accent);
+    color: #fff;
+    border: none; border-radius: 14px;
+    font-family: 'Lexend', sans-serif; font-size: 15px; font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.15s, transform 0.1s;
   }
+  .request-toggle:hover { filter: brightness(1.05); }
+  .request-toggle:active { transform: scale(0.99); }
+  .request-toggle svg { width: 18px; height: 18px; }
 
-  .search-wrap { position: relative; margin-bottom: 8px; }
+  /* Expanded panel */
+  .request-panel { display: none; }
+  .request-card.open .request-toggle { display: none; }
+  .request-card.open .request-panel { display: block; }
+  .request-panel-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .request-close {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 12px;
+    background: #f4f4f6; border: none; color: #888; font-size: 22px; cursor: pointer;
+    line-height: 1; transition: background 0.15s;
+  }
+  .request-close:hover { background: #ecebf0; color: #444; }
+  .req-counter { font-size: 12px; color: #999; margin-bottom: 10px; font-weight: 500; }
+  .req-counter strong { color: var(--accent); }
+
+  .search-wrap { position: relative; flex: 1; }
   .search-input {
     width: 100%;
     padding: 12px 16px 12px 40px;
@@ -200,57 +222,55 @@
     pointer-events: none;
   }
 
-  /* Search Results Dropdown */
-  .search-results {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: #fff;
-    border-radius: 14px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
-    max-height: 280px;
-    overflow-y: auto;
-    z-index: 50;
-    display: none;
-    margin-top: 4px;
-    border: 1px solid rgba(0,0,0,0.06);
-  }
-  .search-results.show { display: block; }
-
-  .search-result {
-    display: flex;
-    align-items: center;
+  /* Album-cover grid of the available library */
+  .lib-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
-    padding: 10px 14px;
-    cursor: pointer;
-    transition: background 0.1s;
-    border-bottom: 1px solid rgba(0,0,0,0.04);
+    max-height: 340px;
+    overflow-y: auto;
+    padding: 2px;
   }
-  .search-result:last-child { border-bottom: none; }
-  .search-result:hover { background: #faf8ff; }
-
-  .sr-art {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-2));
-    flex-shrink: 0;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    color: #fff;
+  .lib-tile { cursor: pointer; text-align: left; }
+  .lib-cover {
+    position: relative;
+    width: 100%; aspect-ratio: 1; border-radius: 14px; overflow: hidden;
+    background: #ecebf2; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    transition: transform 0.12s, box-shadow 0.12s;
   }
-  .sr-art img { width: 100%; height: 100%; object-fit: cover; }
-  .sr-meta { flex: 1; overflow: hidden; }
-  .sr-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sr-artist { font-size: 11px; color: #777; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sr-album { font-size: 10px; color: #aaa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-tile:hover .lib-cover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,0.16); }
+  .lib-cover .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .lib-cover svg { width: 26px; height: 26px; color: #b3afc7; }
+  .lib-tile-title { font-size: 12px; font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-tile-artist { font-size: 11px; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lib-empty { grid-column: 1 / -1; text-align: center; padding: 28px 10px; font-size: 13px; color: #aaa; }
 
-  .search-loading { padding: 16px; text-align: center; font-size: 13px; color: #777; }
-  .search-empty { padding: 16px; text-align: center; font-size: 13px; color: #aaa; }
+  /* Expanded track detail */
+  .lib-detail { display: none; }
+  .request-card.detail .request-panel { display: none; }
+  .request-card.detail .lib-detail { display: block; }
+  .lib-detail-inner { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 4px 4px; }
+  .lib-detail-cover {
+    position: relative;
+    width: 180px; height: 180px; border-radius: 18px; overflow: hidden; margin-bottom: 16px;
+    background: #ecebf2; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.2);
+  }
+  .lib-detail-cover .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .lib-detail-cover svg { width: 48px; height: 48px; color: #b3afc7; }
+  .lib-detail h3 { font-family: 'Lexend', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+  .lib-detail p { font-size: 14px; color: #777; margin-bottom: 18px; }
+  .lib-detail-actions { display: flex; gap: 10px; width: 100%; }
+  .lib-btn {
+    flex: 1; padding: 13px; border-radius: 14px; border: none; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: 600; transition: filter 0.15s, background 0.15s;
+  }
+  .lib-btn-add { background: var(--accent); color: #fff; }
+  .lib-btn-add:hover { filter: brightness(1.06); }
+  .lib-btn-add:disabled { background: #cfcad9; cursor: not-allowed; filter: none; }
+  .lib-btn-back { background: #f4f4f6; color: #555; flex: 0 0 90px; }
+  .lib-btn-back:hover { background: #ecebf0; }
 
   /* Request status message */
   .request-msg {
@@ -393,12 +413,25 @@
 
   <!-- Song Request -->
   <div class="request-card">
-    <h3>Request a Song</h3>
-    <div class="search-wrap">
-      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input class="search-input" id="search-input" type="text" placeholder="Search for a song..." autocomplete="off">
-      <div class="search-results" id="search-results"></div>
+    <button class="request-toggle" id="request-toggle" onclick="openRequest()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      Request a Song
+    </button>
+
+    <div class="request-panel" id="request-panel">
+      <div class="request-panel-head">
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="search-input" id="lib-search" type="text" placeholder="Search available songs…" autocomplete="off">
+        </div>
+        <button class="request-close" onclick="closeRequest()" aria-label="Close">&times;</button>
+      </div>
+      <div class="req-counter" id="req-counter"></div>
+      <div class="lib-grid" id="lib-grid"></div>
     </div>
+
+    <!-- expanded track detail -->
+    <div class="lib-detail" id="lib-detail"></div>
     <div class="request-msg" id="request-msg"></div>
 
     <div class="queue-section" id="queue-section" style="display:none">
@@ -774,108 +807,125 @@
   }
   connectPlayerWS();
 
-  // ── Song Request Search ──
-  const searchInput = document.getElementById('search-input');
-  const searchResults = document.getElementById('search-results');
+  // ── Song Request: browse the available library ──
+  const MAX_REQUESTS = 2;
+  const requestCard = document.querySelector('.request-card');
+  const libSearch = document.getElementById('lib-search');
+  const libGrid = document.getElementById('lib-grid');
+  const libDetail = document.getElementById('lib-detail');
   const requestMsg = document.getElementById('request-msg');
+  let library = [];
+  let libLoaded = false;
+  let requestsUsed = 0;
+  const NOTE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
 
-  searchInput.addEventListener('input', () => {
-    const q = searchInput.value.trim();
-    clearTimeout(searchTimeout);
+  function updateCounter() {
+    const el = document.getElementById('req-counter');
+    const left = Math.max(0, MAX_REQUESTS - requestsUsed);
+    el.innerHTML = left > 0
+      ? `Pick up to <strong>${left}</strong> song${left !== 1 ? 's' : ''} from the library`
+      : `You've queued your <strong>${MAX_REQUESTS}</strong> songs — enjoy! 🎶`;
+  }
 
-    if (q.length < 2) {
-      searchResults.classList.remove('show');
+  async function openRequest() {
+    requestCard.classList.add('open');
+    updateCounter();
+    if (!libLoaded) {
+      libGrid.innerHTML = '<div class="lib-empty">Loading…</div>';
+      try {
+        library = await fetch(`/api/stations/${stationId}/library`).then(r => r.json());
+        libLoaded = true;
+      } catch { library = []; }
+    }
+    renderLibrary(libSearch.value.trim());
+    setTimeout(() => libSearch.focus(), 50);
+  }
+  function closeRequest() {
+    requestCard.classList.remove('open', 'detail');
+  }
+  window.openRequest = openRequest;
+  window.closeRequest = closeRequest;
+
+  function renderLibrary(q) {
+    let list = library;
+    if (q) {
+      const s = q.toLowerCase();
+      list = library.filter(t =>
+        (t.title || '').toLowerCase().includes(s) ||
+        (t.artist || '').toLowerCase().includes(s) ||
+        (t.album || '').toLowerCase().includes(s));
+    }
+    if (!list.length) {
+      libGrid.innerHTML = `<div class="lib-empty">${library.length ? 'No songs match your search' : 'No songs available yet'}</div>`;
       return;
     }
+    libGrid.innerHTML = list.slice(0, 60).map(t => `
+      <div class="lib-tile" onclick="expandTrack('${t.id}')">
+        <div class="lib-cover">${NOTE_SVG}${t.artwork_url
+          ? `<img class="cover-img" src="${esc(t.artwork_url)}" alt="" loading="lazy" onerror="this.remove()">`
+          : ''}</div>
+        <div class="lib-tile-title">${esc(t.title)}</div>
+        <div class="lib-tile-artist">${esc(t.artist)}</div>
+      </div>`).join('');
+  }
 
-    searchResults.innerHTML = '<div class="search-loading">Searching...</div>';
-    searchResults.classList.add('show');
-
-    searchTimeout = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
-        const tracks = await res.json();
-
-        if (!Array.isArray(tracks) || tracks.length === 0) {
-          searchResults.innerHTML = '<div class="search-empty">No results found</div>';
-          return;
-        }
-
-        searchResults.innerHTML = tracks.slice(0, 10).map((t, i) => {
-          const art = t.album_art || '';
-          const title = t.title || t.name || 'Unknown';
-          const artist = t.artist || 'Unknown';
-          const album = t.album_name || '';
-          const tmId = t.deezer_id || t.spotify_id || '';
-          const dur = t.duration_sec || 0;
-          return `
-            <div class="search-result" data-index="${i}"
-              onclick='requestSong(${JSON.stringify({
-                title: title,
-                artist: typeof artist === 'string' ? artist : String(artist),
-                album: album,
-                artwork_url: art,
-                tm_track_id: String(tmId),
-                duration: dur,
-              }).replace(/'/g, "&#39;")})'
-            >
-              <div class="sr-art">
-                ${art ? `<img src="${art}" alt="" onerror="this.parentNode.textContent='♪'">` : '♪'}
-              </div>
-              <div class="sr-meta">
-                <div class="sr-title">${esc(title)}</div>
-                <div class="sr-artist">${esc(typeof artist === 'string' ? artist : String(artist))}</div>
-                ${album ? `<div class="sr-album">${esc(album)}</div>` : ''}
-              </div>
-            </div>
-          `;
-        }).join('');
-      } catch (e) {
-        searchResults.innerHTML = '<div class="search-empty">Search failed — try again</div>';
-      }
-    }, 350);
+  libSearch.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => renderLibrary(libSearch.value.trim()), 150);
   });
 
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.search-wrap')) {
-      searchResults.classList.remove('show');
-    }
-  });
+  // Click a cover → expand a detail view with an Add button
+  function expandTrack(id) {
+    const t = library.find(x => x.id === id);
+    if (!t) return;
+    const atLimit = requestsUsed >= MAX_REQUESTS;
+    libDetail.innerHTML = `
+      <div class="lib-detail-inner">
+        <div class="lib-detail-cover">${NOTE_SVG}${t.artwork_url ? `<img class="cover-img" src="${esc(t.artwork_url)}" alt="" onerror="this.remove()">` : ''}</div>
+        <h3>${esc(t.title)}</h3>
+        <p>${esc(t.artist)}${t.album ? ' · ' + esc(t.album) : ''}</p>
+        <div class="lib-detail-actions">
+          <button class="lib-btn lib-btn-back" onclick="backToGrid()">Back</button>
+          <button class="lib-btn lib-btn-add" id="lib-add-btn" ${atLimit ? 'disabled' : ''} onclick="addRequest('${t.id}')">
+            ${atLimit ? 'Queue full' : '＋ Add to Queue'}
+          </button>
+        </div>
+      </div>`;
+    requestCard.classList.add('detail');
+  }
+  function backToGrid() { requestCard.classList.remove('detail'); }
+  window.expandTrack = expandTrack;
+  window.backToGrid = backToGrid;
 
-  async function requestSong(track) {
-    searchResults.classList.remove('show');
-    searchInput.value = `${track.artist} — ${track.title}`;
-
-    showRequestMsg('Sending request…', 'info');
-
+  async function addRequest(id) {
+    const btn = document.getElementById('lib-add-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
     try {
       const res = await fetch(`/api/stations/${stationId}/requests`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...track,
-          requested_by: 'Listener',
-        }),
+        body: JSON.stringify({ media_id: id, requested_by: 'Listener' }),
       });
-
       const data = await res.json();
-
       if (res.ok) {
-        if (data.matched) {
-          showRequestMsg('In the library — queued up! 🎵', 'success');
-        } else {
-          showRequestMsg('Request received — a DJ will add it if available 🎶', 'success');
-        }
-        searchInput.value = '';
+        requestsUsed = MAX_REQUESTS - (typeof data.remaining === 'number' ? data.remaining : MAX_REQUESTS - requestsUsed - 1);
+        requestCard.classList.remove('detail');
+        updateCounter();
+        showRequestMsg('Added to the queue! 🎵', 'success');
         refreshNP();
+        if (requestsUsed >= MAX_REQUESTS) setTimeout(closeRequest, 1200);
       } else {
-        showRequestMsg(data.error || 'Request failed', 'error');
+        if (res.status === 429) requestsUsed = MAX_REQUESTS;
+        updateCounter();
+        showRequestMsg(data.error || 'Could not add', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '＋ Add to Queue'; }
       }
-    } catch (e) {
+    } catch {
       showRequestMsg('Request failed — try again', 'error');
+      if (btn) { btn.disabled = false; btn.textContent = '＋ Add to Queue'; }
     }
   }
+  window.addRequest = addRequest;
 
   function showRequestMsg(msg, type) {
     requestMsg.textContent = msg;

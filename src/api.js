@@ -785,71 +785,86 @@ router.get('/search', async (req, res) => {
 
 // Submit a song request (public — from player page)
 // Auto-downloads the song from TypicalMedia if not in library
+// Resolve a station by UUID or slug → id
+function resolveStationId(db, key) {
+  const row = db.prepare('SELECT id FROM stations WHERE id = ? OR slug = ?').get(key, key);
+  return row ? row.id : null;
+}
+
+// Public, lightweight song library for the player's "Request a Song" browser.
+// Only tracks that have a file (i.e. can actually be played), with art.
+router.get('/stations/:id/library', (req, res) => {
+  const db = req.app.get('db');
+  const stationId = resolveStationId(db, req.params.id);
+  if (!stationId) return res.json([]);
+  const q = (req.query.q || '').toLowerCase().trim();
+  let rows = db.prepare(
+    "SELECT id, title, artist, album, artwork_url FROM media WHERE station_id = ? AND title != '' ORDER BY (artwork_url = '' ) ASC, artist COLLATE NOCASE, title COLLATE NOCASE"
+  ).all(stationId);
+  if (q) {
+    rows = rows.filter(r =>
+      (r.title || '').toLowerCase().includes(q) ||
+      (r.artist || '').toLowerCase().includes(q) ||
+      (r.album || '').toLowerCase().includes(q)
+    );
+  }
+  res.json(rows);
+});
+
+const MAX_REQUESTS_PER_LISTENER = 2;
+
 router.post('/stations/:id/requests', async (req, res) => {
   const db = req.app.get('db');
-  const stationId = req.params.id;
-  const { title, artist, album, artwork_url, tm_track_id, requested_by, duration } = req.body;
+  const stationId = resolveStationId(db, req.params.id);
+  if (!stationId) return res.status(404).json({ error: 'Station not found' });
+  let { title, artist, album, artwork_url, tm_track_id, requested_by, media_id } = req.body;
 
-  if (!title || !artist) {
-    return res.status(400).json({ error: 'Title and artist are required' });
+  const ip = clientIp(req);
+
+  // If a library track was picked, use it directly (this is the normal path
+  // now that listeners browse the available library)
+  let media = null;
+  if (media_id) {
+    media = db.prepare('SELECT * FROM media WHERE id = ? AND station_id = ?').get(media_id, stationId);
+    if (!media) return res.status(404).json({ error: 'That track is not available' });
+    title = media.title; artist = media.artist; album = media.album;
+    artwork_url = media.artwork_url; tm_track_id = media.tm_track_id;
+  } else {
+    if (!title || !artist) return res.status(400).json({ error: 'Pick a song to request' });
+    // Fall back to an exact library match
+    const m = db.prepare(
+      "SELECT * FROM media WHERE station_id = ? AND LOWER(title) = ? AND LOWER(artist) = ? LIMIT 1"
+    ).get(stationId, title.toLowerCase(), artist.toLowerCase());
+    if (m) { media = m; media_id = m.id; }
+  }
+  const resolvedMediaId = media ? media.id : null;
+
+  // Max N pending requests per listener (by IP)
+  const pendingCount = db.prepare(
+    "SELECT COUNT(*) AS c FROM song_requests WHERE station_id = ? AND ip = ? AND status = 'pending'"
+  ).get(stationId, ip).c;
+  if (pendingCount >= MAX_REQUESTS_PER_LISTENER) {
+    return res.status(429).json({ error: `You can have ${MAX_REQUESTS_PER_LISTENER} songs in the queue at a time` });
   }
 
-  // Check station exists
-  const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(stationId);
-  if (!station) return res.status(404).json({ error: 'Station not found' });
-
-  // Rate limit: max 1 request per IP per 30 seconds
-  const recentReq = db.prepare(`
-    SELECT id FROM song_requests
-    WHERE station_id = ? AND requested_by = ? AND status = 'pending'
-      AND datetime(created_at) > datetime('now', '-30 seconds')
-  `).get(stationId, requested_by || 'Listener');
-
-  if (recentReq) {
-    return res.status(429).json({ error: 'Please wait before requesting another song' });
-  }
-
-  // 1) Check if we already have this exact song in the library
-  //    Use exact match (not fuzzy LIKE) to avoid false positives
-  let media_id = null;
-  const mediaMatch = db.prepare(`
-    SELECT id FROM media
-    WHERE station_id = ?
-      AND (
-        (LOWER(title) = ? AND LOWER(artist) = ?)
-        OR (tm_track_id IS NOT NULL AND tm_track_id != '' AND tm_track_id = ?)
-      )
-    LIMIT 1
-  `).get(
-    stationId,
-    title.toLowerCase(),
-    artist.toLowerCase(),
-    tm_track_id || ''
-  );
-  if (mediaMatch) media_id = mediaMatch.id;
-
-  // 2) We do NOT download songs server-side. If it's already in the library
-  //    it gets queued; otherwise the request is logged for staff to fulfill.
+  // Light anti-spam: no duplicate of the same pending track
+  const dupe = db.prepare(
+    "SELECT id FROM song_requests WHERE station_id = ? AND ip = ? AND status = 'pending' AND LOWER(title) = ? AND LOWER(artist) = ?"
+  ).get(stationId, ip, String(title).toLowerCase(), String(artist).toLowerCase());
+  if (dupe) return res.status(409).json({ error: 'That song is already in your queue' });
 
   const result = db.prepare(`
-    INSERT INTO song_requests (station_id, title, artist, album, artwork_url, tm_track_id, media_id, requested_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(stationId, title, artist, album || '', artwork_url || '', tm_track_id || '', media_id, requested_by || 'Listener');
+    INSERT INTO song_requests (station_id, title, artist, album, artwork_url, tm_track_id, media_id, requested_by, ip)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(stationId, title, artist, album || '', artwork_url || '', tm_track_id || '', resolvedMediaId, requested_by || 'Listener', ip);
 
-  req.app.get('broadcast')('song_request', {
-    stationId,
-    title,
-    artist,
-    media_id,
-    matched: !!media_id,
-  });
+  req.app.get('broadcast')('song_request', { stationId, title, artist, media_id: resolvedMediaId, matched: !!resolvedMediaId });
 
   res.status(201).json({
     id: result.lastInsertRowid,
-    matched: !!media_id,
-    message: media_id
-      ? 'Song found in library — queued!'
-      : 'Request received — a DJ will add it if available.',
+    matched: !!resolvedMediaId,
+    remaining: MAX_REQUESTS_PER_LISTENER - (pendingCount + 1),
+    message: 'Added to the queue!',
   });
 });
 

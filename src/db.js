@@ -171,6 +171,8 @@ try { db.exec('ALTER TABLE stations ADD COLUMN slug TEXT DEFAULT ""'); } catch {
 // Artwork + album on play history so "recently played" can show covers
 try { db.exec('ALTER TABLE play_history ADD COLUMN artwork_url TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE play_history ADD COLUMN album TEXT DEFAULT ""'); } catch {}
+// Requester IP — to cap how many songs one listener can queue
+try { db.exec('ALTER TABLE song_requests ADD COLUMN ip TEXT DEFAULT ""'); } catch {}
 
 // ── Station ownership & roles ──
 // owner_id: user ID of the station owner (can manage users, settings, etc.)
