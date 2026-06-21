@@ -3,8 +3,9 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --bg: linear-gradient(90deg, #fef6f0 0%, #fdf2fd 100%);
+  --bg: #f5f4f8;
   --card-bg: #fff;
+  --placeholder-bg: #ecebf2;
   --card-shadow: 0 1px 21px rgba(0,0,0,0.08);
   --card-radius: 19px;
   --text-primary: #000;
@@ -23,7 +24,7 @@ html, body { height: 100%; width: 100%; }
 html { scroll-behavior: smooth; -webkit-font-smoothing: antialiased; }
 body {
   font-family: 'Instrument Sans', 'Inter', sans-serif;
-  background: linear-gradient(90deg, #fef6f0 0%, #fdf2fd 100%);
+  background: var(--bg);
   color: var(--text-primary);
   line-height: 1.5;
   display: flex;
@@ -127,7 +128,7 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--accent-purple), var(--accent-pink));
+  background: var(--placeholder-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -175,7 +176,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: linear-gradient(90deg, rgba(254,246,240,0.85) 0%, rgba(253,242,253,0.85) 100%);
+  background: rgba(245,244,248,0.88);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
@@ -287,10 +288,10 @@ body {
 
 .stat-icon svg { width: 20px; height: 20px; color: #fff; }
 
-.stat-icon.purple { background: linear-gradient(135deg, #7C4DFF, #536DFE); }
-.stat-icon.pink { background: linear-gradient(135deg, #FF48BC, #FF6EC7); }
-.stat-icon.cyan { background: linear-gradient(135deg, #0ED7FF, #00B4D8); }
-.stat-icon.green { background: linear-gradient(135deg, #00C853, #69F0AE); }
+.stat-icon.purple { background: #7C4DFF; }
+.stat-icon.pink { background: #FF48BC; }
+.stat-icon.cyan { background: #0ED7FF; }
+.stat-icon.green { background: #00C853; }
 
 .stat-label {
   font-size: 12px;
@@ -328,7 +329,8 @@ body {
 }
 
 .np-hero-fallback {
-  background-image: linear-gradient(135deg, var(--accent-purple), var(--accent-pink));
+  background-image: none;
+  background-color: #241b3d;
 }
 
 .np-shade {
@@ -450,7 +452,7 @@ body {
 
 .np-progress > div {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-purple), var(--accent-pink));
+  background: var(--accent-purple);
   border-radius: 2px;
   transition: width 1s linear;
 }

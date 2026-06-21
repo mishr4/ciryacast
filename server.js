@@ -580,12 +580,84 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
   });
 });
 
+// ── Social share card (Open Graph image) ──
+const { renderShareCard } = require('./src/og');
+const TMC_LOGO_URL = 'https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png';
+
+async function fetchBuf(url) {
+  if (!url) return null;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) return null;
+    return Buffer.from(await r.arrayBuffer());
+  } catch { return null; }
+}
+
+app.get('/player/:stationId/cover.png', async (req, res) => {
+  const station = resolveStation(req.params.stationId);
+  if (!station) return res.status(404).send('Not found');
+  const np = streamEngine.getNowPlaying(station.id);
+  const coverUrl = (np && np.artwork_url) || station.logo_url || '';
+  const [coverBuf, logoBuf] = await Promise.all([fetchBuf(coverUrl), fetchBuf(TMC_LOGO_URL)]);
+  try {
+    const png = await renderShareCard({
+      coverBuf, logoBuf,
+      stationName: station.name,
+      title: np?.title && np.title !== 'Unknown' ? np.title : 'Live Radio',
+      artist: np?.artist && np.artist !== 'Unknown' ? np.artist : '',
+    });
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=60'); // refresh ~1 min
+    res.send(png);
+  } catch (e) {
+    console.log('  ⚠ OG render failed:', e.message);
+    res.status(500).send('render error');
+  }
+});
+
 // ── Public player page (no auth) ──
 // Bare /player → station directory (no more guessing a default)
 app.get('/player', (req, res) => res.redirect('/stations'));
 
+// Player page with per-station Open Graph / Twitter meta injected, so link
+// previews (Discord, iMessage, Twitter…) show the station's share card.
+let _playerHtmlCache = null;
+function playerHtml() {
+  if (!_playerHtmlCache) _playerHtmlCache = fs.readFileSync(path.join(__dirname, 'public', 'player.html'), 'utf8');
+  return _playerHtmlCache;
+}
+function escAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
 app.get('/player/:stationId', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'player.html'));
+  const station = resolveStation(req.params.stationId);
+  let html = playerHtml();
+  if (station) {
+    const np = streamEngine.getNowPlaying(station.id);
+    const base = `${req.protocol}://${req.get('host')}`;
+    const slug = station.slug || station.id;
+    const nowLine = (np && np.title && np.title !== 'Unknown') ? `${np.artist} — ${np.title}` : 'Live radio';
+    const desc = `${nowLine} · Listen live on CiryaCast`;
+    const img = `${base}/player/${slug}/cover.png`;
+    const url = `${base}/player/${slug}`;
+    const meta = `
+  <meta property="og:type" content="music.radio_station">
+  <meta property="og:site_name" content="CiryaCast">
+  <meta property="og:title" content="${escAttr(station.name)}">
+  <meta property="og:description" content="${escAttr(desc)}">
+  <meta property="og:image" content="${escAttr(img)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="${escAttr(url)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escAttr(station.name)}">
+  <meta name="twitter:description" content="${escAttr(desc)}">
+  <meta name="twitter:image" content="${escAttr(img)}">
+  <meta name="theme-color" content="#7C4DFF">
+`;
+    html = html.replace('</head>', meta + '</head>');
+  }
+  res.set('Cache-Control', 'no-cache');
+  res.send(html);
 });
 
 // ── Stream overlay (OBS browser source) ──

@@ -668,8 +668,8 @@ function renderMediaTable(media) {
             <td style="padding:8px">
               ${m.artwork_url
                 ? `<img src="${esc(m.artwork_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">`
-                : `<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,#7C4DFF,#FF48BC);display:flex;align-items:center;justify-content:center">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width:16px;height:16px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                : `<div style="width:36px;height:36px;border-radius:8px;background:#ecebf2;display:flex;align-items:center;justify-content:center">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#9b97b3" stroke-width="2" style="width:16px;height:16px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                   </div>`
               }
             </td>
@@ -892,9 +892,9 @@ async function refreshRequests() {
     // Show now playing section
     if (np && np.title && np.title !== 'Unknown') {
       content += `
-        <div style="padding:16px;border-radius:12px;background:linear-gradient(135deg,rgba(124,77,255,0.1),rgba(255,72,188,0.1));border:1px solid rgba(124,77,255,0.2);margin-bottom:16px">
+        <div style="padding:16px;border-radius:12px;background:#f3f1fa;border:1px solid rgba(124,77,255,0.15);margin-bottom:16px">
           <div style="display:flex;align-items:center;gap:12px">
-            ${np.artwork_url ? `<img src="${esc(np.artwork_url)}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:linear-gradient(135deg,#7C4DFF,#FF48BC);display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="currentColor" style="width:24px;color:#fff"><path d="M12 3v9.28c-1.5 0-3-1.5-3-3s1.5-3 3-3c.88 0 1.65.36 2.2.92.9-.9 1.55-1.68 1.55-1.68L12 3zm.9-1.54c.55.55 1.2 1.46 2.1 2.36.6-.6 1.37-.96 2.25-.96 1.66 0 3 1.34 3 3s-1.34 3-3 3c-1.27 0-2.34-.78-2.84-1.88H12v5H2c0-2.76 2.24-5 5-5c1.2 0 2.3.42 3.16 1.12.4-.52.82-.97 1.28-1.34C9.47 3.52 9.21 2.77 8.9 2.07c.32.15.63.32.92.53zm-.4 8.4v4.3H10v-4.3c-.6-.2-1-1.25-1-2.3 0-1.05.4-2.1 1-2.3v-.66h1.5v.66c.6.2 1 1.25 1 2.3 0 1.05-.4 2.1-1 2.3z"/></svg></div>'}
+            ${np.artwork_url ? `<img src="${esc(np.artwork_url)}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:#ecebf2;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="#9b97b3" style="width:24px"><path d="M12 3v9.28c-1.5 0-3-1.5-3-3s1.5-3 3-3c.88 0 1.65.36 2.2.92.9-.9 1.55-1.68 1.55-1.68L12 3z"/></svg></div>'}
             <div style="flex:1">
               <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;color:#7C4DFF;margin-bottom:2px">Now Playing</div>
               <div style="font-weight:600;font-size:14px">${esc(np.title)}</div>
