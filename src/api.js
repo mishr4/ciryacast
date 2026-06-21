@@ -31,6 +31,53 @@ function isEmailBanned(db, email) {
 
 const BAN_MESSAGE = 'You have been banned from Cirya Utility and services.';
 
+// ── Track metadata cleanup ──
+// YouTube-sourced files carry junk tags: artist = a channel name like
+// "Drake - Official", title = "Drake - One Dance (...) [OFFICIAL AUDIO]".
+// This normalizes both into a clean "Drake" / "One Dance (...)".
+function cleanTrackMeta(rawTitle, rawArtist) {
+  let title = String(rawTitle || '').trim();
+  let artist = String(rawArtist || '').trim();
+
+  // Strip junk parenthetical/bracketed tags (official video/audio/lyrics/4k/…)
+  const JUNK = /\s*[([]\s*(official\s*(music\s*)?(video|audio|lyric[s]?|visuali[sz]er|version|hd|4k)?|lyric[s]?\s*video|lyric[s]?|audio(\s*only)?|visuali[sz]er|music\s*video|m\/?v|hd|hq|4k|explicit|clean|remaster(ed)?(\s*\d{4})?|with\s*lyrics)\s*[)\]]/gi;
+  for (let i = 0; i < 3; i++) title = title.replace(JUNK, '').trim();
+  // Trailing "| channel" or stray "- Official Video" tails
+  title = title.replace(/\s*[|｜]\s*[^|]*$/,'').trim();
+  title = title.replace(/\s*[-–]\s*official\s*(music\s*)?(video|audio)?\s*$/i, '').trim();
+
+  // Channel-name artifacts on the artist
+  artist = artist
+    .replace(/\s*[-–]\s*(official|topic)\s*$/i, '')
+    .replace(/vevo$/i, '')          // glued "ArtistVEVO"
+    .replace(/\bvevo\b/gi, '')
+    .replace(/\s*-\s*official$/i, '')
+    .replace(/\bofficial\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  const isUnknown = !artist || /^unknown$/i.test(artist);
+  if (title.includes(' - ')) {
+    const idx = title.indexOf(' - ');
+    const head = title.slice(0, idx).trim();
+    const tail = title.slice(idx + 3).trim();
+    const norm = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (isUnknown && tail) {
+      // "Artist - Title" with no real artist → split it
+      artist = head; title = tail;
+    } else if (!isUnknown && tail) {
+      // De-dupe an artist prefix repeated in the title
+      const a = norm(artist), h = norm(head);
+      if (a && h && (a.startsWith(h) || h.startsWith(a))) title = tail;
+    }
+  }
+
+  title = title.replace(/\s{2,}/g, ' ').replace(/^[-–|\s]+|[-–|\s]+$/g, '').trim();
+  artist = artist.replace(/\s{2,}/g, ' ').replace(/^[-–|\s]+|[-–|\s]+$/g, '').trim();
+
+  return { title: title || String(rawTitle || '').trim() || 'Unknown', artist: artist || 'Unknown' };
+}
+
 // ── Audio normalization (EBU R128 loudnorm — broadcast standard) ──
 const { execFile } = require('child_process');
 const { promisify } = require('util');
@@ -546,6 +593,8 @@ router.post('/stations/:id/media', (req, res) => {
           console.log(`  ⚠ Metadata parse failed for ${file.originalname}: ${e.message}`);
         }
       }
+      // Scrub YouTube-style junk from tags / filename
+      ({ title, artist } = cleanTrackMeta(title, artist));
 
       try {
         // Normalize loudness to broadcast standard (-14 LUFS)
@@ -982,14 +1031,23 @@ router.post('/media/:id/enrich', async (req, res) => {
 // Bulk enrich all media for a station (Deezer — free, no auth)
 router.post('/stations/:id/enrich', async (req, res) => {
   const db = req.app.get('db');
-  const media = db.prepare(
-    "SELECT * FROM media WHERE station_id = ? AND (artwork_url IS NULL OR artwork_url = '')"
-  ).all(req.params.id);
+  // Process ALL tracks: clean every title/artist (free, local), then fill
+  // artwork from Deezer for any still missing it.
+  const media = db.prepare('SELECT * FROM media WHERE station_id = ?').all(req.params.id);
 
-  let enriched = 0;
-  let failed = 0;
+  let cleaned = 0, enriched = 0, failed = 0;
   for (const m of media) {
-    const query = `${m.artist !== 'Unknown' ? m.artist + ' ' : ''}${m.title}`.trim();
+    // 1) Local cleanup — fixes YouTube junk like "Drake - Official"
+    const c = cleanTrackMeta(m.title, m.artist);
+    let curTitle = m.title, curArtist = m.artist;
+    if (c.title !== m.title || c.artist !== m.artist) {
+      db.prepare('UPDATE media SET title = ?, artist = ? WHERE id = ?').run(c.title, c.artist, m.id);
+      curTitle = c.title; curArtist = c.artist; cleaned++;
+    }
+
+    // 2) Artwork via Deezer (only if missing)
+    if (m.artwork_url) continue;
+    const query = `${curArtist !== 'Unknown' ? curArtist + ' ' : ''}${curTitle}`.trim();
     if (!query) { failed++; continue; }
     try {
       const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
@@ -1001,15 +1059,19 @@ router.post('/stations/:id/enrich', async (req, res) => {
         const art = t.album?.cover_big || t.album?.cover_medium || '';
         const albumName = t.album?.title || '';
         const deezerId = t.id ? String(t.id) : '';
+        // Adopt Deezer's canonical artist/title only when ours is still unknown
+        const adoptArtist = (curArtist === 'Unknown' && t.artist?.name) ? t.artist.name : curArtist;
+        const adoptTitle = (curArtist === 'Unknown' && t.title) ? t.title : curTitle;
 
         if (art) {
           db.prepare(`
             UPDATE media SET
               artwork_url = ?,
+              title = ?, artist = ?,
               album = CASE WHEN album = '' OR album IS NULL THEN ? ELSE album END,
               tm_track_id = CASE WHEN tm_track_id = '' OR tm_track_id IS NULL THEN ? ELSE tm_track_id END
             WHERE id = ?
-          `).run(art, albumName, deezerId, m.id);
+          `).run(art, adoptTitle, adoptArtist, albumName, deezerId, m.id);
           enriched++;
         } else { failed++; }
       } else { failed++; }
@@ -1018,7 +1080,7 @@ router.post('/stations/:id/enrich', async (req, res) => {
     } catch { failed++; }
   }
 
-  res.json({ total: media.length, enriched, failed });
+  res.json({ total: media.length, cleaned, enriched, failed });
 });
 
 // ════════════════════════════════════
@@ -1544,18 +1606,23 @@ router.post('/stations/:id/add-song', async (req, res) => {
     // Normalize loudness to broadcast standard (-14 LUFS)
     await normalizeAudio(filePath);
 
-    // Parse actual metadata
+    // The user picked this track from Deezer search — that metadata is
+    // authoritative. The downloaded file's ID3 tags are YouTube junk
+    // ("Drake - Official" / "...[OFFICIAL AUDIO]"), so DON'T let them
+    // overwrite the clean title/artist; only read duration from the file.
     let actualTitle = title, actualArtist = artist || 'Unknown', actualAlbum = album || '', actualDuration = duration || 0;
     const mm = await getMetadataParser();
     if (mm) {
       try {
         const meta = await mm.parseFile(filePath);
-        if (meta.common.title) actualTitle = meta.common.title;
-        if (meta.common.artist) actualArtist = meta.common.artist;
-        if (meta.common.album) actualAlbum = meta.common.album;
         if (meta.format.duration) actualDuration = Math.round(meta.format.duration);
+        // Only fall back to file tags if we have nothing from Deezer
+        if (!actualTitle && meta.common.title) actualTitle = meta.common.title;
+        if ((!actualArtist || actualArtist === 'Unknown') && meta.common.artist) actualArtist = meta.common.artist;
+        if (!actualAlbum && meta.common.album) actualAlbum = meta.common.album;
       } catch {}
     }
+    ({ title: actualTitle, artist: actualArtist } = cleanTrackMeta(actualTitle, actualArtist));
 
     const mediaId = uuid();
     db.prepare(`
@@ -1838,6 +1905,7 @@ router.post('/stations/:id/import/azuracast', async (req, res) => {
             if (meta.format.duration) duration = Math.round(meta.format.duration);
           } catch {}
         }
+        ({ title: actualTitle, artist: actualArtist } = cleanTrackMeta(actualTitle, actualArtist));
 
         // Insert into DB
         const mediaId = uuid();

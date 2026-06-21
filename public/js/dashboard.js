@@ -997,7 +997,7 @@ async function enrichAllMedia() {
   btn.disabled = true;
   try {
     const res = await api(`/stations/${sid}/enrich`, { method: 'POST' });
-    btn.innerHTML = `Done! ${res?.enriched || 0} enriched`;
+    btn.innerHTML = `Done! ${res?.cleaned || 0} cleaned, ${res?.enriched || 0} art`;
     refreshMedia();
     setTimeout(() => { btn.innerHTML = orig; btn.disabled = false; }, 3000);
   } catch {
