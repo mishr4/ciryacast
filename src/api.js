@@ -888,115 +888,101 @@ router.patch('/requests/:id', (req, res) => {
 // ════════════════════════════════════
 // METADATA ENRICHMENT (Deezer — metadata only, no downloads)
 // ════════════════════════════════════
+const norm = s => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+const CHANNEL_RE = /records|vevo|topic|\bmusic\b|sounds|official|channel|\bmix\b|\bhd\b|\btv\b|\d{2,}|life$/i;
+const GENERIC_TITLE_RE = /^(track\s*\d+|unknown|untitled|audio|new recording.*)$/i;
+
+// Clean one track's metadata + (when needed) fix it from Deezer. Shared by
+// the single-track "Fetch from Deezer" button and the bulk station enrich.
+// Returns { changed, arted } and updates the row in place.
+async function enrichTrack(db, m) {
+  let changed = false, arted = false;
+
+  // 1) Local cleanup (junk tags, channel suffixes, dupe artist prefix)
+  const c = cleanTrackMeta(m.title, m.artist);
+  let curTitle = c.title, curArtist = c.artist;
+  if (c.title !== m.title || c.artist !== m.artist) {
+    db.prepare('UPDATE media SET title = ?, artist = ? WHERE id = ?').run(c.title, c.artist, m.id);
+    changed = true;
+  }
+
+  // 2) Hit Deezer when art is missing, the artist looks like a channel, or
+  //    the title is generic
+  const artistJunky = curArtist === 'Unknown' || CHANNEL_RE.test(curArtist);
+  const titleGeneric = !curTitle || GENERIC_TITLE_RE.test(curTitle);
+  if (m.artwork_url && !artistJunky && !titleGeneric) return { changed, arted };
+
+  // Build the best query: drop a junky artist; if the title is generic, try
+  // the original filename ("Track 2" → "BITE NOW")
+  let bestTitle = curTitle;
+  if (titleGeneric) {
+    const fromName = cleanTrackMeta(path.parse(m.original_name || '').name, '').title;
+    if (fromName && !GENERIC_TITLE_RE.test(fromName)) {
+      bestTitle = fromName;
+      if (bestTitle !== curTitle) { curTitle = bestTitle; changed = true; }
+    }
+  }
+  const query = `${artistJunky ? '' : curArtist + ' '}${bestTitle}`.trim();
+  if (!query) return { changed, arted };
+
+  const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
+  const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  const t = (await resp.json()).data?.[0];
+  if (!t || !t.artist?.name) return { changed, arted };
+
+  const art = t.album?.cover_big || t.album?.cover_medium || '';
+  const dzArtist = norm(t.artist.name), dzTitle = norm(t.title), myTitle = norm(curTitle);
+  const artistAppears = dzArtist && norm(`${curArtist} ${curTitle} ${m.original_name || ''}`).includes(dzArtist);
+  // Title must genuinely match — guards against Deezer returning a different
+  // song (e.g. "BITE NOW" → "BURNING UP")
+  const titleMatches = dzTitle && myTitle && (dzTitle.includes(myTitle) || myTitle.includes(dzTitle));
+  const confident = artistAppears && titleMatches;
+
+  const finalArtist = confident ? t.artist.name : (artistJunky && artistAppears ? t.artist.name : curArtist);
+  const finalTitle = confident ? t.title : curTitle;
+  const useArt = confident ? art : '';   // never attach a wrong cover
+  if (finalArtist !== curArtist || finalTitle !== curTitle) changed = true;
+
+  db.prepare(`
+    UPDATE media SET
+      title = ?, artist = ?,
+      artwork_url = CASE WHEN ? != '' THEN ? ELSE artwork_url END,
+      album = CASE WHEN (? != '') AND (album = '' OR album IS NULL) THEN ? ELSE album END,
+      tm_track_id = CASE WHEN (? != '') AND (tm_track_id = '' OR tm_track_id IS NULL) THEN ? ELSE tm_track_id END
+    WHERE id = ?
+  `).run(finalTitle, finalArtist, useArt, useArt, useArt, t.album?.title || '', useArt, t.id ? String(t.id) : '', m.id);
+  arted = !!useArt;
+  return { changed, arted };
+}
 
 router.post('/media/:id/enrich', async (req, res) => {
   const db = req.app.get('db');
   const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!media) return res.status(404).json({ error: 'Media not found' });
-
-  // Clean junk first, then search Deezer for artwork/album
-  const c = cleanTrackMeta(media.title, media.artist);
-  const query = `${c.artist !== 'Unknown' ? c.artist + ' ' : ''}${c.title}`.trim();
   try {
-    const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
-    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    const data = await resp.json();
-    const t = data.data?.[0];
-
-    db.prepare(`
-      UPDATE media SET title = ?, artist = ?, album = COALESCE(?, album),
-        artwork_url = COALESCE(?, artwork_url), tm_track_id = COALESCE(?, tm_track_id)
-      WHERE id = ?
-    `).run(
-      c.title, c.artist,
-      t?.album?.title || null,
-      t?.album?.cover_big || t?.album?.cover_medium || null,
-      t?.id ? String(t.id) : null,
-      req.params.id
-    );
-
+    const { arted } = await enrichTrack(db, media);
     const updated = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
-    res.json({ enriched: !!t, media: updated });
+    res.json({ enriched: arted, media: updated });
   } catch (e) {
     console.log('  ⚠ Enrich error:', e.message);
     res.status(500).json({ error: 'Enrichment failed: ' + e.message });
   }
 });
 
-// Bulk enrich all media for a station (Deezer — free, no auth)
-const norm = s => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
-const CHANNEL_RE = /records|vevo|topic|\bmusic\b|sounds|official|channel|\bmix\b|\bhd\b|\btv\b|\d{2,}|life$/i;
-const GENERIC_TITLE_RE = /^(track\s*\d+|unknown|untitled|audio|new recording.*)$/i;
-
+// Bulk enrich all media for a station
 router.post('/stations/:id/enrich', async (req, res) => {
   const db = req.app.get('db');
-  // Clean every title/artist locally (free), then use Deezer to fix the
-  // hard cases (channel-name artists, generic titles) and fill artwork.
   const media = db.prepare('SELECT * FROM media WHERE station_id = ?').all(req.params.id);
 
   let cleaned = 0, enriched = 0, failed = 0;
   for (const m of media) {
-    // 1) Local cleanup
-    const c = cleanTrackMeta(m.title, m.artist);
-    let curTitle = c.title, curArtist = c.artist;
-    if (c.title !== m.title || c.artist !== m.artist) {
-      db.prepare('UPDATE media SET title = ?, artist = ? WHERE id = ?').run(c.title, c.artist, m.id);
-      cleaned++;
-    }
-
-    // 2) Decide whether to hit Deezer: missing art, junky artist, or generic title
-    const artistJunky = curArtist === 'Unknown' || CHANNEL_RE.test(curArtist);
-    const titleGeneric = !curTitle || GENERIC_TITLE_RE.test(curTitle);
-    const needsLookup = !m.artwork_url || artistJunky || titleGeneric;
-    if (!needsLookup) continue;
-
-    // Build the best query: drop a junky artist, fall back to the filename
-    // when the title is generic (e.g. "Track 2" → original "BITE NOW")
-    let bestTitle = curTitle;
-    if (titleGeneric) {
-      const fromName = cleanTrackMeta(path.parse(m.original_name || '').name, '').title;
-      if (fromName && !GENERIC_TITLE_RE.test(fromName)) {
-        bestTitle = fromName;                    // filename is a better title
-        if (bestTitle !== curTitle) { curTitle = bestTitle; cleaned++; }
-      }
-    }
-    const query = `${artistJunky ? '' : curArtist + ' '}${bestTitle}`.trim();
-    if (!query) { failed++; continue; }
-
     try {
-      const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const data = await resp.json();
-      const t = data.data?.[0];
-
-      if (t && t.artist?.name) {
-        const art = t.album?.cover_big || t.album?.cover_medium || '';
-        const dzArtist = norm(t.artist.name), dzTitle = norm(t.title);
-        const myTitle = norm(curTitle);
-        const artistAppears = dzArtist && norm(`${curArtist} ${curTitle} ${m.original_name || ''}`).includes(dzArtist);
-        // Title must genuinely match — guards against Deezer returning a
-        // different song (e.g. "BITE NOW" → "BURNING UP")
-        const titleMatches = dzTitle && myTitle && (dzTitle.includes(myTitle) || myTitle.includes(dzTitle));
-
-        // Only adopt Deezer's names + art when both artist and title line up.
-        const confident = artistAppears && titleMatches;
-        const finalArtist = confident ? t.artist.name : (artistJunky && artistAppears ? t.artist.name : curArtist);
-        const finalTitle = confident ? t.title : curTitle;
-        const useArt = confident ? art : '';     // never attach a wrong cover
-        if (finalArtist !== curArtist || finalTitle !== curTitle) cleaned++;
-
-        db.prepare(`
-          UPDATE media SET
-            title = ?, artist = ?,
-            artwork_url = CASE WHEN ? != '' THEN ? ELSE artwork_url END,
-            album = CASE WHEN (? != '') AND (album = '' OR album IS NULL) THEN ? ELSE album END,
-            tm_track_id = CASE WHEN (? != '') AND (tm_track_id = '' OR tm_track_id IS NULL) THEN ? ELSE tm_track_id END
-          WHERE id = ?
-        `).run(finalTitle, finalArtist, useArt, useArt, useArt, t.album?.title || '', useArt, t.id ? String(t.id) : '', m.id);
-        if (useArt) enriched++; else failed++;
-      } else { failed++; }
-      await new Promise(r => setTimeout(r, 300)); // Deezer rate limit
+      const { changed, arted } = await enrichTrack(db, m);
+      if (changed) cleaned++;
+      if (arted) enriched++;
+      else if (!m.artwork_url) failed++;
     } catch { failed++; }
+    await new Promise(r => setTimeout(r, 300)); // Deezer rate limit
   }
 
   res.json({ total: media.length, cleaned, enriched, failed });

@@ -386,6 +386,12 @@ class AutoDJ {
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
     const bps = ((station?.bitrate || 128) * 1000) / 8;
 
+    // The progress bar must reflect what ACTUALLY plays. Metadata duration
+    // (e.g. Deezer's 3:18) can disagree with the real file length, which made
+    // elapsed run past the total. Use the true stream length: bytes / bitrate.
+    const realDuration = Math.round(buf.length / bps);
+    if (realDuration > 0) meta = { ...meta, duration: realDuration };
+
     this.streamEngine.setNowPlaying(stationId, meta);
 
     if (meta._isVT) {

@@ -712,11 +712,12 @@
     const progressWrap = document.getElementById('progress-wrap');
     if (npDuration > 0) {
       progressWrap.style.display = 'block';
-      const progress = Math.min(100, (npElapsed / npDuration) * 100);
-      document.getElementById('progress-elapsed').textContent = fmtDur(npElapsed);
+      const shown = Math.min(npElapsed, npDuration);     // never run past the total
+      const progress = Math.min(100, (shown / npDuration) * 100);
+      document.getElementById('progress-elapsed').textContent = fmtDur(shown);
       document.getElementById('progress-duration').textContent = fmtDur(npDuration);
       document.getElementById('progress-fill').style.width = progress + '%';
-      npElapsed++;
+      if (npElapsed < npDuration) npElapsed++;
     } else {
       progressWrap.style.display = 'none';
     }
