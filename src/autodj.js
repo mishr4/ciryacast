@@ -384,7 +384,11 @@ class AutoDJ {
     }
 
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
-    const bps = ((station?.bitrate || 128) * 1000) / 8;
+    // Stream each file at ITS real bitrate (falls back to the station setting).
+    // Sending a 320k file at 128k drains the listener's buffer → lag on that
+    // song; this keeps delivery matched to playback for every track.
+    const fileKbps = mp3Bitrate(buf) || station?.bitrate || 128;
+    const bps = (fileKbps * 1000) / 8;
 
     // The progress bar must reflect what ACTUALLY plays. Metadata duration
     // (e.g. Deezer's 3:18) can disagree with the real file length, which made
@@ -647,6 +651,27 @@ function alignFrame(buf) {
     }
   }
   return buf;
+}
+
+// Read the encoded bitrate (kbps) from the first MPEG Layer-3 frame header so
+// each track is streamed at the rate it actually plays — not the station's
+// assumed bitrate. A mismatch (e.g. a 320k file sent at 128k) drains the
+// listener's buffer and makes the song lag.
+const BR_V1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+const BR_V2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+function mp3Bitrate(buf) {
+  const limit = Math.min(buf.length - 4, 8192);
+  for (let i = 0; i < limit; i++) {
+    if (buf[i] !== 0xFF || (buf[i + 1] & 0xE0) !== 0xE0) continue;
+    const ver = (buf[i + 1] >> 3) & 0x03;      // 11=MPEG1, 10=MPEG2, 00=MPEG2.5
+    const layer = (buf[i + 1] >> 1) & 0x03;    // 01 = Layer III
+    if (layer !== 0x01 || ver === 0x01) continue;
+    const brIndex = (buf[i + 2] >> 4) & 0x0F;
+    if (brIndex === 0 || brIndex === 0x0F) continue;
+    const kbps = (ver === 0x03 ? BR_V1L3 : BR_V2L3)[brIndex];
+    if (kbps) return kbps;
+  }
+  return null;
 }
 
 module.exports = { AutoDJ };
