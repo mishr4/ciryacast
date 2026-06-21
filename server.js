@@ -603,7 +603,9 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
   const station = resolveStation(req.params.stationId);
   if (!station) return res.status(404).send('Not found');
   const np = streamEngine.getNowPlaying(station.id);
-  const coverUrl = (np && np.artwork_url) || station.logo_url || '';
+  // Prefer the station logo so the share card stays evergreen (Discord etc.
+  // cache it); fall back to the current cover for stations without a logo.
+  const coverUrl = station.logo_url || (np && np.artwork_url) || '';
   // No canvas? Fall back to the raw cover/logo image so previews still work.
   if (!renderShareCard) {
     if (coverUrl) return res.redirect(coverUrl);
@@ -614,11 +616,11 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
     const png = await renderShareCard({
       coverBuf, logoBuf,
       stationName: station.name,
-      title: np?.title && np.title !== 'Unknown' ? np.title : 'Live Radio',
-      artist: np?.artist && np.artist !== 'Unknown' ? np.artist : '',
+      genre: station.genre || '',
+      url: `${req.get('host')}/player/${station.slug || station.id}`,
     });
     res.set('Content-Type', 'image/png');
-    res.set('Cache-Control', 'public, max-age=60'); // refresh ~1 min
+    res.set('Cache-Control', 'public, max-age=300'); // ~5 min
     res.send(png);
   } catch (e) {
     console.log('  ⚠ OG render failed:', e.message);
@@ -644,11 +646,10 @@ app.get('/player/:stationId', (req, res) => {
   const station = resolveStation(req.params.stationId);
   let html = playerHtml();
   if (station) {
-    const np = streamEngine.getNowPlaying(station.id);
     const base = `${req.protocol}://${req.get('host')}`;
     const slug = station.slug || station.id;
-    const nowLine = (np && np.title && np.title !== 'Unknown') ? `${np.artist} — ${np.title}` : 'Live radio';
-    const desc = `${nowLine} · Listen live on CiryaCast`;
+    // Evergreen description (avoids "stuck on an old song" on cached previews)
+    const desc = `${station.genre ? station.genre + ' · ' : ''}Live radio — listen now on CiryaCast`;
     const img = `${base}/player/${slug}/cover.png`;
     const url = `${base}/player/${slug}`;
     const meta = `

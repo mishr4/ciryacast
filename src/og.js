@@ -52,109 +52,122 @@ function drawCover(ctx, img, x, y, size, radius) {
   ctx.restore();
 }
 
-async function renderShareCard({ coverBuf, logoBuf, stationName, title, artist }) {
+async function renderShareCard({ coverBuf, logoBuf, stationName, title, artist, genre, url }) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
+  let coverImg = null;
+  if (coverBuf) { try { coverImg = await loadImage(coverBuf); } catch {} }
 
-  // Background
-  ctx.fillStyle = '#0e0b1a';
+  // ── Background: art as a soft, blurred texture under a deep-purple wash ──
+  ctx.fillStyle = '#0c0918';
   ctx.fillRect(0, 0, W, H);
-  // faint top accent wash (flat radial, subtle)
-  const glow = ctx.createRadialGradient(300, -120, 50, 300, -120, 700);
-  glow.addColorStop(0, 'rgba(124,77,255,0.22)');
+  if (coverImg) {
+    ctx.save();
+    try { ctx.filter = 'blur(60px)'; } catch {}
+    const scale = Math.max(W / coverImg.width, H / coverImg.height) * 1.2;
+    const dw = coverImg.width * scale, dh = coverImg.height * scale;
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(coverImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.restore();
+  }
+  // Deep purple gradient overlay so the brand colour always dominates
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, 'rgba(26,11,46,0.86)');
+  grad.addColorStop(0.55, 'rgba(14,11,26,0.92)');
+  grad.addColorStop(1, 'rgba(8,6,18,0.97)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  // accent glow
+  const glow = ctx.createRadialGradient(260, 120, 40, 260, 120, 720);
+  glow.addColorStop(0, 'rgba(124,77,255,0.30)');
   glow.addColorStop(1, 'rgba(124,77,255,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Left: cover art ──
-  const COVER = 400, CX = 80, CY = 115;
-  let coverImg = null;
-  if (coverBuf) { try { coverImg = await loadImage(coverBuf); } catch {} }
-  // soft shadow
+  // ── Left: crisp album cover ──
+  const COVER = 380, CX = 80, CY = 125;
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = 50; ctx.shadowOffsetY = 20;
-  roundRectPath(ctx, CX, CY, COVER, COVER, 28);
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = 60; ctx.shadowOffsetY = 24;
+  roundRectPath(ctx, CX, CY, COVER, COVER, 30);
   ctx.fillStyle = '#1c1830';
   ctx.fill();
   ctx.restore();
   if (coverImg) {
-    drawCover(ctx, coverImg, CX, CY, COVER, 28);
+    drawCover(ctx, coverImg, CX, CY, COVER, 30);
   } else {
-    // placeholder music note
-    ctx.fillStyle = '#3a3357';
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
     ctx.font = `120px ${FONT}`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('♪', CX + COVER / 2, CY + COVER / 2);
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   }
+  // subtle inner border on the cover
+  ctx.save();
+  roundRectPath(ctx, CX, CY, COVER, COVER, 30);
+  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.stroke();
+  ctx.restore();
 
-  // Track title + artist under the cover
+  // ── Right column ──
+  const RX = 540;
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `34px ${FONT}`;
-  const tLines = wrapText(ctx, title || 'Live Radio', COVER, 1);
-  ctx.fillText(tLines[0], CX, CY + COVER + 52);
-  if (artist) {
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = `26px ${FONT}`;
-    const aLine = wrapText(ctx, artist, COVER, 1);
-    ctx.fillText(aLine[0], CX, CY + COVER + 90);
-  }
 
-  // ── Right: brand + call to action ──
-  const RX = 560;
-  // logo
+  // brand row (logo + wordmark)
   if (logoBuf) {
     try {
       const logo = await loadImage(logoBuf);
       ctx.save();
-      roundRectPath(ctx, RX, 95, 64, 64, 14);
+      roundRectPath(ctx, RX, 92, 52, 52, 13);
       ctx.clip();
-      ctx.drawImage(logo, RX, 95, 64, 64);
+      ctx.drawImage(logo, RX, 92, 52, 52);
       ctx.restore();
     } catch {}
   }
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `40px ${FONT}`;
-  ctx.fillText('CiryaCast', RX + 80, 140);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.font = `32px ${FONT}`;
+  ctx.fillText('CiryaCast', RX + 66, 127);
 
-  // NOW PLAYING ON
+  // LIVE RADIO label + mini equaliser bars
   ctx.fillStyle = ACCENT;
   ctx.font = `22px ${FONT}`;
-  ctx.fillText('● LIVE RADIO', RX, 250);
+  ctx.fillText('LIVE RADIO', RX + 26, 246);
+  const barH = [16, 26, 12, 22];
+  barH.forEach((h, i) => { ctx.fillRect(RX + i * 7, 238 - h + 14, 4, h); });
 
-  // Station name (big)
+  // Station name — the hero (stays correct even when a platform caches the card)
   ctx.fillStyle = '#ffffff';
-  ctx.font = `64px ${FONT}`;
+  ctx.font = `66px ${FONT}`;
   const sLines = wrapText(ctx, stationName || 'CiryaCast', W - RX - 70, 2);
-  let sy = 320;
-  for (const l of sLines) { ctx.fillText(l, RX, sy); sy += 72; }
+  let sy = 322;
+  for (const l of sLines) { ctx.fillText(l, RX, sy); sy += 74; }
+
+  // tagline / genre
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.font = `26px ${FONT}`;
+  ctx.fillText(genre ? `${genre} · streaming now` : 'Streaming now on CiryaCast', RX, sy + 6);
 
   // CTA pill
-  const pillY = Math.max(sy + 24, 470);
+  const pillY = 470;
   const pillText = 'Listen on the CiryaCast website';
-  ctx.font = `28px ${FONT}`;
-  const pillW = ctx.measureText(pillText).width + 96;
+  ctx.font = `27px ${FONT}`;
+  const pillW = ctx.measureText(pillText).width + 92;
+  ctx.save();
+  ctx.shadowColor = 'rgba(124,77,255,0.5)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 8;
   ctx.fillStyle = ACCENT;
-  roundRectPath(ctx, RX, pillY, pillW, 64, 32);
+  roundRectPath(ctx, RX, pillY, pillW, 62, 31);
   ctx.fill();
-  // play triangle
+  ctx.restore();
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.moveTo(RX + 32, pillY + 22);
-  ctx.lineTo(RX + 32, pillY + 42);
-  ctx.lineTo(RX + 50, pillY + 32);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `28px ${FONT}`;
-  ctx.fillText(pillText, RX + 66, pillY + 41);
+  ctx.moveTo(RX + 30, pillY + 21); ctx.lineTo(RX + 30, pillY + 41); ctx.lineTo(RX + 48, pillY + 31);
+  ctx.closePath(); ctx.fill();
+  ctx.font = `27px ${FONT}`;
+  ctx.fillText(pillText, RX + 62, pillY + 40);
 
   // url
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.font = `24px ${FONT}`;
-  ctx.fillText('cast.tmc.gg', RX, pillY + 110);
+  ctx.font = `23px ${FONT}`;
+  ctx.fillText(url || 'cast.tmc.gg', RX, pillY + 106);
 
   return canvas.encode('png');
 }
