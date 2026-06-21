@@ -599,29 +599,48 @@ async function fetchBuf(url) {
   } catch { return null; }
 }
 
+// Rendered share cards are cached in memory per station. Rendering a 1200×630
+// PNG is synchronous CPU work that blocks the audio event loop, so without a
+// cache a single shared link (Discord re-scrapes it many times) would stutter
+// the stream for every listener. The card is evergreen (logo + name + genre),
+// so we only re-render when that branding actually changes.
+const ogCache = new Map(); // stationId -> { png, sig, ts }
+const OG_TTL = 15 * 60 * 1000;
+
 app.get('/player/:stationId/cover.png', async (req, res) => {
   const station = resolveStation(req.params.stationId);
   if (!station) return res.status(404).send('Not found');
   const np = streamEngine.getNowPlaying(station.id);
-  // Prefer the station logo so the share card stays evergreen (Discord etc.
-  // cache it); fall back to the current cover for stations without a logo.
   const coverUrl = station.logo_url || (np && np.artwork_url) || '';
-  // No canvas? Fall back to the raw cover/logo image so previews still work.
+
   if (!renderShareCard) {
     if (coverUrl) return res.redirect(coverUrl);
     return res.status(404).send('No image');
   }
-  const [coverBuf, logoBuf] = await Promise.all([fetchBuf(coverUrl), fetchBuf(TMC_LOGO_URL)]);
+
+  const sig = `${station.logo_url || ''}|${station.name}|${station.genre || ''}|${station.slug || station.id}`;
+  const sendPng = (png) => {
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=600');
+    res.send(png);
+  };
+
+  // Serve from cache (no canvas work) when fresh and branding unchanged
+  const hit = ogCache.get(station.id);
+  if (hit && hit.sig === sig && (Date.now() - hit.ts) < OG_TTL) {
+    return sendPng(hit.png);
+  }
+
   try {
+    const [coverBuf, logoBuf] = await Promise.all([fetchBuf(coverUrl), fetchBuf(TMC_LOGO_URL)]);
     const png = await renderShareCard({
       coverBuf, logoBuf,
       stationName: station.name,
       genre: station.genre || '',
       url: `${req.get('host')}/player/${station.slug || station.id}`,
     });
-    res.set('Content-Type', 'image/png');
-    res.set('Cache-Control', 'public, max-age=300'); // ~5 min
-    res.send(png);
+    ogCache.set(station.id, { png, sig, ts: Date.now() });
+    sendPng(png);
   } catch (e) {
     console.log('  ⚠ OG render failed:', e.message);
     if (coverUrl) return res.redirect(coverUrl);

@@ -789,9 +789,9 @@
   }
 
   refreshNP();
-  // The WebSocket pushes track changes in real time, so this is just a slow
-  // fallback poll (every 15s) instead of hammering the server every 3s.
-  setInterval(refreshNP, 15000);
+  // WebSocket pushes track changes instantly; this is a 5s safety-net poll so
+  // the now-playing display never drifts behind even if a WS event is missed.
+  setInterval(refreshNP, 5000);
 
   // ── WebSocket — metadata only, NEVER touch the audio stream ──
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
