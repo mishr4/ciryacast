@@ -581,7 +581,11 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
 });
 
 // ── Social share card (Open Graph image) ──
-const { renderShareCard } = require('./src/og');
+// Lazy/guarded load so a canvas binary problem disables the share image
+// instead of crashing the whole server.
+let renderShareCard = null;
+try { renderShareCard = require('./src/og').renderShareCard; }
+catch (e) { console.log('  ⚠ Share-card rendering disabled:', e.message); }
 const TMC_LOGO_URL = 'https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png';
 
 async function fetchBuf(url) {
@@ -598,6 +602,11 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
   if (!station) return res.status(404).send('Not found');
   const np = streamEngine.getNowPlaying(station.id);
   const coverUrl = (np && np.artwork_url) || station.logo_url || '';
+  // No canvas? Fall back to the raw cover/logo image so previews still work.
+  if (!renderShareCard) {
+    if (coverUrl) return res.redirect(coverUrl);
+    return res.status(404).send('No image');
+  }
   const [coverBuf, logoBuf] = await Promise.all([fetchBuf(coverUrl), fetchBuf(TMC_LOGO_URL)]);
   try {
     const png = await renderShareCard({
@@ -611,6 +620,7 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
     res.send(png);
   } catch (e) {
     console.log('  ⚠ OG render failed:', e.message);
+    if (coverUrl) return res.redirect(coverUrl);
     res.status(500).send('render error');
   }
 });
