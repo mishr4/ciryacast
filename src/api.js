@@ -308,11 +308,18 @@ router.post('/stations', (req, res) => {
 
 router.put('/stations/:id', (req, res) => {
   const db = req.app.get('db');
-  const { name, description, genre, bitrate, logo_url, website_url, location, owner_id } = req.body;
+  const { name, description, genre, bitrate, logo_url, website_url, location, owner_id, slug } = req.body;
+
+  // Custom URL slug (e.g. "one" → /player/one). Slugify + ensure unique.
+  let newSlug = null;
+  if (slug != null && slug !== '') {
+    newSlug = db.makeUniqueSlug(slug, req.params.id);
+  }
 
   db.prepare(`
     UPDATE stations SET
       name = COALESCE(?, name),
+      slug = COALESCE(?, slug),
       description = COALESCE(?, description),
       genre = COALESCE(?, genre),
       bitrate = COALESCE(?, bitrate),
@@ -322,7 +329,7 @@ router.put('/stations/:id', (req, res) => {
       owner_id = COALESCE(?, owner_id),
       updated_at = datetime('now')
     WHERE id = ?
-  `).run(name, description, genre, bitrate, logo_url || null, website_url || null, location || null, owner_id || null, req.params.id);
+  `).run(name, newSlug, description, genre, bitrate, logo_url || null, website_url || null, location || null, owner_id || null, req.params.id);
 
   // If owner changed, update station_members table
   if (owner_id) {

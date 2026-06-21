@@ -638,10 +638,15 @@
   function rgbToHex([r,g,b]) { return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join(''); }
 
   // ── Now Playing ──
+  let _historySig = '';
   function renderHistory(history) {
     const section = document.getElementById('history-section');
     const list = document.getElementById('history-list');
     if (!history || !history.length) { section.style.display = 'none'; return; }
+    // Skip the DOM rebuild if the list hasn't changed
+    const sig = history.map(h => h.title + '|' + h.artist).join('~');
+    if (sig === _historySig) { section.style.display = 'block'; return; }
+    _historySig = sig;
     section.style.display = 'block';
     list.innerHTML = history.map(h => `
       <div class="history-row">
@@ -784,8 +789,9 @@
   }
 
   refreshNP();
-  // Sync metadata with server every 3s
-  setInterval(refreshNP, 3000);
+  // The WebSocket pushes track changes in real time, so this is just a slow
+  // fallback poll (every 15s) instead of hammering the server every 3s.
+  setInterval(refreshNP, 15000);
 
   // ── WebSocket — metadata only, NEVER touch the audio stream ──
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';

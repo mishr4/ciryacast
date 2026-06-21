@@ -365,6 +365,13 @@ async function editStation(id) {
   if (!s) return;
   document.getElementById('edit-station-id').value = s.id;
   document.getElementById('edit-station-name').value = s.name;
+  const slugInput = document.getElementById('edit-station-slug');
+  slugInput.value = s.slug || '';
+  document.getElementById('slug-preview').textContent = s.slug || s.id;
+  slugInput.oninput = () => {
+    const v = slugInput.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    document.getElementById('slug-preview').textContent = v || s.slug || s.id;
+  };
   document.getElementById('edit-station-desc').value = s.description || '';
   document.getElementById('edit-station-genre').value = s.genre || 'Various';
   document.getElementById('edit-station-bitrate').value = String(s.bitrate || 128);
@@ -469,6 +476,7 @@ async function saveStation() {
     method: 'PUT',
     body: JSON.stringify({
       name: document.getElementById('edit-station-name').value,
+      slug: document.getElementById('edit-station-slug').value.trim() || null,
       description: document.getElementById('edit-station-desc').value,
       genre: document.getElementById('edit-station-genre').value,
       bitrate: parseInt(document.getElementById('edit-station-bitrate').value),
