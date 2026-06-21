@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CiryaCast — Dashboard</title>
-<link rel="stylesheet" href="/css/dashboard.css?v=9">
+<link rel="stylesheet" href="/css/dashboard.css?v=10">
 </head>
 <body>
 
@@ -147,18 +147,6 @@
       <div id="station-selector" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <select id="media-station-select" class="select-input"></select>
         <span id="media-station-name" style="font-size:15px;font-weight:600;color:#333"></span>
-      </div>
-
-      <!-- Search & Add from TypicalMedia -->
-      <div class="card" style="margin-bottom:16px">
-        <div class="card-header">
-          <div class="card-title">Search & Add Songs</div>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center">
-          <input type="text" id="tm-search-input" placeholder="Search artist, song..." style="flex:1;padding:10px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-size:14px;background:#fafafa;outline:none;font-family:inherit" onkeydown="if(event.key==='Enter')searchAndAdd()">
-          <button class="btn btn-primary btn-sm" onclick="searchAndAdd()">Search</button>
-        </div>
-        <div id="tm-search-results" style="margin-top:12px"></div>
       </div>
 
       <input type="file" id="file-input" multiple accept="audio/*" style="display:none">
@@ -910,6 +898,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=9"></script>
+<script src="/js/dashboard.js?v=10"></script>
 </body>
 </html>

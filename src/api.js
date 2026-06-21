@@ -39,12 +39,19 @@ function cleanTrackMeta(rawTitle, rawArtist) {
   let title = String(rawTitle || '').trim();
   let artist = String(rawArtist || '').trim();
 
-  // Strip junk parenthetical/bracketed tags (official video/audio/lyrics/4k/…)
-  const JUNK = /\s*[([]\s*(official\s*(music\s*)?(video|audio|lyric[s]?|visuali[sz]er|version|hd|4k)?|lyric[s]?\s*video|lyric[s]?|audio(\s*only)?|visuali[sz]er|music\s*video|m\/?v|hd|hq|4k|explicit|clean|remaster(ed)?(\s*\d{4})?|with\s*lyrics)\s*[)\]]/gi;
-  for (let i = 0; i < 3; i++) title = title.replace(JUNK, '').trim();
+  // Strip junk ()/[] tag groups: anything containing "official" (Official
+  // Video / Official Lyric Video / Official Performance / OFFICIAL AUDIO…)
+  // or a pure-junk word — while KEEPING legit groups like (feat. …),
+  // (Acoustic), (Remix), (Live).
+  title = title.replace(/\s*[([][^)\]]*[)\]]/g, (g) => {
+    const inner = g.replace(/[()[\]]/g, '').trim().toLowerCase();
+    if (/\bofficial\b/.test(inner)) return '';
+    if (/^(audio|lyrics?|hd|hq|4k|mv|m\/v|visuali[sz]er|music\s*video|lyrics?\s*video|explicit|clean|audio\s*only|with\s*lyrics|remaster(ed)?(\s*\d{4})?)$/.test(inner)) return '';
+    return g;
+  });
   // Trailing "| channel" or stray "- Official Video" tails
   title = title.replace(/\s*[|｜]\s*[^|]*$/,'').trim();
-  title = title.replace(/\s*[-–]\s*official\s*(music\s*)?(video|audio)?\s*$/i, '').trim();
+  title = title.replace(/\s*[-–]\s*official\s*(music\s*)?(video|audio|performance|lyric[s]?\s*video)?\s*$/i, '').trim();
 
   // Channel-name artifacts on the artist
   artist = artist
@@ -129,45 +136,6 @@ async function normalizeAudio(filePath) {
     // Clean up temp file if exists
     try { fs.unlinkSync(filePath + '.norm.mp3'); } catch {}
   }
-}
-
-// ── spotDL download (uses curl_cffi to bypass YouTube bot detection) ──
-
-async function spotdlDownload(spotifyId, artist, title) {
-  const spotifyUrl = `https://open.spotify.com/track/${spotifyId}`;
-  const tmpId = uuid();
-  const outTemplate = path.join(os.tmpdir(), `${tmpId}.{output-ext}`);
-
-  console.log(`  🎵 spotDL: ${artist} — ${title} (${spotifyId})`);
-
-  await execFileAsync('spotdl', [
-    'download', spotifyUrl,
-    '--output', outTemplate,
-    '--format', 'mp3',
-    '--bitrate', '128k',
-  ], { timeout: 120000 });
-
-  // spotDL writes to the template path with the extension resolved
-  const outMp3 = path.join(os.tmpdir(), `${tmpId}.mp3`);
-  if (!fs.existsSync(outMp3)) {
-    // spotDL may use the track name instead — find any new mp3 in tmpdir
-    const tmpFiles = fs.readdirSync(os.tmpdir()).filter(f => f.endsWith('.mp3'));
-    const recent = tmpFiles.map(f => ({ f, t: fs.statSync(path.join(os.tmpdir(), f)).mtimeMs }))
-      .sort((a, b) => b.t - a.t)[0];
-    if (recent && Date.now() - recent.t < 30000) {
-      const alt = path.join(os.tmpdir(), recent.f);
-      const buffer = fs.readFileSync(alt);
-      try { fs.unlinkSync(alt); } catch {}
-      console.log(`  ✓ spotDL: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
-      return buffer;
-    }
-    throw new Error('spotDL produced no output file');
-  }
-
-  const buffer = fs.readFileSync(outMp3);
-  try { fs.unlinkSync(outMp3); } catch {}
-  console.log(`  ✓ spotDL: ${(buffer.length / 1024 / 1024).toFixed(1)}MB MP3`);
-  return buffer;
 }
 
 // ── Password hashing (scrypt, no external deps) ──
@@ -786,19 +754,27 @@ router.get('/stats', (req, res) => {
 // TYPICALMEDIA SEARCH (proxy to avoid CORS)
 // ════════════════════════════════════
 
+// Metadata-only song search (Deezer public API) — used by the player's
+// "Request a Song" box. Returns search results, never downloads audio.
 router.get('/search', async (req, res) => {
   const q = req.query.q;
   if (!q || q.length < 2) return res.json([]);
 
   try {
-    const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(q)}`;
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=12`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
     const data = await resp.json();
-    // Normalize: TypicalMedia returns array of track objects
-    // Each has: title, artist, album, artwork, id, duration, etc.
-    res.json(data);
+    const tracks = (data.data || []).map(t => ({
+      title: t.title,
+      artist: t.artist?.name || '',
+      album_name: t.album?.title || '',
+      album_art: t.album?.cover_medium || t.album?.cover_big || '',
+      deezer_id: t.id ? String(t.id) : '',
+      duration_sec: t.duration || 0,
+    }));
+    res.json(tracks);
   } catch (e) {
-    console.log('  ⚠ TypicalMedia search error:', e.message);
+    console.log('  ⚠ Search error:', e.message);
     res.json([]);
   }
 });
@@ -852,80 +828,8 @@ router.post('/stations/:id/requests', async (req, res) => {
   );
   if (mediaMatch) media_id = mediaMatch.id;
 
-  // 2) If not in library and we have a TypicalMedia track ID — download it
-  if (!media_id && tm_track_id) {
-    try {
-      console.log(`  ⬇ Downloading: ${artist} — ${title} (TM ID: ${tm_track_id})`);
-      if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
-      const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${tm_track_id}`;
-      const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(60000) });
-
-      if (streamRes.ok) {
-        const buffer = Buffer.from(await streamRes.arrayBuffer());
-
-        if (buffer.length > 10000) { // Sanity check — at least 10KB
-          const filename = `${uuid()}.mp3`;
-          const filePath = path.join(MEDIA_DIR, filename);
-          fs.writeFileSync(filePath, buffer);
-
-          // Normalize loudness to broadcast standard (-14 LUFS)
-          await normalizeAudio(filePath);
-
-          // Parse actual file metadata to verify/correct what TypicalMedia reported
-          let actualTitle = title;
-          let actualArtist = artist;
-          let actualAlbum = album || '';
-          let actualDuration = duration || 0;
-          const mm = await getMetadataParser();
-          if (mm) {
-            try {
-              const meta = await mm.parseFile(filePath);
-              if (meta.common.title) actualTitle = meta.common.title;
-              if (meta.common.artist) actualArtist = meta.common.artist;
-              if (meta.common.album) actualAlbum = meta.common.album;
-              if (meta.format.duration) actualDuration = Math.round(meta.format.duration);
-            } catch (e) {
-              console.log(`  ⚠ Metadata parse on download: ${e.message}`);
-            }
-          }
-
-          const mediaId = uuid();
-          db.prepare(`
-            INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            mediaId, stationId, filename,
-            `${actualArtist} - ${actualTitle}.mp3`,
-            actualTitle, actualArtist, actualAlbum, actualDuration,
-            fs.statSync(filePath).size, 'audio/mpeg',
-            artwork_url || '', tm_track_id
-          );
-
-          // Add to default playlist
-          const defaultPlaylist = db.prepare(
-            'SELECT id FROM playlists WHERE station_id = ? AND is_default = 1'
-          ).get(stationId);
-          if (defaultPlaylist) {
-            const mo = db.prepare('SELECT MAX(sort_order) as m FROM playlist_items WHERE playlist_id = ?').get(defaultPlaylist.id);
-            db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
-              uuid(), defaultPlaylist.id, mediaId, (mo?.m || 0) + 1
-            );
-          }
-
-          media_id = mediaId;
-          console.log(`  ✓ Downloaded: ${artist} — ${title} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
-
-          req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
-        } else {
-          console.log(`  ⚠ Download too small (${buffer.length} bytes), skipping`);
-        }
-      } else {
-        console.log(`  ⚠ Stream returned ${streamRes.status}`);
-      }
-    } catch (e) {
-      console.log(`  ⚠ Download failed: ${e.message}`);
-    }
-  }
+  // 2) We do NOT download songs server-side. If it's already in the library
+  //    it gets queued; otherwise the request is logged for staff to fulfill.
 
   const result = db.prepare(`
     INSERT INTO song_requests (station_id, title, artist, album, artwork_url, tm_track_id, media_id, requested_by)
@@ -943,10 +847,9 @@ router.post('/stations/:id/requests', async (req, res) => {
   res.status(201).json({
     id: result.lastInsertRowid,
     matched: !!media_id,
-    downloaded: !!media_id && !mediaMatch,
     message: media_id
-      ? (mediaMatch ? 'Song found in library — queued!' : 'Song downloaded & queued!')
-      : 'Requested — download unavailable',
+      ? 'Song found in library — queued!'
+      : 'Request received — a DJ will add it if available.',
   });
 });
 
@@ -983,7 +886,7 @@ router.patch('/requests/:id', (req, res) => {
 });
 
 // ════════════════════════════════════
-// METADATA ENRICHMENT (TypicalMedia)
+// METADATA ENRICHMENT (Deezer — metadata only, no downloads)
 // ════════════════════════════════════
 
 router.post('/media/:id/enrich', async (req, res) => {
@@ -991,37 +894,29 @@ router.post('/media/:id/enrich', async (req, res) => {
   const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!media) return res.status(404).json({ error: 'Media not found' });
 
-  const query = `${media.artist !== 'Unknown' ? media.artist + ' ' : ''}${media.title}`;
+  // Clean junk first, then search Deezer for artwork/album
+  const c = cleanTrackMeta(media.title, media.artist);
+  const query = `${c.artist !== 'Unknown' ? c.artist + ' ' : ''}${c.title}`.trim();
   try {
-    const url = `https://api.typicalmedia.net/experiences/searchtrack.php?q=${encodeURIComponent(query)}`;
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
     const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    const results = await resp.json();
+    const data = await resp.json();
+    const t = data.data?.[0];
 
-    if (Array.isArray(results) && results.length > 0) {
-      const track = results[0];
-      // Update with enriched metadata (TypicalMedia fields: album_art, album_name, deezer_id)
-      db.prepare(`
-        UPDATE media SET
-          title = COALESCE(?, title),
-          artist = COALESCE(?, artist),
-          album = COALESCE(?, album),
-          artwork_url = COALESCE(?, artwork_url),
-          tm_track_id = COALESCE(?, tm_track_id)
-        WHERE id = ?
-      `).run(
-        track.title || null,
-        track.artist || null,
-        track.album_name || null,
-        track.album_art || null,
-        track.deezer_id || track.spotify_id || null,
-        req.params.id
-      );
+    db.prepare(`
+      UPDATE media SET title = ?, artist = ?, album = COALESCE(?, album),
+        artwork_url = COALESCE(?, artwork_url), tm_track_id = COALESCE(?, tm_track_id)
+      WHERE id = ?
+    `).run(
+      c.title, c.artist,
+      t?.album?.title || null,
+      t?.album?.cover_big || t?.album?.cover_medium || null,
+      t?.id ? String(t.id) : null,
+      req.params.id
+    );
 
-      const updated = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
-      return res.json({ enriched: true, media: updated });
-    }
-
-    res.json({ enriched: false, message: 'No matches found' });
+    const updated = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
+    res.json({ enriched: !!t, media: updated });
   } catch (e) {
     console.log('  ⚠ Enrich error:', e.message);
     res.status(500).json({ error: 'Enrichment failed: ' + e.message });
@@ -1542,114 +1437,6 @@ router.post('/stations/:id/stream-relay/stop', (req, res) => {
   res.json({ ok: true });
 });
 
-// ════════════════════════════════════
-// SEARCH & ADD SONGS (TypicalMedia)
-// ════════════════════════════════════
-
-// Download a song from TypicalMedia into a station's library
-router.post('/stations/:id/add-song', async (req, res) => {
-  const db = req.app.get('db');
-  const stationId = req.params.id;
-  const { title, artist, album, artwork_url, deezer_id, spotify_id, duration } = req.body;
-
-  if (!title || (!deezer_id && !spotify_id)) return res.status(400).json({ error: 'title and deezer_id or spotify_id required' });
-
-  const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(stationId);
-  if (!station) return res.status(404).json({ error: 'Station not found' });
-
-  // Check if already exists
-  const trackKey = deezer_id ? String(deezer_id) : `sp_${spotify_id}`;
-  const existing = db.prepare(
-    "SELECT id FROM media WHERE station_id = ? AND tm_track_id = ?"
-  ).get(stationId, trackKey);
-  if (existing) return res.json({ ok: true, message: 'Already in library', skipped: true });
-
-  // Download — try TypicalMedia first, fall back to Spotisaver
-  try {
-    console.log(`  ⬇ Adding: ${artist} — ${title}`);
-    if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
-
-    let buffer = null;
-    let downloadSource = '';
-
-    // Try TypicalMedia
-    if (deezer_id) {
-      try {
-        const streamUrl = `https://api.typicalmedia.net/experiences/trackstream.php?id=${deezer_id}`;
-        const streamRes = await fetch(streamUrl, { signal: AbortSignal.timeout(30000) });
-        if (streamRes.ok) {
-          const buf = Buffer.from(await streamRes.arrayBuffer());
-          if (buf.length >= 10000) { buffer = buf; downloadSource = 'typicalmedia'; }
-        }
-      } catch (e) {
-        console.log(`  ⚠ TypicalMedia failed: ${e.message}`);
-      }
-    }
-
-    // Fallback: spotDL (Spotify → YouTube via curl_cffi, bypasses bot detection)
-    if (!buffer && spotify_id) {
-      try {
-        console.log(`  ↻ Trying spotDL for ${artist} — ${title}...`);
-        const buf = await spotdlDownload(spotify_id, artist || '', title);
-        if (buf && buf.length >= 10000) { buffer = buf; downloadSource = 'spotdl'; }
-      } catch (e) {
-        console.log(`  ⚠ spotDL failed: ${e.message}`);
-      }
-    }
-
-    if (!buffer) return res.status(502).json({ error: 'Download failed from all sources' });
-
-    const filename = `${uuid()}.mp3`;
-    const filePath = path.join(MEDIA_DIR, filename);
-    fs.writeFileSync(filePath, buffer);
-
-    // Normalize loudness to broadcast standard (-14 LUFS)
-    await normalizeAudio(filePath);
-
-    // The user picked this track from Deezer search — that metadata is
-    // authoritative. The downloaded file's ID3 tags are YouTube junk
-    // ("Drake - Official" / "...[OFFICIAL AUDIO]"), so DON'T let them
-    // overwrite the clean title/artist; only read duration from the file.
-    let actualTitle = title, actualArtist = artist || 'Unknown', actualAlbum = album || '', actualDuration = duration || 0;
-    const mm = await getMetadataParser();
-    if (mm) {
-      try {
-        const meta = await mm.parseFile(filePath);
-        if (meta.format.duration) actualDuration = Math.round(meta.format.duration);
-        // Only fall back to file tags if we have nothing from Deezer
-        if (!actualTitle && meta.common.title) actualTitle = meta.common.title;
-        if ((!actualArtist || actualArtist === 'Unknown') && meta.common.artist) actualArtist = meta.common.artist;
-        if (!actualAlbum && meta.common.album) actualAlbum = meta.common.album;
-      } catch {}
-    }
-    ({ title: actualTitle, artist: actualArtist } = cleanTrackMeta(actualTitle, actualArtist));
-
-    const mediaId = uuid();
-    db.prepare(`
-      INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(mediaId, stationId, filename, `${actualArtist} - ${actualTitle}.mp3`,
-      actualTitle, actualArtist, actualAlbum, actualDuration,
-      fs.statSync(filePath).size, 'audio/mpeg', artwork_url || '', trackKey);
-
-    // Add to default playlist
-    const defaultPl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
-    if (defaultPl) {
-      const mo = db.prepare('SELECT MAX(sort_order) as m FROM playlist_items WHERE playlist_id = ?').get(defaultPl.id);
-      db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(
-        uuid(), defaultPl.id, mediaId, (mo?.m || 0) + 1
-      );
-    }
-
-    console.log(`  ✓ Added (${downloadSource}): ${actualArtist} — ${actualTitle} (${(buffer.length / 1024 / 1024).toFixed(1)}MB)`);
-    req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
-
-    res.json({ ok: true, id: mediaId, title: actualTitle, artist: actualArtist });
-  } catch (e) {
-    console.log(`  ⚠ Add song failed: ${e.message}`);
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // ════════════════════════════════════
 // RECORDINGS

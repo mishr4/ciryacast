@@ -846,7 +846,7 @@
     searchResults.classList.remove('show');
     searchInput.value = `${track.artist} — ${track.title}`;
 
-    showRequestMsg('Downloading & queuing...', 'info');
+    showRequestMsg('Sending request…', 'info');
 
     try {
       const res = await fetch(`/api/stations/${stationId}/requests`, {
@@ -861,12 +861,10 @@
       const data = await res.json();
 
       if (res.ok) {
-        if (data.downloaded) {
-          showRequestMsg('Song downloaded & queued! 🎵', 'success');
-        } else if (data.matched) {
-          showRequestMsg('Song already in library — queued!', 'success');
+        if (data.matched) {
+          showRequestMsg('In the library — queued up! 🎵', 'success');
         } else {
-          showRequestMsg('Song unavailable for download', 'error');
+          showRequestMsg('Request received — a DJ will add it if available 🎶', 'success');
         }
         searchInput.value = '';
         refreshNP();
