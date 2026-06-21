@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CiryaCast — Now Playing</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --card: #ffffff; --text: #111; --sub: #777; --line: rgba(0,0,0,0.07);
+    --accent: #7C4DFF; --ph: #ecebf2;
+  }
+  body[data-theme="dark"] {
+    --card: #16131f; --text: #fff; --sub: rgba(255,255,255,0.6); --line: rgba(255,255,255,0.08);
+    --ph: #2a2440;
+  }
+  body[data-theme="transparent"] { --card: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background: transparent; -webkit-font-smoothing: antialiased;
+    display: flex; align-items: center;
+  }
+  a.widget {
+    display: flex; align-items: center; gap: 14px;
+    width: 100%; padding: 14px 16px;
+    background: var(--card); color: var(--text);
+    border: 1px solid var(--line); border-radius: 16px;
+    text-decoration: none; cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  a.widget:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+  .cover {
+    position: relative; width: 56px; height: 56px; border-radius: 11px;
+    overflow: hidden; flex-shrink: 0; background: var(--ph);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cover svg { width: 22px; height: 22px; color: #b3afc7; }
+  .meta { flex: 1; min-width: 0; }
+  .label {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 3px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .title { font-size: 15px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .artist { font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .play {
+    flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%;
+    background: var(--accent); display: flex; align-items: center; justify-content: center;
+  }
+  .play svg { width: 16px; height: 16px; color: #fff; margin-left: 2px; }
+</style>
+</head>
+<body>
+  <a class="widget" id="w" href="#" target="_blank" rel="noopener">
+    <div class="cover" id="cover">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+    </div>
+    <div class="meta">
+      <span class="label"><span class="dot"></span><span id="label">Now Playing</span></span>
+      <div class="title" id="title">Loading…</div>
+      <div class="artist" id="artist"></div>
+    </div>
+    <div class="play"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
+  </a>
+
+<script>
+  const slug = decodeURIComponent(location.pathname.split('/')[2] || '');
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') || 'light';
+  document.body.dataset.theme = theme;
+  const NOTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+  let lastKey = '';
+
+  async function tick() {
+    try {
+      const d = await fetch(`/api/nowplaying/${encodeURIComponent(slug)}`).then(r => r.json());
+      if (!d || !d.station) return;
+      document.getElementById('w').href = `${location.origin}/player/${d.station.slug || d.station.id}`;
+      const np = d.now_playing;
+      const live = d.live;
+      document.getElementById('label').textContent = live ? 'Live' : 'Now Playing';
+      const key = (np?.title || '') + (np?.artist || '') + (np?.artwork_url || '');
+      if (key === lastKey) return;
+      lastKey = key;
+      document.getElementById('title').textContent = (np && np.title && np.title !== 'Unknown') ? np.title : d.station.name;
+      document.getElementById('artist').textContent = (np && np.artist && np.artist !== 'Unknown') ? np.artist : 'CiryaCast';
+      const cover = document.getElementById('cover');
+      const art = np?.artwork_url || d.station.logo_url || '';
+      cover.innerHTML = art ? `<img src="${art}" alt="" onerror="this.outerHTML='${NOTE.replace(/'/g,'&#39;')}'">` : NOTE;
+    } catch {}
+  }
+  tick();
+  setInterval(tick, 12000);
+</script>
+</body>
+</html>

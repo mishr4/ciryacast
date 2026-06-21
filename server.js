@@ -436,6 +436,7 @@ if (ADMIN_API_KEY) {
 function isPublicApiRoute(method, p) {
   if (method === 'GET') {
     if (p === '/nowplaying' || /^\/nowplaying\//.test(p)) return true;
+    if (/^\/np\//.test(p)) return true;                             // clean public metadata alias
     if (p === '/stations') return true;                              // directory list
     if (/^\/stations\/[^/]+\/shows$/.test(p)) return true;           // overlay schedule
     if (/^\/stations\/[^/]+\/library$/.test(p)) return true;         // player request browser
@@ -674,6 +675,36 @@ app.get('/player/:stationId', (req, res) => {
 // ── Stream overlay (OBS browser source) ──
 app.get('/overlay/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'overlay.html'));
+});
+
+// ── Embeddable "now playing" widget (for other sites via <iframe>) ──
+app.get('/embed/:stationId', (req, res) => {
+  res.set('X-Frame-Options', 'ALLOWALL');
+  res.set('Content-Security-Policy', 'frame-ancestors *');
+  res.sendFile(path.join(__dirname, 'public', 'embed.html'));
+});
+
+// ── Developer / API docs ──
+app.get('/developers', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'developers.html'));
+});
+
+// Clean public metadata alias (CORS-enabled JSON), e.g. /api/np/one
+app.get('/api/np/:stationId', (req, res) => {
+  const station = resolveStation(req.params.stationId);
+  if (!station) return res.status(404).json({ error: 'Station not found' });
+  const np = streamEngine.getNowPlaying(station.id);
+  res.json({
+    station: { id: station.id, slug: station.slug || station.id, name: station.name, logo_url: station.logo_url || '' },
+    is_live: streamEngine.isLive(station.id),
+    listeners: streamEngine.getListenerCount(station.id),
+    now_playing: np ? {
+      title: np.title, artist: np.artist, album: np.album || '',
+      artwork_url: np.artwork_url || '', duration: np.duration || 0, elapsed: np.elapsed || 0,
+    } : null,
+    player_url: `${req.protocol}://${req.get('host')}/player/${station.slug || station.id}`,
+    stream_url: `${req.protocol}://${req.get('host')}/listen/${station.slug || station.id}/radio.mp3`,
+  });
 });
 
 // ── Public stations directory ──
