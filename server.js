@@ -588,7 +588,11 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
 let renderShareCard = null;
 try { renderShareCard = require('./src/og').renderShareCard; }
 catch (e) { console.log('  ⚠ Share-card rendering disabled:', e.message); }
-const TMC_LOGO_URL = 'https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png';
+// Brand logo for share cards — read once from disk (the old Supabase-hosted
+// URL is dead now that that backend was shut down, so we ship it locally).
+let TMC_LOGO_BUF = null;
+try { TMC_LOGO_BUF = fs.readFileSync(path.join(__dirname, 'public', 'logo.png')); }
+catch (e) { console.log('  ⚠ Brand logo not found:', e.message); }
 
 async function fetchBuf(url) {
   if (!url) return null;
@@ -632,9 +636,9 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
   }
 
   try {
-    const [coverBuf, logoBuf] = await Promise.all([fetchBuf(coverUrl), fetchBuf(TMC_LOGO_URL)]);
+    const coverBuf = await fetchBuf(coverUrl);
     const png = await renderShareCard({
-      coverBuf, logoBuf,
+      coverBuf, logoBuf: TMC_LOGO_BUF,
       stationName: station.name,
       genre: station.genre || '',
       url: `${req.get('host')}/player/${station.slug || station.id}`,
@@ -644,6 +648,39 @@ app.get('/player/:stationId/cover.png', async (req, res) => {
   } catch (e) {
     console.log('  ⚠ OG render failed:', e.message);
     if (coverUrl) return res.redirect(coverUrl);
+    res.status(500).send('render error');
+  }
+});
+
+// Generic TMCast share image — used as the link preview for every non-player
+// page (homepage, station directory, developer docs). Static branding, so it's
+// rendered once and cached.
+let siteCardPng = null, siteCardTs = 0;
+app.get('/share.png', async (req, res) => {
+  if (siteCardPng && (Date.now() - siteCardTs) < 60 * 60 * 1000) {
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=3600');
+    return res.send(siteCardPng);
+  }
+  const logoBuf = TMC_LOGO_BUF;
+  if (!renderShareCard) {
+    if (logoBuf) { res.set('Content-Type', 'image/png'); return res.send(logoBuf); }
+    return res.status(404).send('No image');
+  }
+  try {
+    const png = await renderShareCard({
+      coverBuf: logoBuf, logoBuf,
+      stationName: 'Live Radio',
+      genre: '',
+      url: req.get('host'),
+    });
+    siteCardPng = png; siteCardTs = Date.now();
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.send(png);
+  } catch (e) {
+    console.log('  ⚠ Site card render failed:', e.message);
+    if (logoBuf) { res.set('Content-Type', 'image/png'); return res.send(logoBuf); }
     res.status(500).send('render error');
   }
 });
