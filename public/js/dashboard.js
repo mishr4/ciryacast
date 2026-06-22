@@ -1517,6 +1517,24 @@ let liveMicRecorder = null;
 let liveMicWS = null;
 let liveMicAnalyser = null;
 let isBroadcasting = false;
+let liveMicCtx = null;        // AudioContext (kept so we can wire up monitoring)
+let liveMonitorGain = null;   // gain node → speakers, for "hear yourself"
+let liveMicOpen = false;      // mic granted + meter should keep animating
+let liveMicMime = '';         // chosen MediaRecorder mimeType
+
+// webm/opus etc. → the container name ffmpeg needs on the server side
+function micFormatHint(mime) {
+  const m = (mime || '').toLowerCase();
+  if (m.includes('webm')) return 'webm';
+  if (m.includes('mp4') || m.includes('aac')) return 'mp4';
+  if (m.includes('ogg')) return 'ogg';
+  return 'webm';
+}
+function pickMicMime() {
+  if (!window.MediaRecorder) return '';
+  const c = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+  return c.find(m => MediaRecorder.isTypeSupported(m)) || '';
+}
 let liveMicProcessor = null;
 let liveMicEncoder = null;
 let liveMicSource = null;
@@ -1526,35 +1544,62 @@ function goLive(stationId) {
   if (!s) return;
   document.getElementById('live-mic-station-id').value = stationId;
   document.getElementById('live-mic-station-name').textContent = esc(s.name);
+  const monchk = document.getElementById('mic-monitor-chk');
+  if (monchk) monchk.checked = false;
+  document.getElementById('mic-start-btn').disabled = false;
+  document.getElementById('mic-start-btn').style.display = 'none';
+  document.getElementById('mic-btn').style.display = 'none';
+  document.getElementById('mic-status').textContent = 'Requesting microphone access…';
   showModal('modal-live-mic');
 
-  // Request microphone access
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
     .then(stream => {
       liveMicStream = stream;
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(stream);
-      liveMicAnalyser = audioCtx.createAnalyser();
+      liveMicOpen = true;
+      liveMicMime = pickMicMime();
+      liveMicCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = liveMicCtx.createMediaStreamSource(stream);
+      liveMicAnalyser = liveMicCtx.createAnalyser();
       liveMicAnalyser.fftSize = 256;
       source.connect(liveMicAnalyser);
 
-      document.getElementById('mic-status').textContent = '✅ Microphone ready';
+      // Monitor path: source → gain → speakers. Silent until you tick "Monitor".
+      liveMonitorGain = liveMicCtx.createGain();
+      liveMonitorGain.gain.value = 0;
+      source.connect(liveMonitorGain);
+      liveMonitorGain.connect(liveMicCtx.destination);
+
+      document.getElementById('mic-status').textContent = liveMicMime
+        ? '✅ Mic ready — tick Monitor to hear yourself, then Start'
+        : '⚠ Mic ready, but this browser can’t record — try Chrome or Edge';
       document.getElementById('mic-start-btn').style.display = 'block';
 
-      // Show mic meter
-      const dataArray = new Uint8Array(liveMicAnalyser.frequencyBinCount);
-      const updateMeter = () => {
-        liveMicAnalyser.getByteFrequencyData(dataArray);
-        const avg = dataArray.reduce((a, b) => a + b) / dataArray.length / 255;
-        document.getElementById('mic-meter').style.width = (avg * 100) + '%';
-        if (isBroadcasting) requestAnimationFrame(updateMeter);
+      // Input meter runs the WHOLE time the mic is open (the old code only ran it
+      // while broadcasting, so it always looked dead — a big part of "doesn't work").
+      const data = new Uint8Array(liveMicAnalyser.frequencyBinCount);
+      const tick = () => {
+        if (!liveMicOpen || !liveMicAnalyser) return;
+        liveMicAnalyser.getByteFrequencyData(data);
+        const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
+        const el = document.getElementById('mic-meter');
+        if (el) el.style.width = Math.min(100, avg * 140) + '%';
+        requestAnimationFrame(tick);
       };
-      updateMeter();
+      tick();
     })
     .catch(err => {
-      document.getElementById('mic-status').textContent = '❌ ' + err.message;
+      document.getElementById('mic-status').textContent = '❌ ' + (err.name || 'Error') + ': ' + err.message;
       document.getElementById('mic-start-btn').disabled = true;
     });
+}
+
+// "Hear yourself" toggle — routes the mic to your speakers/headphones so you can
+// check your sound BEFORE going live (use headphones or it'll feed back).
+function toggleMicMonitor(on) {
+  if (!liveMonitorGain || !liveMicCtx) return;
+  if (liveMicCtx.state === 'suspended') liveMicCtx.resume();
+  liveMonitorGain.gain.value = on ? 1 : 0;
+  if (on) showToast('🎧 Monitoring on — use headphones to avoid feedback');
 }
 
 async function toggleMic() {
@@ -1574,43 +1619,34 @@ async function startBroadcast() {
   const stationId = document.getElementById('live-mic-station-id').value;
   const user = JSON.parse(sessionStorage.getItem('ciryacast_user') || '{}');
 
-  // Connect WebSocket for audio streaming
+  if (!liveMicMime) {
+    document.getElementById('mic-status').textContent = '❌ This browser can’t record audio — use Chrome or Edge';
+    return;
+  }
+
+  // Connect WebSocket for audio streaming. Tell the server the container so it
+  // can hand ffmpeg the right -f flag (avoids the silent "no audio" failure).
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/ws?type=livemic&station=${stationId}&user=${user.id}&name=${encodeURIComponent(user.display_name || user.email)}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws?type=livemic&station=${stationId}&user=${user.id}&name=${encodeURIComponent(user.display_name || user.email)}&format=${micFormatHint(liveMicMime)}`;
   liveMicWS = new WebSocket(wsUrl);
   liveMicWS.binaryType = 'arraybuffer';
 
   liveMicWS.onopen = async () => {
-    document.getElementById('mic-status').textContent = '🔴 BROADCASTING';
+    document.getElementById('mic-status').textContent = '🔴 ON AIR';
     document.getElementById('mic-start-btn').style.display = 'none';
     document.getElementById('mic-btn').style.display = 'block';
     isBroadcasting = true;
 
     try {
-      // Use MediaRecorder with best available codec (opus/webm or aac/mp4)
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-        ? 'audio/webm'
-        : 'audio/mp4';
-
-      liveMicRecorder = new MediaRecorder(liveMicStream, { mimeType, audioBitsPerSecond: 128000 });
-
+      liveMicRecorder = new MediaRecorder(liveMicStream, { mimeType: liveMicMime, audioBitsPerSecond: 128000 });
       liveMicRecorder.ondataavailable = (e) => {
         if (liveMicWS && liveMicWS.readyState === WebSocket.OPEN && e.data.size > 0) {
           liveMicWS.send(e.data);
         }
       };
-
-      liveMicRecorder.onerror = (e) => {
-        console.error('Recorder error:', e);
-        stopBroadcast();
-      };
-
-      // Send audio chunks every 250ms for low latency
-      liveMicRecorder.start(250);
-
-      showToast('🎤 Broadcasting live!');
+      liveMicRecorder.onerror = (e) => { console.error('Recorder error:', e); stopBroadcast(); };
+      liveMicRecorder.start(250); // 250ms chunks for low latency
+      showToast('🎤 You’re on air!');
     } catch (e) {
       console.error('Recorder setup error:', e);
       document.getElementById('mic-status').textContent = '❌ Recorder failed: ' + e.message;
@@ -1620,8 +1656,23 @@ async function startBroadcast() {
 
   liveMicWS.onerror = (e) => {
     console.error('WebSocket error:', e);
-    document.getElementById('mic-status').textContent = '❌ Connection failed';
+    if (!isBroadcasting) document.getElementById('mic-status').textContent = '❌ Connection failed';
+  };
+
+  // The server closes with a code + reason when it refuses or fails — show it,
+  // instead of leaving the broadcaster staring at a dead "ON AIR" label.
+  liveMicWS.onclose = (ev) => {
+    const wasBroadcasting = isBroadcasting;
     isBroadcasting = false;
+    if (liveMicRecorder && liveMicRecorder.state !== 'inactive') { try { liveMicRecorder.stop(); } catch {} }
+    document.getElementById('mic-btn').style.display = 'none';
+    document.getElementById('mic-start-btn').style.display = 'block';
+    if (ev.reason) {
+      document.getElementById('mic-status').textContent = '⚠ ' + ev.reason;
+      showToast('⚠ ' + ev.reason);
+    } else if (wasBroadcasting) {
+      document.getElementById('mic-status').textContent = '📻 Broadcast ended';
+    }
   };
 }
 
@@ -1659,15 +1710,16 @@ function stopBroadcast() {
 
 function closeLiveMic() {
   if (isBroadcasting) stopBroadcast();
+  liveMicOpen = false;                 // stops the meter animation loop
+  if (liveMonitorGain) { try { liveMonitorGain.gain.value = 0; } catch {} }
 
   // Stop all microphone tracks
   if (liveMicStream) {
     liveMicStream.getTracks().forEach(t => t.stop());
     liveMicStream = null;
   }
-
-  // Clear encoder
-  liveMicEncoder = null;
+  if (liveMicCtx) { try { liveMicCtx.close(); } catch {} liveMicCtx = null; }
+  liveMonitorGain = null;
   liveMicAnalyser = null;
 
   closeModal('modal-live-mic');
@@ -1683,6 +1735,7 @@ let vtAnalyserNode = null;
 let vtIsRecording = false;
 let vtChunks = [];
 let vtBlob = null;
+let vtPreviewUrl = null;   // object URL for the "hear it beforehand" player
 
 function vtPickMimeType() {
   if (!window.MediaRecorder) return null;
@@ -1785,8 +1838,15 @@ function startVTRecording() {
   vtRecorder.onstop = () => {
     vtBlob = new Blob(vtChunks, { type: vtRecorder.mimeType || 'audio/webm' });
     console.log(`VT: Recording stopped — ${(vtBlob.size / 1024).toFixed(0)} KB (${vtBlob.type})`);
-    document.getElementById('vt-status').textContent = `✅ Recorded ${(vtBlob.size / 1024).toFixed(0)} KB — ready to save`;
+    document.getElementById('vt-status').textContent = `✅ Recorded ${(vtBlob.size / 1024).toFixed(0)} KB — have a listen below`;
+    // Preview so you can HEAR it before saving or airing
+    if (vtPreviewUrl) { try { URL.revokeObjectURL(vtPreviewUrl); } catch {} }
+    vtPreviewUrl = URL.createObjectURL(vtBlob);
+    const pv = document.getElementById('vt-preview');
+    pv.src = vtPreviewUrl; pv.style.display = 'block';
+    document.getElementById('vt-rerecord-btn').style.display = 'inline-block';
     document.getElementById('vt-save-btn').style.display = 'block';
+    document.getElementById('vt-broadcast-btn').style.display = 'block';
   };
 
   vtRecorder.onerror = (e) => {
@@ -1801,6 +1861,9 @@ function startVTRecording() {
   document.getElementById('vt-start-btn').style.display = 'none';
   document.getElementById('vt-stop-btn').style.display = 'block';
   document.getElementById('vt-save-btn').style.display = 'none';
+  document.getElementById('vt-broadcast-btn').style.display = 'none';
+  document.getElementById('vt-rerecord-btn').style.display = 'none';
+  document.getElementById('vt-preview').style.display = 'none';
   showToast('🎙️ Recording voice track...');
 }
 
@@ -1855,6 +1918,44 @@ async function saveVoiceTrack() {
   }
 }
 
+// Air the just-recorded clip to listeners right now. Reuses the live-mic
+// pipeline (server converts to MP3, takes the station live, auto-records), but
+// since this is a COMPLETE clip we pace the bytes out at ~real-time so the feed
+// doesn't dump in one burst and desync everyone.
+async function broadcastVoiceTrack() {
+  if (!vtBlob || vtBlob.size === 0) { alert('Record something first'); return; }
+  const stationId = document.getElementById('vt-station-id').value;
+  const presenter = document.getElementById('vt-presenter').value?.trim() || 'Presenter';
+  const user = JSON.parse(sessionStorage.getItem('ciryacast_user') || '{}');
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws?type=livemic&station=${stationId}&user=${user.id || ''}&name=${encodeURIComponent(presenter)}&format=${micFormatHint(vtBlob.type)}`;
+  const btn = document.getElementById('vt-broadcast-btn');
+  btn.disabled = true;
+  document.getElementById('vt-status').textContent = '📡 Airing recording…';
+
+  const ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = async () => {
+    const buf = new Uint8Array(await vtBlob.arrayBuffer());
+    const CH = 8 * 1024;       // ~0.5s of 128kbps audio
+    let o = 0;
+    const pump = () => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (o >= buf.byteLength) { setTimeout(() => { try { ws.close(); } catch {} }, 1500); return; }
+      ws.send(buf.subarray(o, o + CH));
+      o += CH;
+      setTimeout(pump, 500);   // pace to ~real-time
+    };
+    pump();
+  };
+  ws.onclose = (ev) => {
+    btn.disabled = false;
+    if (ev.reason) { document.getElementById('vt-status').textContent = '⚠ ' + ev.reason; showToast('⚠ ' + ev.reason); }
+    else { document.getElementById('vt-status').textContent = '✅ Aired to listeners'; showToast('📡 Recording aired'); }
+  };
+  ws.onerror = () => { btn.disabled = false; showToast('⚠ Broadcast connection failed'); };
+}
+
 function closeVTModal() {
   vtIsRecording = false;
   if (vtRecorder && vtRecorder.state !== 'inactive') {
@@ -1865,6 +1966,12 @@ function closeVTModal() {
     vtStream.getTracks().forEach(t => t.stop());
     vtStream = null;
   }
+  if (vtPreviewUrl) { try { URL.revokeObjectURL(vtPreviewUrl); } catch {} vtPreviewUrl = null; }
+  const pv = document.getElementById('vt-preview');
+  if (pv) { pv.pause?.(); pv.removeAttribute('src'); pv.style.display = 'none'; }
+  ['vt-broadcast-btn', 'vt-rerecord-btn', 'vt-save-btn'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
   vtChunks = [];
   vtBlob = null;
   closeModal('modal-record-vt');

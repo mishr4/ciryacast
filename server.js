@@ -804,15 +804,23 @@ wss.on('connection', (ws, req) => {
 
     console.log(`  🎤 Live mic connected: ${stationId} (${username})`);
 
-    // Start ffmpeg process to convert WebM to MP3 (low-latency flags:
-    // small probe window + flush every packet so audio reaches listeners fast)
+    // The browser's MediaRecorder hands us a webm/opus (or mp4/ogg) stream.
+    // Tell ffmpeg the container EXPLICITLY (-f) instead of letting it auto-probe
+    // — probing a live, growing pipe is the classic cause of "ffmpeg never emits
+    // anything" (it waits for more data that defines the format and stalls).
+    // Output is forced to 44.1k stereo MP3 to match the AutoDJ stream, because a
+    // mid-stream sample-rate change makes some players drop to silence.
+    const FMT = { webm: 'webm', mp4: 'mov,mp4,m4a', ogg: 'ogg' };
+    const inFmt = FMT[(url.searchParams.get('format') || 'webm').toLowerCase()] || 'webm';
     const ffmpeg = spawn('ffmpeg', [
-      '-fflags', 'nobuffer',
-      '-probesize', '32768',
-      '-analyzeduration', '500000',
+      '-hide_banner', '-loglevel', 'warning',
+      '-fflags', 'nobuffer', '-flags', 'low_delay',
+      '-probesize', '32768', '-analyzeduration', '0',
+      '-f', inFmt,              // explicit input container (no auto-probe stall)
       '-i', 'pipe:0',           // input from stdin
+      '-ar', '44100', '-ac', '2',
+      '-c:a', 'libmp3lame', '-b:a', '128k',
       '-f', 'mp3',              // output format
-      '-b:a', '128k',           // bitrate
       '-flush_packets', '1',    // push each packet immediately
       'pipe:1',                 // output to stdout
     ], {
@@ -834,22 +842,38 @@ wss.on('connection', (ws, req) => {
 
     wsLiveMics.set(ws, { stationId, ffmpeg, userId, username });
 
-    // Handle ffmpeg output (MP3 data)
+    // Handle ffmpeg output (MP3 data). Track total bytes so we can tell the
+    // difference between "working" and "ffmpeg ran but emitted nothing".
+    let liveBytesOut = 0;
     ffmpeg.stdout.on('data', (chunk) => {
       if (chunk.length > 0) {
+        if (liveBytesOut === 0) console.log(`  🎤 Live audio flowing: ${stationId}`);
+        liveBytesOut += chunk.length;
         streamEngine.pushLiveAudio(stationId, chunk);
       }
     });
 
     ffmpeg.stderr.on('data', (data) => {
       const msg = data.toString();
-      if (msg.includes('error') || msg.includes('Error')) {
-        console.log(`  ⚠ FFmpeg error: ${msg.trim().substring(0, 80)}`);
+      if (msg.includes('error') || msg.includes('Error') || msg.includes('Invalid')) {
+        console.log(`  ⚠ FFmpeg: ${msg.trim().substring(0, 120)}`);
       }
     });
 
+    // ffmpeg couldn't even start (not installed / bad path) — don't leave the
+    // broadcaster hanging on a dead connection; tell them.
     ffmpeg.on('error', (e) => {
-      console.log(`  ⚠ FFmpeg process error: ${e.message}`);
+      console.log(`  ⚠ FFmpeg spawn error: ${e.message}`);
+      try { ws.close(4011, 'Server audio encoder unavailable'); } catch {}
+    });
+
+    // ffmpeg exited. If it never produced a single byte of MP3, the input
+    // format was wrong/undecodable — surface that instead of silent dead air.
+    ffmpeg.on('exit', (code) => {
+      if (liveBytesOut === 0) {
+        console.log(`  ⚠ Live mic produced no audio (ffmpeg exit ${code}) — input not decodable as ${inFmt}?`);
+        try { ws.close(4010, 'Could not encode your mic audio (unsupported codec?)'); } catch {}
+      }
     });
 
     // Handle incoming WebM chunks from browser

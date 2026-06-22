@@ -18,7 +18,7 @@
 <meta name="twitter:description" content="Internet radio by The Mavion Corporation. Tune in and listen live.">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
 <meta name="theme-color" content="#7C4DFF">
-<link rel="stylesheet" href="/css/dashboard.css?v=12">
+<link rel="stylesheet" href="/css/dashboard.css?v=13">
 </head>
 <body>
 
@@ -674,11 +674,15 @@
             </div>
           </div>
         </div>
+        <label style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px;font-size:13px;color:#444;cursor:pointer">
+          <input type="checkbox" id="mic-monitor-chk" onchange="toggleMicMonitor(this.checked)">
+          🎧 Monitor — hear yourself before going live
+        </label>
         <button class="btn btn-danger" id="mic-btn" onclick="toggleMic()" style="display:none">
           🔴 Stop Broadcasting
         </button>
-        <button class="btn btn-green" id="mic-start-btn" onclick="toggleMic()">
-          ⏹ Start Broadcasting
+        <button class="btn btn-green" id="mic-start-btn" onclick="toggleMic()" style="display:none">
+          📡 Start Broadcasting
         </button>
       </div>
 
@@ -735,11 +739,14 @@
       <button class="btn btn-green" id="vt-start-btn" onclick="toggleVTRecord()" style="display:none">
         🔴 Start Recording
       </button>
+      <audio id="vt-preview" controls style="display:none;width:100%;margin-top:12px"></audio>
+      <button class="btn btn-ghost" id="vt-rerecord-btn" onclick="toggleVTRecord()" style="display:none;margin-top:8px">↺ Re-record</button>
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px">
       <button class="btn btn-ghost" onclick="closeVTModal()">Close</button>
-      <button class="btn btn-primary" id="vt-save-btn" onclick="saveVoiceTrack()" style="display:none">Save Voice Track</button>
+      <button class="btn btn-green" id="vt-broadcast-btn" onclick="broadcastVoiceTrack()" style="display:none">📡 Broadcast now</button>
+      <button class="btn btn-primary" id="vt-save-btn" onclick="saveVoiceTrack()" style="display:none">Save to rotation</button>
     </div>
   </div>
 </div>
@@ -951,6 +958,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=12"></script>
+<script src="/js/dashboard.js?v=13"></script>
 </body>
 </html>
