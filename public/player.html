@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CiryaCast Player</title>
+<title>TMCast Player</title>
 <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* Theme accents — recolored at runtime from the current album art so the
@@ -368,7 +368,7 @@
 <div class="player-wrap">
   <div class="player-header">
     <img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="TMC">
-    <span>CiryaCast</span>
+    <span>TMCast</span>
   </div>
 
   <!-- Now Playing -->
@@ -458,9 +458,9 @@
 
   <div class="player-footer">
     <span>Powered by</span>
-    <a href="/">CiryaCast</a>
+    <a href="/">TMCast</a>
     <span>&middot;</span>
-    <a href="https://tmc.gg" target="_blank">The Mishra Corporation</a>
+    <a href="https://tmc.gg" target="_blank">The Mavion Corporation</a>
   </div>
 </div>
 
@@ -679,7 +679,7 @@
     renderHistory(data.song_history);
 
     document.getElementById('station-name').textContent = data.station.name;
-    document.title = `${data.station.name} — CiryaCast`;
+    document.title = `${data.station.name} — TMCast`;
 
     if (np) {
       // Detect track change for progress reset

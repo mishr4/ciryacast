@@ -1,5 +1,5 @@
 {
-  "name": "ciryacast",
+  "name": "tmcast",
   "version": "1.0.0",
   "description": "Lightweight self-hosted internet radio station platform by TMC",
   "main": "server.js",
@@ -19,6 +19,6 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "author": "The Mishra Corporation",
+  "author": "The Mavion Corporation",
   "license": "MIT"
 }

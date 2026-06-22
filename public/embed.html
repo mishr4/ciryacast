@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CiryaCast — Now Playing</title>
+<title>TMCast — Now Playing</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -87,7 +87,7 @@
       if (key === lastKey) return;
       lastKey = key;
       document.getElementById('title').textContent = (np && np.title && np.title !== 'Unknown') ? np.title : d.station.name;
-      document.getElementById('artist').textContent = (np && np.artist && np.artist !== 'Unknown') ? np.artist : 'CiryaCast';
+      document.getElementById('artist').textContent = (np && np.artist && np.artist !== 'Unknown') ? np.artist : 'TMCast';
       const cover = document.getElementById('cover');
       const art = np?.artwork_url || d.station.logo_url || '';
       cover.innerHTML = art ? `<img src="${art}" alt="" onerror="this.outerHTML='${NOTE.replace(/'/g,'&#39;')}'">` : NOTE;

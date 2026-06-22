@@ -179,7 +179,7 @@ function handleLiveSource(req, res, stationId) {
 
   const dj = authenticateDJ(req, stationId);
   if (!dj) {
-    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="CiryaCast"' });
+    res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="TMCast"' });
     res.end('Unauthorized');
     return;
   }
@@ -303,7 +303,7 @@ function handleIcecastSocket(socket) {
 
     const dj = authenticateDJByHeader(headers.authorization, stationId);
     if (!dj) {
-      socket.end('HTTP/1.0 401 Unauthorized\r\nWWW-Authenticate: Basic realm="CiryaCast"\r\nConnection: Close\r\n\r\n');
+      socket.end('HTTP/1.0 401 Unauthorized\r\nWWW-Authenticate: Basic realm="TMCast"\r\nConnection: Close\r\n\r\n');
       return;
     }
 
@@ -316,7 +316,7 @@ function handleIcecastSocket(socket) {
     if ((headers.expect || '').toLowerCase().includes('100-continue')) {
       socket.write('HTTP/1.1 100 Continue\r\n\r\n');
     }
-    socket.write('HTTP/1.0 200 OK\r\nServer: CiryaCast/1.0\r\nAllow: GET, SOURCE\r\nCache-Control: no-cache\r\n\r\n');
+    socket.write('HTTP/1.0 200 OK\r\nServer: TMCast/1.0\r\nAllow: GET, SOURCE\r\nCache-Control: no-cache\r\n\r\n');
 
     const cleanup = startLiveSession(stationId, station, dj, socket);
     session = { stationId, cleanup };
@@ -668,12 +668,12 @@ app.get('/player/:stationId', (req, res) => {
     const base = `${req.protocol}://${req.get('host')}`;
     const slug = station.slug || station.id;
     // Evergreen description (avoids "stuck on an old song" on cached previews)
-    const desc = `${station.genre ? station.genre + ' · ' : ''}Live radio — listen now on CiryaCast`;
+    const desc = `${station.genre ? station.genre + ' · ' : ''}Live radio — listen now on TMCast`;
     const img = `${base}/player/${slug}/cover.png`;
     const url = `${base}/player/${slug}`;
     const meta = `
   <meta property="og:type" content="music.radio_station">
-  <meta property="og:site_name" content="CiryaCast">
+  <meta property="og:site_name" content="TMCast">
   <meta property="og:title" content="${escAttr(station.name)}">
   <meta property="og:description" content="${escAttr(desc)}">
   <meta property="og:image" content="${escAttr(img)}">
@@ -867,8 +867,8 @@ wss.on('error', (e) => {
 server.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════╗
-  ║         CiryaCast v1.0.0                 ║
-  ║   The Mishra Corporation                 ║
+  ║         TMCast v1.0.0                 ║
+  ║   The Mavion Corporation                 ║
   ║                                          ║
   ║   Dashboard:  http://localhost:${PORT}       ║
   ║   Login:      http://localhost:${PORT}/login ║

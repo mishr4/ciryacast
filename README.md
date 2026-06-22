@@ -1,8 +1,8 @@
-# CiryaCast
+# TMCast
 
-Lightweight self-hosted internet radio station platform by **The Mishra Corporation**.
+Lightweight self-hosted internet radio station platform by **The Mavion Corporation**.
 
-CiryaCast is a minimal alternative to AzuraCast — no Docker, no Liquidsoap, no Icecast. Just Node.js and your MP3s.
+TMCast is a minimal alternative to AzuraCast — no Docker, no Liquidsoap, no Icecast. Just Node.js and your MP3s.
 
 ## Features
 
@@ -87,4 +87,4 @@ No ffmpeg. No Liquidsoap. No Icecast. No Docker. Just Node.
 
 ---
 
-**The Mishra Corporation** — [tmc.gg](https://tmc.gg) | Built for CiryaCast hosting
+**The Mavion Corporation** — [tmc.gg](https://tmc.gg) | Built for TMCast hosting

@@ -77,7 +77,7 @@ function authHeaders(extra) {
   return Object.assign({}, extra || {}, k ? { 'x-api-key': k } : {});
 }
 function promptForApiKey() {
-  const k = prompt('This action needs the CiryaCast staff API key (set in Railway as ADMIN_API_KEY):', getApiKey());
+  const k = prompt('This action needs the TMCast staff API key (set in Railway as ADMIN_API_KEY):', getApiKey());
   if (k != null) { try { localStorage.setItem('ciryacast_api_key', k.trim()); } catch {} return k.trim(); }
   return '';
 }
@@ -2166,8 +2166,8 @@ function showBanScreen(message) {
           <svg viewBox="0 0 24 24" fill="none" stroke="#FF2A2A" stroke-width="2" style="width:42px;height:42px"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
         </div>
         <h1 style="color:#fff;font-family:'Lexend',sans-serif;font-size:26px;font-weight:700;margin:0 0 12px">Access Denied</h1>
-        <p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 8px">${message || 'You have been banned from Cirya Utility and services.'}</p>
-        <p style="color:rgba(255,255,255,0.35);font-size:13px;margin-top:20px">If you believe this is a mistake, contact a Cirya administrator.</p>
+        <p style="color:rgba(255,255,255,0.7);font-size:15px;line-height:1.6;margin:0 0 8px">${message || 'You have been banned from TMCast and Mavion services.'}</p>
+        <p style="color:rgba(255,255,255,0.35);font-size:13px;margin-top:20px">If you believe this is a mistake, contact a TMCast administrator.</p>
       </div>
     </div>`;
 }
@@ -2190,7 +2190,7 @@ async function banUser() {
   const input = document.getElementById('ban-email-input');
   const email = input.value.trim().toLowerCase();
   if (!email) { showToast('Enter an email to ban', 'error'); return; }
-  if (!confirm(`Ban ${email} from Cirya Utility? Everyone currently signed in will be reloaded.`)) return;
+  if (!confirm(`Ban ${email} from TMCast? Everyone currently signed in will be reloaded.`)) return;
 
   const me = getCurrentUser();
   const res = await api('/admin/ban', {
@@ -2221,7 +2221,7 @@ async function lookupIPs() {
     return;
   }
   box.innerHTML = `
-    <div style="margin-bottom:8px"><strong>${esc(email)}</strong> — unique IPs (copy into Cirya/Cloudflare):</div>
+    <div style="margin-bottom:8px"><strong>${esc(email)}</strong> — unique IPs (copy into Cloudflare):</div>
     <code style="user-select:all;display:block;margin-bottom:10px">${esc(res.unique_ips.join(', ') || 'none')}</code>
     <div style="max-height:160px;overflow:auto;font-size:11px;color:#666">
       ${res.entries.map(e => `<div>${esc(e.ip || '?')} · ${esc((e.at || '').replace('T',' '))} · ${esc((e.user_agent || '').slice(0,40))}</div>`).join('')}

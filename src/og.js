@@ -1,5 +1,5 @@
 // Social share card (Open Graph image) for the player page.
-// Left: album cover + now-playing. Right: CiryaCast logo + "Listen on the web".
+// Left: album cover + now-playing. Right: TMCast logo + "Listen on the web".
 const path = require('path');
 const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 
@@ -96,11 +96,18 @@ async function renderShareCard({ coverBuf, logoBuf, stationName, title, artist, 
   if (coverImg) {
     drawCover(ctx, coverImg, CX, CY, COVER, 30);
   } else {
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.font = `120px ${FONT}`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('♪', CX + COVER / 2, CY + COVER / 2);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    // Draw a simple music-note glyph with paths (the bundled font has no ♪)
+    const mx = CX + COVER / 2, my = CY + COVER / 2;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(mx - 26, my + 34); ctx.lineTo(mx - 26, my - 44); ctx.stroke(); // left stem
+    ctx.beginPath(); ctx.moveTo(mx + 40, my + 22); ctx.lineTo(mx + 40, my - 56); ctx.stroke(); // right stem
+    ctx.beginPath(); ctx.moveTo(mx - 26, my - 44); ctx.lineTo(mx + 40, my - 56); ctx.stroke(); // beam
+    ctx.beginPath(); ctx.ellipse(mx - 38, my + 34, 18, 13, -0.3, 0, Math.PI * 2); ctx.fill(); // left head
+    ctx.beginPath(); ctx.ellipse(mx + 28, my + 22, 18, 13, -0.3, 0, Math.PI * 2); ctx.fill(); // right head
+    ctx.restore();
   }
   // subtle inner border on the cover
   ctx.save();
@@ -125,7 +132,7 @@ async function renderShareCard({ coverBuf, logoBuf, stationName, title, artist, 
   }
   ctx.fillStyle = 'rgba(255,255,255,0.92)';
   ctx.font = `32px ${FONT}`;
-  ctx.fillText('CiryaCast', RX + 66, 127);
+  ctx.fillText('TMCast', RX + 66, 127);
 
   // LIVE RADIO label + mini equaliser bars
   ctx.fillStyle = ACCENT;
@@ -137,18 +144,18 @@ async function renderShareCard({ coverBuf, logoBuf, stationName, title, artist, 
   // Station name — the hero (stays correct even when a platform caches the card)
   ctx.fillStyle = '#ffffff';
   ctx.font = `66px ${FONT}`;
-  const sLines = wrapText(ctx, stationName || 'CiryaCast', W - RX - 70, 2);
+  const sLines = wrapText(ctx, stationName || 'TMCast', W - RX - 70, 2);
   let sy = 322;
   for (const l of sLines) { ctx.fillText(l, RX, sy); sy += 74; }
 
   // tagline / genre
   ctx.fillStyle = 'rgba(255,255,255,0.55)';
   ctx.font = `26px ${FONT}`;
-  ctx.fillText(genre ? `${genre} · streaming now` : 'Streaming now on CiryaCast', RX, sy + 6);
+  ctx.fillText(genre ? `${genre} · streaming now` : 'Streaming now on TMCast', RX, sy + 6);
 
   // CTA pill
   const pillY = 470;
-  const pillText = 'Listen on the CiryaCast website';
+  const pillText = 'Listen on the TMCast website';
   ctx.font = `27px ${FONT}`;
   const pillW = ctx.measureText(pillText).width + 92;
   ctx.save();

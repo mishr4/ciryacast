@@ -139,7 +139,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_station_members_station ON station_members(station_id);
   CREATE INDEX IF NOT EXISTS idx_station_members_user ON station_members(user_id);
 
-  -- Banned staff emails — blocked from the dashboard / Cirya Utility
+  -- Banned staff emails — blocked from the dashboard / TMCast
   CREATE TABLE IF NOT EXISTS banned_emails (
     email TEXT PRIMARY KEY,
     reason TEXT DEFAULT '',
@@ -166,7 +166,7 @@ try { db.exec('ALTER TABLE stations ADD COLUMN website_url TEXT DEFAULT ""'); } 
 try { db.exec('ALTER TABLE stations ADD COLUMN location TEXT DEFAULT ""'); } catch {}
 try { db.exec('ALTER TABLE media ADD COLUMN stream_url TEXT DEFAULT ""'); } catch {}
 
-// Clean URL slugs for stations (e.g. /player/cirya-radio-one)
+// Clean URL slugs for stations (e.g. /player/one)
 try { db.exec('ALTER TABLE stations ADD COLUMN slug TEXT DEFAULT ""'); } catch {}
 // Artwork + album on play history so "recently played" can show covers
 try { db.exec('ALTER TABLE play_history ADD COLUMN artwork_url TEXT DEFAULT ""'); } catch {}
@@ -179,7 +179,7 @@ try { db.exec('ALTER TABLE song_requests ADD COLUMN ip TEXT DEFAULT ""'); } catc
 try { db.exec('ALTER TABLE stations ADD COLUMN owner_id TEXT DEFAULT ""'); } catch {}
 // is_hidden: 1 = not listed in public /stations directory, 0 = listed
 try { db.exec('ALTER TABLE stations ADD COLUMN is_hidden INTEGER DEFAULT 0'); } catch {}
-// is_super_admin: users with cirya.co email OR manually marked as super admin
+// is_super_admin: users with a staff email OR manually marked as super admin
 try { db.exec('ALTER TABLE users ADD COLUMN is_super_admin INTEGER DEFAULT 0'); } catch {}
 
 // ── Playlist types & scheduling ──
@@ -245,7 +245,7 @@ if (count.c === 0) {
   db.prepare(`
     INSERT INTO stations (id, name, description, genre, bitrate, autodj_enabled)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, 'Cirya Radio One', 'The flagship station of the Cirya Media Network', 'Various', 128, 1);
+  `).run(id, 'Mavion Radio One', 'The flagship station of the Mavion Media Network', 'Various', 128, 1);
 
   // Create default playlist
   const plId = uuid();
@@ -254,7 +254,7 @@ if (count.c === 0) {
     VALUES (?, ?, ?, 1, 1)
   `).run(plId, id, 'General Rotation');
 
-  console.log(`  ✓ Created default station: Cirya Radio One (${id})`);
+  console.log(`  ✓ Created default station: Mavion Radio One (${id})`);
 }
 
 // ── Slug helpers + backfill ──

@@ -29,7 +29,7 @@ function isEmailBanned(db, email) {
   catch { return false; }
 }
 
-const BAN_MESSAGE = 'You have been banned from Cirya Utility and services.';
+const BAN_MESSAGE = 'You have been banned from TMCast and Mavion services.';
 
 // ── Track metadata cleanup ──
 // YouTube-sourced files carry junk tags: artist = a channel name like
@@ -1221,7 +1221,7 @@ router.get('/admin/banned', (req, res) => {
   res.json([...envBans, ...rows]);
 });
 
-// IP log for an email — for IP-banning an abuser in Cirya / Cloudflare / etc.
+// IP log for an email — for IP-banning an abuser in Cloudflare / etc.
 // Excludes server-side admin tooling (curl/node) so only real browser visits
 // surface — those are the abuser's actual IPs.
 router.get('/admin/access-log', (req, res) => {

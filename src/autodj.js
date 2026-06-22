@@ -212,7 +212,7 @@ class AutoDJ {
         s.lastTopOfHour = currentHour;
         console.log(`  🕐 Top of hour jingle`);
         this._streamFile(stationId, path.join(MEDIA_DIR, tohTrack.filename), {
-          title: tohTrack.title || 'Station ID', artist: tohTrack.artist || 'CiryaCast',
+          title: tohTrack.title || 'Station ID', artist: tohTrack.artist || 'TMCast',
           album: '', duration: tohTrack.duration || 0, media_id: tohTrack.id,
           artwork_url: tohTrack.artwork_url || '', _isVT: true,
         });
@@ -227,7 +227,7 @@ class AutoDJ {
         s.lastBottomOfHour = currentHour;
         console.log(`  🕐 Bottom of hour`);
         this._streamFile(stationId, path.join(MEDIA_DIR, bohTrack.filename), {
-          title: bohTrack.title || 'Station ID', artist: bohTrack.artist || 'CiryaCast',
+          title: bohTrack.title || 'Station ID', artist: bohTrack.artist || 'TMCast',
           album: '', duration: bohTrack.duration || 0, media_id: bohTrack.id,
           artwork_url: bohTrack.artwork_url || '', _isVT: true,
         });
@@ -241,7 +241,7 @@ class AutoDJ {
       if (sweeper) {
         s.lastPlayedMusic = false;
         this._streamFile(stationId, path.join(MEDIA_DIR, sweeper.filename), {
-          title: sweeper.title || 'Sweeper', artist: sweeper.artist || 'CiryaCast',
+          title: sweeper.title || 'Sweeper', artist: sweeper.artist || 'TMCast',
           album: '', duration: sweeper.duration || 0, media_id: sweeper.id,
           artwork_url: sweeper.artwork_url || '', _isVT: true,
         });
@@ -259,7 +259,7 @@ class AutoDJ {
           s.lastPlayedMusic = false;
           console.log(`  🔔 Jingle: ${jingle.title}`);
           this._streamFile(stationId, path.join(MEDIA_DIR, jingle.filename), {
-            title: jingle.title || 'Jingle', artist: jingle.artist || 'CiryaCast',
+            title: jingle.title || 'Jingle', artist: jingle.artist || 'TMCast',
             album: '', duration: jingle.duration || 0, media_id: jingle.id,
             artwork_url: jingle.artwork_url || '', _isVT: true,
           });
@@ -278,7 +278,7 @@ class AutoDJ {
           s.lastPlayedMusic = false;
           console.log(`  📢 Ad: ${ad.title}`);
           this._streamFile(stationId, path.join(MEDIA_DIR, ad.filename), {
-            title: ad.title || 'Advertisement', artist: ad.artist || 'CiryaCast',
+            title: ad.title || 'Advertisement', artist: ad.artist || 'TMCast',
             album: '', duration: ad.duration || 0, media_id: ad.id,
             artwork_url: ad.artwork_url || '', _isVT: true,
           });

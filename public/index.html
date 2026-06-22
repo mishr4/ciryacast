@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CiryaCast — Dashboard</title>
-<link rel="stylesheet" href="/css/dashboard.css?v=11">
+<title>TMCast — Dashboard</title>
+<link rel="stylesheet" href="/css/dashboard.css?v=12">
 </head>
 <body>
 
@@ -15,8 +15,8 @@
   <div class="sidebar-logo">
     <img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="TMC" class="tmc-logo">
     <div>
-      <h1>CiryaCast</h1>
-      <span class="tmc-sub">The Mishra Corporation</span>
+      <h1>TMCast</h1>
+      <span class="tmc-sub">The Mavion Corporation</span>
     </div>
   </div>
   <nav class="sidebar-nav">
@@ -69,7 +69,7 @@
         <span class="sidebar-handle" id="sidebar-handle">—</span>
       </div>
     </div>
-    <div class="sidebar-copy">&copy; 2026 The Mishra Corporation</div>
+    <div class="sidebar-copy">&copy; 2026 The Mavion Corporation</div>
   </div>
 </aside>
 
@@ -253,11 +253,11 @@
       <!-- Ban management -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">🚫 Banned from Cirya Utility</div>
+          <div class="card-title">🚫 Banned from TMCast</div>
           <span class="badge" style="background:#FFF0F0;color:#FF2A2A" id="ban-count">0</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-          <input type="email" id="ban-email-input" placeholder="email@cirya.co" style="flex:1;min-width:200px;padding:9px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none">
+          <input type="email" id="ban-email-input" placeholder="email@example.com" style="flex:1;min-width:200px;padding:9px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none">
           <button class="btn btn-danger btn-sm" onclick="banUser()">Ban &amp; force reload</button>
           <button class="btn btn-ghost btn-sm" onclick="lookupIPs()">Look up IPs</button>
         </div>
@@ -622,7 +622,7 @@
     <div style="margin-bottom:20px;padding:16px;background:#f5f5f5;border-radius:8px">
       <h4 style="margin-bottom:12px">Add New Member</h4>
       <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px">
-        <input type="email" id="add-member-email" placeholder="user@cirya.co" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+        <input type="email" id="add-member-email" placeholder="user@example.com" style="padding:8px;border:1px solid #ddd;border-radius:4px">
         <select id="add-member-role" style="padding:8px;border:1px solid #ddd;border-radius:4px">
           <option value="dj">DJ</option>
           <option value="admin">Admin</option>
@@ -861,7 +861,7 @@
       <h3>Import from AzuraCast</h3>
       <button class="modal-close" onclick="closeModal('modal-azuracast-import')">&times;</button>
     </div>
-    <p style="font-size:13px;color:#777;margin-bottom:16px">Pull media files and playlists from an AzuraCast station into CiryaCast. Duplicates are automatically skipped.</p>
+    <p style="font-size:13px;color:#777;margin-bottom:16px">Pull media files and playlists from an AzuraCast station into TMCast. Duplicates are automatically skipped.</p>
     <div class="form-group">
       <label>AzuraCast URL</label>
       <input type="url" id="input-azura-url" placeholder="https://your-azuracast.example.com">
@@ -937,6 +937,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=11"></script>
+<script src="/js/dashboard.js?v=12"></script>
 </body>
 </html>

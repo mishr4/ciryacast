@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CiryaCast — Developer API</title>
+<title>TMCast — Developer API</title>
 <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,12 +35,12 @@
 </head>
 <body>
 <nav class="nav">
-  <a class="logo" href="/stations"><img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">CiryaCast</a>
+  <a class="logo" href="/stations"><img src="https://onqhdxzmsvmelmdohcxv.supabase.co/storage/v1/object/public/staff-photos/library/frame-59-7-mpzsv3b7.png" alt="">TMCast</a>
   <div class="links"><a href="/stations">Stations</a><a href="/developers">API</a></div>
 </nav>
 
 <div class="wrap">
-  <h1>CiryaCast <span>API</span></h1>
+  <h1>TMCast <span>API</span></h1>
   <p class="lead">Pull live now-playing metadata or drop a self-updating player widget onto any site. Free, public, CORS-enabled — no key required.</p>
 
   <h2>Now Playing (JSON)</h2>
@@ -48,7 +48,7 @@
     <div><span class="method">GET</span><span class="path">/api/np/<span class="pill">:station</span></span></div>
     <p style="margin-top:10px">Use a station slug (e.g. <span class="pill">one</span>) or its id. Returns the current track, listener count, and links.</p>
     <pre>{
-  "station": { "id": "…", "slug": "one", "name": "Cirya Radio One", "logo_url": "…" },
+  "station": { "id": "…", "slug": "one", "name": "Mavion Radio One", "logo_url": "…" },
   "is_live": false,
   "listeners": 12,
   "now_playing": {
@@ -79,7 +79,7 @@
     <pre>&lt;audio src="https://cast.tmc.gg/listen/one/radio.mp3" controls&gt;&lt;/audio&gt;</pre>
   </div>
 
-  <p style="margin-top:40px" class="muted-note">CiryaCast · <a class="inline" href="https://tmc.gg" target="_blank">The Mishra Corporation</a></p>
+  <p style="margin-top:40px" class="muted-note">TMCast · <a class="inline" href="https://tmc.gg" target="_blank">The Mavion Corporation</a></p>
 </div>
 </body>
 </html>
