@@ -721,6 +721,81 @@ router.post('/stations/:id/media/move', (req, res) => {
   res.json({ ok: true, updated });
 });
 
+// Copy media from one station into another (e.g. seed a genre/artist station
+// from the main library). Files live in a single shared MEDIA_DIR but deleting
+// a track unlinks its file, so we duplicate the physical file rather than share
+// it. De-dupes by title+artist and adds each copy to the target's default
+// playlist when it has one (the AutoDJ falls back to all station media anyway).
+// Body: { source_station_id, media_ids?: string[], artist?: string }
+router.post('/stations/:id/media/copy-from', (req, res) => {
+  const db = req.app.get('db');
+  const targetId = req.params.id;
+  const { source_station_id, media_ids, artist } = req.body || {};
+
+  const target = db.prepare('SELECT * FROM stations WHERE id = ?').get(targetId);
+  if (!target) return res.status(404).json({ error: 'Target station not found' });
+  if (!source_station_id) return res.status(400).json({ error: 'source_station_id required' });
+
+  let sources = [];
+  if (Array.isArray(media_ids) && media_ids.length) {
+    const q = db.prepare('SELECT * FROM media WHERE id = ? AND station_id = ?');
+    sources = media_ids.map(id => q.get(id, source_station_id)).filter(Boolean);
+  } else if (artist) {
+    sources = db.prepare('SELECT * FROM media WHERE station_id = ? AND LOWER(artist) = LOWER(?)')
+      .all(source_station_id, artist);
+  } else {
+    return res.status(400).json({ error: 'media_ids[] or artist required' });
+  }
+  if (!sources.length) return res.json({ ok: true, copied: 0, skipped: 0, results: [] });
+
+  const defaultPlaylist = db.prepare(
+    'SELECT id FROM playlists WHERE station_id = ? AND is_default = 1'
+  ).get(targetId);
+  let maxOrder = defaultPlaylist
+    ? (db.prepare('SELECT MAX(sort_order) m FROM playlist_items WHERE playlist_id = ?').get(defaultPlaylist.id)?.m || 0)
+    : 0;
+
+  const exists = db.prepare(
+    'SELECT 1 FROM media WHERE station_id = ? AND LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?)'
+  );
+  const insertMedia = db.prepare(`
+    INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertItem = defaultPlaylist
+    ? db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)')
+    : null;
+
+  const results = [];
+  let copied = 0, skipped = 0;
+  for (const m of sources) {
+    if (exists.get(targetId, m.title || '', m.artist || '')) {
+      skipped++; results.push({ title: m.title, status: 'already-present' }); continue;
+    }
+    const srcPath = path.join(MEDIA_DIR, m.filename);
+    if (!fs.existsSync(srcPath)) {
+      skipped++; results.push({ title: m.title, status: 'source-file-missing' }); continue;
+    }
+    const ext = path.extname(m.filename) || '.mp3';
+    const newId = uuid();
+    const newFilename = `${uuid()}${ext}`;
+    try {
+      fs.copyFileSync(srcPath, path.join(MEDIA_DIR, newFilename));
+      insertMedia.run(
+        newId, targetId, newFilename, m.original_name || m.filename,
+        m.title || '', m.artist || '', m.album || '', m.duration || 0,
+        m.size || 0, m.mime_type || 'audio/mpeg', m.artwork_url || '', m.tm_track_id || ''
+      );
+      if (insertItem) { maxOrder++; insertItem.run(uuid(), defaultPlaylist.id, newId, maxOrder); }
+      copied++; results.push({ title: m.title, artist: m.artist, status: 'copied', id: newId });
+    } catch (e) {
+      skipped++; results.push({ title: m.title, status: 'error', error: e.message });
+    }
+  }
+  try { req.app.get('broadcast')('media_uploaded', { stationId: targetId, count: copied }); } catch {}
+  res.json({ ok: true, copied, skipped, results });
+});
+
 // ════════════════════════════════════
 // PLAY HISTORY
 // ════════════════════════════════════
