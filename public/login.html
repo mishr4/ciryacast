@@ -92,15 +92,6 @@
     line-height: 1.5;
   }
 
-  /* Hide the CiryaSSO SDK-rendered button entirely */
-  .sso-mount,
-  [data-cirya-sso],
-  .cirya-sso-btn,
-  .cirya-sso-widget,
-  [class*="cirya-sso"] {
-    display: none !important;
-  }
-
   .btn-sso {
     display: flex;
     align-items: center;
@@ -294,14 +285,9 @@
 
       <div class="divider"><span>or</span></div>
 
-      <!-- CiryaSSO -->
-      <div class="sso-mount">
-        <div data-cirya-sso></div>
-      </div>
-
       <button class="btn-sso" id="btn-sso" onclick="doSignIn()" style="background:#7C4DFF">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
-        Sign in with SSO
+        Sign in with Mavion
       </button>
     </div>
 
@@ -318,14 +304,6 @@
   </div>
 </div>
 
-<script>
-  window.ciryaSsoConfig = {
-    theme: 'light',
-    position: 'inline',
-    showWhenSignedIn: false,
-  };
-</script>
-<script src="https://cirya.co/sso-sdk.js?v=3" async></script>
 <script>
   async function doEmailLogin(e) {
     e.preventDefault();
@@ -361,12 +339,11 @@
     }
   }
 
+  // Hand off to MavionSSO (sso.tmc.gg). It signs the user in via Discord/Google,
+  // then redirects back to ?return= with a `cirya_sso` identity payload we decode.
   function doSignIn() {
-    if (window.CiryaSSO) {
-      CiryaSSO.signIn(window.location.origin + '/login');
-    } else {
-      showStatus('CiryaSSO is loading, try again in a moment...', 'error');
-    }
+    const ret = window.location.origin + '/login';
+    window.location.href = 'https://sso.tmc.gg/?return=' + encodeURIComponent(ret);
   }
 
   function showStatus(msg, type) {
@@ -406,40 +383,37 @@
     sessionStorage.setItem('ciryacast_user', JSON.stringify(user));
   }
 
-  // Check for existing session
-  async function checkAuth() {
-    if (window.CiryaSSO) {
-      const user = await CiryaSSO.user();
-      if (user) {
-        showUser(user);
-        showStatus('Signed in successfully!', 'success');
-        return;
-      }
-    }
+  // MavionSSO hands the signed-in identity back as ?cirya_sso=<base64url JSON>.
+  // Decode it (mirrors the SDK's old encode) and reject it if it's expired.
+  function readSsoHandoff() {
+    const raw = new URLSearchParams(location.search).get('cirya_sso');
+    if (!raw) return null;
+    try {
+      let b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      const data = JSON.parse(decodeURIComponent(escape(atob(b64))));
+      if (data && data.exp && data.exp < Date.now()) return null; // stale token
+      return data && data.user ? data.user : null;
+    } catch { return null; }
+  }
 
-    // Check sessionStorage fallback
+  function checkAuth() {
+    // 1) Fresh redirect back from MavionSSO
+    const ssoUser = readSsoHandoff();
+    if (ssoUser) {
+      showUser({ ...ssoUser, auth_type: 'sso' });
+      showStatus('Signed in with Mavion!', 'success');
+      history.replaceState(null, '', location.pathname); // drop the token from the URL
+      return;
+    }
+    // 2) Existing session in this browser
     const stored = sessionStorage.getItem('ciryacast_user');
     if (stored) {
-      try {
-        showUser(JSON.parse(stored));
-      } catch {}
+      try { showUser(JSON.parse(stored)); } catch {}
     }
   }
 
-  // Listen for CiryaSSO events
-  function initSSO() {
-    if (window.CiryaSSO) {
-      CiryaSSO.on('signin', (user) => {
-        showUser(user);
-        showStatus('Signed in successfully!', 'success');
-      });
-      checkAuth();
-    } else {
-      setTimeout(initSSO, 500);
-    }
-  }
-
-  initSSO();
+  checkAuth();
 </script>
 </body>
 </html>

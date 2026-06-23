@@ -1,6 +1,6 @@
 // ── Avatar helper ──
 function getAvatarUrl(user) {
-  // 1) CiryaSSO avatar
+  // 1) SSO avatar (from the MavionSSO identity payload)
   const ssoAvatar = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
   if (ssoAvatar) return ssoAvatar;
   // 2) UI Avatars fallback (no MD5 needed, generates from name/email)
@@ -34,8 +34,9 @@ function getAvatarUrl(user) {
 })();
 
 function signOut() {
+  // Clears the local TMCast session only — the MavionSSO session lives on
+  // sso.tmc.gg, so signing out here doesn't log you out of other Mavion apps.
   sessionStorage.removeItem('ciryacast_user');
-  if (window.CiryaSSO) CiryaSSO.signOut();
   window.location.href = '/login';
 }
 

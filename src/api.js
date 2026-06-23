@@ -1322,7 +1322,7 @@ router.delete('/admin/access-log', (req, res) => {
   res.json({ ok: true, email, deleted: info.changes });
 });
 
-// List all users (admin only — no middleware yet, rely on CiryaSSO admin)
+// List all users (admin only — no middleware yet, rely on MavionSSO admin)
 router.get('/users', (req, res) => {
   const db = req.app.get('db');
   const users = db.prepare(`
