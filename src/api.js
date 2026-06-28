@@ -796,6 +796,69 @@ router.post('/stations/:id/media/copy-from', (req, res) => {
   res.json({ ok: true, copied, skipped, results });
 });
 
+// Make a "sped up" (or slowed) copy of a track — hugely popular for pop/K-pop.
+// Keeps the original and writes a NEW library track (same artwork). Default is
+// the recognisable pitch-up "sped up" sound (raise the playback rate); set
+// keepPitch=true for a tempo-only change. Body: { speed?, keepPitch?, title? }
+router.post('/stations/:id/media/:mediaId/speedup', async (req, res) => {
+  const db = req.app.get('db');
+  const stationId = req.params.id;
+  const src = db.prepare('SELECT * FROM media WHERE id = ? AND station_id = ?')
+    .get(req.params.mediaId, stationId);
+  if (!src) return res.status(404).json({ error: 'Track not found on this station' });
+
+  let speed = parseFloat(req.body?.speed);
+  if (!Number.isFinite(speed)) speed = 1.25;
+  speed = Math.min(2.0, Math.max(0.5, speed));   // ffmpeg atempo's supported range
+  const keepPitch = !!req.body?.keepPitch;
+
+  const srcPath = path.join(MEDIA_DIR, src.filename);
+  if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'Source audio file missing' });
+
+  const newFilename = `${uuid()}.mp3`;
+  const outPath = path.join(MEDIA_DIR, newFilename);
+  // pitch-up: normalise to 44.1k, relabel the sample rate (faster + higher),
+  // then resample back to 44.1k for a standard file. tempo-only: atempo.
+  const filter = keepPitch
+    ? `atempo=${speed.toFixed(4)}`
+    : `aresample=44100,asetrate=${Math.round(44100 * speed)},aresample=44100`;
+
+  try {
+    await execFileAsync('ffmpeg', [
+      '-i', srcPath, '-af', filter,
+      '-ar', '44100', '-ac', '2', '-ab', '192k', '-y', outPath,
+    ], { timeout: 180000 });
+  } catch (e) {
+    try { fs.unlinkSync(outPath); } catch {}
+    console.log(`  ⚠ Speed-up failed: ${(e.message || '').split('\n')[0]}`);
+    return res.status(500).json({ error: 'Audio processing failed (ffmpeg)' });
+  }
+
+  const tag = speed >= 1 ? 'Sped Up' : 'Slowed';
+  const title = String(req.body?.title || `${src.title || src.original_name} (${tag})`).slice(0, 200);
+  const newId = uuid();
+  const duration = src.duration ? Math.round(src.duration / speed) : 0;
+  const size = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0;
+
+  db.prepare(`
+    INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(newId, stationId, newFilename, src.original_name || src.filename, title,
+    src.artist || '', src.album || '', duration, size, 'audio/mpeg', src.artwork_url || '', '');
+
+  // Add to the default playlist so it enters rotation (AutoDJ also falls back
+  // to all station media, so it'll play regardless).
+  const pl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
+  if (pl) {
+    const mo = db.prepare('SELECT MAX(sort_order) m FROM playlist_items WHERE playlist_id = ?').get(pl.id)?.m || 0;
+    db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)')
+      .run(uuid(), pl.id, newId, mo + 1);
+  }
+
+  try { req.app.get('broadcast')('media_uploaded', { stationId, count: 1 }); } catch {}
+  res.status(201).json({ ok: true, id: newId, title, duration, speed, keepPitch });
+});
+
 // ════════════════════════════════════
 // PLAY HISTORY
 // ════════════════════════════════════

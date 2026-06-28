@@ -695,6 +695,9 @@ function renderMediaTable(media) {
                 <button class="btn btn-ghost btn-sm" onclick="addToQueue('${m.id}')" title="Add to Queue">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                 </button>
+                <button class="btn btn-ghost btn-sm" onclick="speedUpMedia('${m.id}')" title="Make a sped-up version">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                </button>
                 <button class="btn btn-ghost btn-sm" onclick="editMediaMeta('${m.id}')" title="Edit metadata">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
@@ -754,6 +757,47 @@ async function deleteMedia(id) {
   await api(`/media/${id}`, { method: 'DELETE' });
   refreshMedia();
   refreshDashboard();
+}
+
+// ── Speed-up tool (make a "sped up" version of a track) ──
+let speedupSelected = 1.25;
+function speedUpMedia(id) {
+  const m = (allMedia || []).find(x => x.id === id);
+  if (!m) return;
+  document.getElementById('speedup-media-id').value = id;
+  document.getElementById('speedup-track-name').textContent = m.title || m.original_name || 'this track';
+  document.getElementById('speedup-keep-pitch').checked = false;
+  speedupSelected = 1.25;
+  document.querySelectorAll('#speedup-speeds .spd').forEach(b => {
+    const on = parseFloat(b.dataset.spd) === speedupSelected;
+    b.className = 'btn btn-sm spd ' + (on ? 'btn-primary' : 'btn-ghost');
+    b.onclick = () => {
+      speedupSelected = parseFloat(b.dataset.spd);
+      document.querySelectorAll('#speedup-speeds .spd').forEach(x =>
+        x.className = 'btn btn-sm spd ' + (x === b ? 'btn-primary' : 'btn-ghost'));
+    };
+  });
+  showModal('modal-speedup');
+}
+
+async function createSpeedUp() {
+  const id = document.getElementById('speedup-media-id').value;
+  const keepPitch = document.getElementById('speedup-keep-pitch').checked;
+  const btn = document.getElementById('speedup-create-btn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Processing…';
+  const res = await api(`/stations/${currentStationId}/media/${id}/speedup`, {
+    method: 'POST',
+    body: JSON.stringify({ speed: speedupSelected, keepPitch }),
+  });
+  btn.disabled = false; btn.textContent = orig;
+  if (res?.ok) {
+    closeModal('modal-speedup');
+    showToast(`⏩ Created "${res.title}"`);
+    refreshMedia();
+  } else {
+    showToast(res?.error || 'Speed-up failed', 'error');
+  }
 }
 
 // ── Manual metadata edit ──

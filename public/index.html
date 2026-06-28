@@ -18,7 +18,7 @@
 <meta name="twitter:description" content="Internet radio by The Mavion Corporation. Tune in and listen live.">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
 <meta name="theme-color" content="#7C4DFF">
-<link rel="stylesheet" href="/css/dashboard.css?v=14">
+<link rel="stylesheet" href="/css/dashboard.css?v=15">
 </head>
 <body>
 
@@ -543,6 +543,36 @@
   </div>
 </div>
 
+<!-- Speed Up Modal -->
+<div class="modal-overlay" id="modal-speedup">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>⏩ Speed Up Track</h3>
+      <button class="modal-close" onclick="closeModal('modal-speedup')">&times;</button>
+    </div>
+    <input type="hidden" id="speedup-media-id">
+    <p style="font-size:13px;color:#666;margin-bottom:14px">Creates a new <strong>sped-up</strong> copy of <strong id="speedup-track-name"></strong> in this station's library — same cover art, original kept.</p>
+    <div class="form-group">
+      <label>Speed</label>
+      <div id="speedup-speeds" style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="btn btn-ghost btn-sm spd" data-spd="1.1">1.1×</button>
+        <button type="button" class="btn btn-primary btn-sm spd" data-spd="1.25">1.25×</button>
+        <button type="button" class="btn btn-ghost btn-sm spd" data-spd="1.35">1.35×</button>
+        <button type="button" class="btn btn-ghost btn-sm spd" data-spd="1.5">1.5×</button>
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#444;margin:14px 0;cursor:pointer">
+      <input type="checkbox" id="speedup-keep-pitch">
+      Keep original pitch (tempo only — less of the “sped up” sound)
+    </label>
+    <div class="modal-actions">
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost" onclick="closeModal('modal-speedup')">Cancel</button>
+      <button class="btn btn-primary" id="speedup-create-btn" onclick="createSpeedUp()">Create sped-up version</button>
+    </div>
+  </div>
+</div>
+
 <!-- Edit Station Modal -->
 <div class="modal-overlay" id="modal-edit-station">
   <div class="modal">
@@ -958,6 +988,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=14"></script>
+<script src="/js/dashboard.js?v=15"></script>
 </body>
 </html>
