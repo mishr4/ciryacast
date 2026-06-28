@@ -398,13 +398,23 @@
   }
 
   function checkAuth() {
-    // 1) Fresh redirect back from MavionSSO
+    const rawToken = new URLSearchParams(location.search).get('cirya_sso');
+    // 1) Fresh redirect back from MavionSSO — sign in and go STRAIGHT to the
+    //    dashboard. (Previously this only showed a card + "Enter Dashboard"
+    //    button, so SSO looked like it hadn't logged you in.)
     const ssoUser = readSsoHandoff();
     if (ssoUser) {
-      showUser({ ...ssoUser, auth_type: 'sso' });
-      showStatus('Signed in with Mavion!', 'success');
-      history.replaceState(null, '', location.pathname); // drop the token from the URL
+      const user = { ...ssoUser, auth_type: 'sso' };
+      sessionStorage.setItem('ciryacast_user', JSON.stringify(user)); // persist first
+      history.replaceState(null, '', location.pathname);              // drop the token
+      window.location.replace('/');                                   // into the dashboard
       return;
+    }
+    // Token was present but we couldn't read it — say so instead of silently
+    // dumping the user back on the login screen.
+    if (rawToken) {
+      showStatus('Could not read the sign-in token from Mavion — please try again.', 'error');
+      history.replaceState(null, '', location.pathname);
     }
     // 2) Existing session in this browser
     const stored = sessionStorage.getItem('ciryacast_user');
