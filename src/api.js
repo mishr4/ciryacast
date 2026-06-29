@@ -1088,7 +1088,12 @@ router.patch('/requests/:id', (req, res) => {
 // ════════════════════════════════════
 // METADATA ENRICHMENT (Deezer — metadata only, no downloads)
 // ════════════════════════════════════
-const norm = s => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+// Fold accents to their base letter (é→e, ó→o, ñ→n, ü→u …) BEFORE stripping
+// non-alphanumerics — otherwise "Calderón" became "caldern" and never matched
+// "Calderon". Critical for Latino/accented catalogues.
+const norm = s => String(s || '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
 const CHANNEL_RE = /records|vevo|topic|\bmusic\b|sounds|official|channel|\bmix\b|\bhd\b|\btv\b|\d{2,}|life$/i;
 const GENERIC_TITLE_RE = /^(track\s*\d+|unknown|untitled|audio|new recording.*)$/i;
 
@@ -1125,20 +1130,37 @@ async function enrichTrack(db, m) {
   const query = `${artistJunky ? '' : curArtist + ' '}${bestTitle}`.trim();
   if (!query) return { changed, arted };
 
-  const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=1`;
+  const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=8`;
   const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  const t = (await resp.json()).data?.[0];
-  if (!t || !t.artist?.name) return { changed, arted };
+  const results = (await resp.json()).data || [];
+  if (!results.length) return { changed, arted };
 
+  const myTitle = norm(curTitle), myArtist = norm(curArtist);
+  const haystack = norm(`${curArtist} ${curTitle} ${m.original_name || ''}`);
+
+  // Scan several results (the right track is often #2–#4, not #1). A result is
+  // a confident match when its artist appears in our metadata AND the title
+  // genuinely matches — guarding against Deezer returning a different song
+  // (e.g. "BITE NOW" → "BURNING UP"). Accent-folding in norm() makes "Calderón"
+  // match "Calderon", which is what was killing the Latino catalogue.
+  let match = null, artistOnly = null;
+  for (const r of results) {
+    if (!r.artist?.name) continue;
+    const dzArtist = norm(r.artist.name), dzTitle = norm(r.title);
+    const artistAppears = dzArtist && (haystack.includes(dzArtist) || (myArtist && dzArtist.includes(myArtist)));
+    if (!artistAppears) continue;
+    if (!artistOnly) artistOnly = r;  // first artist match — used to fix a junky artist
+    if (dzTitle && myTitle && (dzTitle.includes(myTitle) || myTitle.includes(dzTitle))) { match = r; break; }
+  }
+
+  // Confident = artist + title both matched → adopt name/title/art. Otherwise,
+  // only if our own artist was junky do we adopt the matched artist (no art).
+  const t = match || (artistJunky ? artistOnly : null);
+  if (!t) return { changed, arted };
+  const confident = !!match;
   const art = t.album?.cover_big || t.album?.cover_medium || '';
-  const dzArtist = norm(t.artist.name), dzTitle = norm(t.title), myTitle = norm(curTitle);
-  const artistAppears = dzArtist && norm(`${curArtist} ${curTitle} ${m.original_name || ''}`).includes(dzArtist);
-  // Title must genuinely match — guards against Deezer returning a different
-  // song (e.g. "BITE NOW" → "BURNING UP")
-  const titleMatches = dzTitle && myTitle && (dzTitle.includes(myTitle) || myTitle.includes(dzTitle));
-  const confident = artistAppears && titleMatches;
 
-  const finalArtist = confident ? t.artist.name : (artistJunky && artistAppears ? t.artist.name : curArtist);
+  const finalArtist = confident ? t.artist.name : (artistJunky ? t.artist.name : curArtist);
   const finalTitle = confident ? t.title : curTitle;
   const useArt = confident ? art : '';   // never attach a wrong cover
   if (finalArtist !== curArtist || finalTitle !== curTitle) changed = true;
@@ -2061,9 +2083,10 @@ router.get('/stations/:id/voicetracks', (req, res) => {
 
 // Delete a voice track
 router.delete('/stations/:id/voicetracks/:filename', (req, res) => {
-  const filePath = path.join(VT_DIR, req.params.id, req.params.filename);
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
-  fs.unlinkSync(filePath);
+  // basename() strips any path so an odd/encoded name can't escape the dir.
+  const filePath = path.join(VT_DIR, req.params.id, path.basename(req.params.filename));
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Voice track not found' });
+  try { fs.unlinkSync(filePath); } catch (e) { return res.status(500).json({ error: e.message }); }
   res.json({ ok: true });
 });
 

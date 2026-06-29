@@ -2385,7 +2385,7 @@ async function loadVoiceTracks() {
         <strong>${esc(t.presenter)} - ${esc(t.title)}</strong>
         <div style="font-size:12px;color:#666;margin-top:4px">${(t.size / 1024 / 1024).toFixed(1)}MB • ${new Date(t.uploaded_at).toLocaleDateString()}</div>
       </div>
-      <button class="btn btn-danger btn-sm" onclick="deleteVoiceTrack('${currentStation.id}', '${esc(t.filename)}')">Delete</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteVoiceTrack('${stationId}', '${esc(t.filename)}')">Delete</button>
     </div>
   `).join('');
 }
@@ -2401,7 +2401,11 @@ function showRecordVTModal() {
 
 async function deleteVoiceTrack(stationId, filename) {
   if (!confirm('Delete this voice track?')) return;
-  await api(`/stations/${stationId}/voicetracks/${filename}`, { method: 'DELETE' });
+  // Encode the filename — voice tracks are named "Presenter - Title.mp3" (spaces
+  // + punctuation), which broke the URL/route match before.
+  const res = await api(`/stations/${stationId}/voicetracks/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+  if (res?.ok) showToast('🗑 Voice track deleted');
+  else showToast(res?.error || 'Could not delete', 'error');
   loadVoiceTracks();
 }
 
