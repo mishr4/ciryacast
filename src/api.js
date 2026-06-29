@@ -676,6 +676,46 @@ router.delete('/playlists/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Playlist tracks ──
+// List the tracks in a playlist.
+router.get('/playlists/:id/items', (req, res) => {
+  const db = req.app.get('db');
+  const items = db.prepare(`
+    SELECT m.id, m.title, m.artist, m.album, m.duration, m.artwork_url, pi.sort_order
+    FROM playlist_items pi JOIN media m ON m.id = pi.media_id
+    WHERE pi.playlist_id = ? ORDER BY pi.sort_order
+  `).all(req.params.id);
+  res.json(items);
+});
+
+// Add tracks to a playlist. Body: { media_ids: [...] }. De-dupes.
+router.post('/playlists/:id/items', (req, res) => {
+  const db = req.app.get('db');
+  const plId = req.params.id;
+  const pl = db.prepare('SELECT * FROM playlists WHERE id = ?').get(plId);
+  if (!pl) return res.status(404).json({ error: 'Playlist not found' });
+  const ids = Array.isArray(req.body?.media_ids) ? req.body.media_ids : [];
+  if (!ids.length) return res.status(400).json({ error: 'media_ids[] required' });
+
+  let order = db.prepare('SELECT MAX(sort_order) m FROM playlist_items WHERE playlist_id = ?').get(plId)?.m || 0;
+  const exists = db.prepare('SELECT 1 FROM playlist_items WHERE playlist_id = ? AND media_id = ?');
+  const ins = db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)');
+  let added = 0;
+  for (const mid of ids) {
+    if (!mid || exists.get(plId, mid)) continue;
+    order++; ins.run(uuid(), plId, mid, order); added++;
+  }
+  res.json({ ok: true, added });
+});
+
+// Remove a track from a playlist.
+router.delete('/playlists/:id/items/:mediaId', (req, res) => {
+  const db = req.app.get('db');
+  const r = db.prepare('DELETE FROM playlist_items WHERE playlist_id = ? AND media_id = ?')
+    .run(req.params.id, req.params.mediaId);
+  res.json({ ok: true, removed: r.changes });
+});
+
 // Update media folder/genre
 router.patch('/media/:id/meta', (req, res) => {
   const db = req.app.get('db');

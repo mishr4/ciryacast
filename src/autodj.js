@@ -119,39 +119,36 @@ class AutoDJ {
     s.offset = 0;
   }
 
-  /** Check if a scheduled show is active right now */
+  /** Check if a scheduled show is active right now — honours the show's
+   *  duration, so a playlist scheduled e.g. 18:00 for 180 min ("Latino Time")
+   *  stays active across the whole 18:00–21:00 window, not just at 18:00. */
   _getActiveScheduledShow(stationId) {
     const now = new Date();
-    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const currentHour = String(now.getHours()).padStart(2, '0');
-    const currentMin = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${currentHour}:${currentMin}`;
+    const dayOfWeek = now.getDay(); // 0=Sun … 6=Sat
+    const nowMins = now.getHours() * 60 + now.getMinutes();
     const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    const shows = this.db.prepare(`
-      SELECT * FROM scheduled_shows WHERE station_id = ? AND is_enabled = 1
-    `).all(stationId);
+    const shows = this.db.prepare(
+      'SELECT * FROM scheduled_shows WHERE station_id = ? AND is_enabled = 1'
+    ).all(stationId);
 
     for (const show of shows) {
-      let isActive = false;
+      if (!show.playlist_id) continue;
+      const m = /^(\d{1,2}):(\d{2})$/.exec(show.start_time || '');
+      if (!m) continue;
+      const startMins = (+m[1]) * 60 + (+m[2]);
+      const endMins = startMins + (show.duration_minutes || 60);
+      // Within today's window? (no midnight-wrap: a window past 24:00 just ends
+      // at midnight — fine for typical day-parts like "Latino Time".)
+      if (nowMins < startMins || nowMins >= endMins) continue;
 
-      if (show.schedule_type === 'daily' && show.start_time === currentTime) {
-        isActive = true;
-      } else if (show.schedule_type === 'weekly') {
-        // Parse days_of_week: '1,3,5' or '1-5' or '0'
-        const days = this._parseDays(show.days_of_week);
-        if (days.includes(dayOfWeek) && show.start_time === currentTime) {
-          isActive = true;
-        }
-      } else if (show.schedule_type === 'once' && show.target_date === today && show.start_time === currentTime) {
-        isActive = true;
-      }
+      let dayOk = false;
+      if (show.schedule_type === 'daily') dayOk = true;
+      else if (show.schedule_type === 'weekly') dayOk = this._parseDays(show.days_of_week).includes(dayOfWeek);
+      else if (show.schedule_type === 'once') dayOk = (show.target_date === today);
 
-      if (isActive && show.playlist_id) {
-        return show;
-      }
+      if (dayOk) return show;
     }
-
     return null;
   }
 
@@ -553,21 +550,47 @@ class AutoDJ {
     const s = this.sessions.get(stationId);
     if (!s) return;
 
-    let media = this.db.prepare(`
-      SELECT DISTINCT m.* FROM media m
-      JOIN playlist_items pi ON pi.media_id = m.id
-      JOIN playlists p ON p.id = pi.playlist_id
-      WHERE p.station_id = ?
-    `).all(stationId);
+    // Music playlists only — special types feed jingles/ads/sweepers elsewhere.
+    const SPECIAL = ['jingles', 'ads', 'sweepers', 'stingers', 'intros', 'outros',
+                     'top_of_hour', 'bottom_of_hour', 'between_every_song'];
+    const playlists = this.db.prepare(
+      'SELECT id, name, weight, type FROM playlists WHERE station_id = ? AND is_enabled = 1'
+    ).all(stationId).filter(p => !SPECIAL.includes(p.type || 'music'));
 
-    if (!media.length) {
-      media = this.db.prepare('SELECT * FROM media WHERE station_id = ?').all(stationId);
+    // Load each playlist's tracks once.
+    const buckets = [];
+    let totalTracks = 0;
+    for (const pl of playlists) {
+      const items = this.db.prepare(`
+        SELECT DISTINCT m.* FROM media m
+        JOIN playlist_items pi ON pi.media_id = m.id
+        WHERE pi.playlist_id = ?
+      `).all(pl.id);
+      if (items.length) { buckets.push({ items, weight: Math.max(1, pl.weight || 1) }); totalTracks += items.length; }
     }
 
-    // Fisher-Yates shuffle
-    for (let i = media.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [media[i], media[j]] = [media[j], media[i]];
+    let media = [];
+    if (buckets.length) {
+      // Weighted rotation: each slot picks a playlist with probability ∝ weight
+      // (independent of its track count), then a random track from it.
+      const totalWeight = buckets.reduce((a, b) => a + b.weight, 0);
+      const len = Math.max(40, totalTracks * 2);
+      let lastId = null;
+      for (let i = 0; i < len; i++) {
+        let r = Math.random() * totalWeight, bucket = buckets[0];
+        for (const b of buckets) { r -= b.weight; if (r <= 0) { bucket = b; break; } }
+        let t = bucket.items[Math.floor(Math.random() * bucket.items.length)];
+        if (t.id === lastId && bucket.items.length > 1) t = bucket.items[Math.floor(Math.random() * bucket.items.length)];
+        lastId = t.id;
+        media.push(t);
+      }
+    } else {
+      // No playlists with tracks → fall back to all of the station's media.
+      media = this.db.prepare('SELECT * FROM media WHERE station_id = ?').all(stationId);
+      for (let i = media.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [media[i], media[j]] = [media[j], media[i]];
+      }
     }
 
     s.queue = media;

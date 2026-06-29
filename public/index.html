@@ -18,7 +18,7 @@
 <meta name="twitter:description" content="Internet radio by The Mavion Corporation. Tune in and listen live.">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
 <meta name="theme-color" content="#7C4DFF">
-<link rel="stylesheet" href="/css/dashboard.css?v=16">
+<link rel="stylesheet" href="/css/dashboard.css?v=17">
 </head>
 <body>
 
@@ -798,7 +798,8 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="form-group">
         <label>Type</label>
-        <select id="pl-type" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="pl-type" onchange="updatePlaylistTypeUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="music">Music (weighted rotation)</option>
           <option value="jingles">Jingles</option>
           <option value="ads">Ads</option>
           <option value="sweepers">Sweepers</option>
@@ -817,7 +818,12 @@
       </div>
     </div>
 
-    <div class="form-group">
+    <div class="form-group" id="pl-weight-group">
+      <label>Weight <span style="font-weight:400;color:#999">— higher plays more often (e.g. 5 vs 1)</span></label>
+      <input type="number" id="pl-weight" value="3" min="1" max="20" style="width:100px;padding:8px;border:1px solid #ddd;border-radius:4px">
+    </div>
+
+    <div class="form-group" id="pl-rule-group" style="display:none">
       <label>Schedule Rule</label>
       <select id="pl-rule" onchange="updatePlaylistRuleUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
         <option value="">No automatic play</option>
@@ -840,6 +846,44 @@
   </div>
 </div>
 
+<!-- Manage Playlist Modal -->
+<div class="modal-overlay" id="modal-manage-playlist">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <h3>🎵 <span id="mpl-name">Playlist</span></h3>
+      <button class="modal-close" onclick="closeModal('modal-manage-playlist')">&times;</button>
+    </div>
+    <input type="hidden" id="mpl-id">
+    <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
+      <div class="form-group" style="margin:0">
+        <label>Weight</label>
+        <input type="number" id="mpl-weight" min="1" max="20" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:4px">
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>Order</label>
+        <select id="mpl-mode" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+          <option value="shuffle">Shuffle</option>
+          <option value="sequential">In order</option>
+        </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;padding-bottom:9px;cursor:pointer"><input type="checkbox" id="mpl-enabled"> Enabled</label>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="savePlaylistSettings()">Save settings</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">In this playlist (<span id="mpl-count">0</span>)</div>
+        <div id="mpl-tracks" style="height:300px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:6px"></div>
+      </div>
+      <div>
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px">Add from library</div>
+        <input type="text" id="mpl-search" oninput="renderMplLibrary()" placeholder="Search library…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;margin-bottom:6px;box-sizing:border-box">
+        <div id="mpl-library" style="height:255px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Create Scheduled Show Modal -->
 <div class="modal-overlay" id="modal-new-schedule">
   <div class="modal" style="max-width:600px">
@@ -857,6 +901,12 @@
     <div class="form-group">
       <label>Description (optional)</label>
       <input type="text" id="sch-desc" placeholder="What's this show about?" style="width:100%">
+    </div>
+
+    <div class="form-group">
+      <label>Playlist to play</label>
+      <select id="sch-playlist" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px"></select>
+      <div style="font-size:11px;color:#999;margin-top:4px">This playlist takes over the station for the whole show window (e.g. "Latino Time" 6–9pm).</div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -988,6 +1038,6 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=16"></script>
+<script src="/js/dashboard.js?v=17"></script>
 </body>
 </html>

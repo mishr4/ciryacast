@@ -2101,7 +2101,7 @@ async function loadScheduledShows() {
   `).join('');
 }
 
-function showScheduleModal() {
+async function showScheduleModal() {
   const stationId = document.getElementById('sch-station-select')?.value;
   if (!stationId) {
     alert('Please select a station first');
@@ -2111,13 +2111,19 @@ function showScheduleModal() {
   document.getElementById('sch-title').value = '';
   document.getElementById('sch-desc').value = '';
   document.getElementById('sch-type').value = 'weekly';
-  document.getElementById('sch-time').value = '09:00';
-  document.getElementById('sch-duration').value = '60';
+  document.getElementById('sch-time').value = '18:00';
+  document.getElementById('sch-duration').value = '180';
   document.querySelectorAll('#modal-new-schedule input[type="checkbox"]').forEach(cb => cb.checked = false);
   // Check weekdays by default
   document.querySelectorAll('#modal-new-schedule input[type="checkbox"]').forEach(cb => {
     if (['1', '2', '3', '4', '5'].includes(cb.value)) cb.checked = true;
   });
+  // Populate the playlist picker — the show plays this playlist during its window
+  const sel = document.getElementById('sch-playlist');
+  const pls = await api(`/stations/${stationId}/playlists`) || [];
+  sel.innerHTML = pls.length
+    ? pls.map(p => `<option value="${p.id}">${esc(p.name)}${p.is_default ? ' (default)' : ''} — ${p.item_count || 0} tracks</option>`).join('')
+    : '<option value="">No playlists yet — create one in the Playlists tab first</option>';
   updateScheduleTypeUI();
   showModal('modal-new-schedule');
 }
@@ -2135,9 +2141,14 @@ async function createScheduledShow() {
   const type = document.getElementById('sch-type').value;
   const time = document.getElementById('sch-time').value;
   const duration = parseInt(document.getElementById('sch-duration').value) || 60;
+  const playlistId = document.getElementById('sch-playlist').value;
 
   if (!title) {
     alert('Show title required');
+    return;
+  }
+  if (!playlistId) {
+    alert('Pick a playlist for this show — create one in the Playlists tab first.');
     return;
   }
 
@@ -2162,7 +2173,7 @@ async function createScheduledShow() {
   const result = await api(`/stations/${stationId}/shows`, {
     method: 'POST',
     body: JSON.stringify({
-      title, description: desc, schedule_type: type, start_time: time,
+      title, description: desc, playlist_id: playlistId, schedule_type: type, start_time: time,
       days_of_week: daysOfWeek, target_date: targetDate, duration_minutes: duration
     })
   });
@@ -2183,37 +2194,107 @@ async function deleteScheduledShow(showId) {
 // ════════════════════════════════════
 // PLAYLISTS (Jingles, Ads, Sweepers)
 // ════════════════════════════════════
+let _playlists = [];
+let _mplLibrary = [];
+let _mplItemIds = [];
+const SPECIAL_PL_TYPES = ['jingles', 'ads', 'sweepers', 'stingers', 'intros', 'outros', 'top_of_hour', 'bottom_of_hour', 'between_every_song'];
+
 async function loadPlaylists() {
   const stationId = document.getElementById('pl-station-select')?.value;
   if (!stationId) return;
 
-  const playlists = await api(`/stations/${stationId}/playlists`);
+  const playlists = await api(`/stations/${stationId}/playlists`) || [];
+  _playlists = playlists;
   const list = document.getElementById('playlists-list');
 
-  // Filter to only non-default playlists
-  const rotationPlaylists = playlists ? playlists.filter(p => !p.is_default) : [];
-
-  if (!rotationPlaylists.length) {
-    list.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg></div><h3>No rotation playlists</h3><p>Create playlists for jingles, ads, and sweepers</p></div>';
+  if (!playlists.length) {
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg></div><h3>No playlists yet</h3><p>Create a music playlist (e.g. "Latino", "Pop") and set its weight — or a jingles/ads playlist.</p></div>';
     return;
   }
 
-  list.innerHTML = rotationPlaylists.map(p => `
-    <div style="padding:16px;border:1px solid #eee;border-radius:8px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div style="flex:1">
+  list.innerHTML = playlists.map(p => {
+    const isSpecial = SPECIAL_PL_TYPES.includes(p.type);
+    const meta = isSpecial
+      ? `Type: <span style="color:#7C4DFF;font-weight:600">${p.type}</span>${p.schedule_rule ? ` • ${p.schedule_rule}` : ''}${p.play_every_n ? ` • every ${p.play_every_n}` : ''}`
+      : `🎵 Music • weight <strong>${p.weight ?? 1}</strong>`;
+    return `
+    <div style="padding:14px 16px;border:1px solid #eee;border-radius:8px;margin-bottom:8px;${p.is_enabled ? '' : 'opacity:.55'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
           <strong>${esc(p.name)}</strong>
-          <div style="font-size:12px;color:#666;margin-top:4px">
-            Type: <span style="color:#7C4DFF;font-weight:600">${p.type || 'music'}</span>
-            ${p.schedule_rule ? `• Rule: ${p.schedule_rule}` : ''}
-            ${p.play_every_n ? `• Every ${p.play_every_n} songs` : ''}
-            ${p.item_count ? `• ${p.item_count} item${p.item_count !== 1 ? 's' : ''}` : ''}
-          </div>
+          ${p.is_default ? '<span style="font-size:10px;background:#ece9ff;color:#7C4DFF;padding:1px 7px;border-radius:99px;margin-left:6px">default</span>' : ''}
+          ${p.is_enabled ? '' : '<span style="font-size:11px;color:#c62828;margin-left:6px">disabled</span>'}
+          <div style="font-size:12px;color:#666;margin-top:4px">${meta} • ${p.item_count || 0} track${p.item_count === 1 ? '' : 's'}</div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="deletePlaylist('${p.id}')">Delete</button>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost btn-sm" onclick="managePlaylist('${p.id}')">Manage</button>
+          ${p.is_default ? '' : `<button class="btn btn-danger btn-sm" onclick="deletePlaylist('${p.id}')">Delete</button>`}
+        </div>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
+}
+
+// ── Manage a playlist: settings (weight/mode/enabled) + add/remove tracks ──
+async function managePlaylist(id) {
+  const sid = document.getElementById('pl-station-select')?.value;
+  const pl = _playlists.find(p => p.id === id) || {};
+  document.getElementById('mpl-id').value = id;
+  document.getElementById('mpl-name').textContent = pl.name || 'Playlist';
+  document.getElementById('mpl-weight').value = pl.weight ?? 3;
+  document.getElementById('mpl-mode').value = pl.play_mode || 'shuffle';
+  document.getElementById('mpl-enabled').checked = pl.is_enabled === undefined ? true : !!pl.is_enabled;
+  document.getElementById('mpl-search').value = '';
+  showModal('modal-manage-playlist');
+  _mplLibrary = (sid ? await api(`/stations/${sid}/media`) : []) || [];
+  loadMplTracks();
+}
+
+async function loadMplTracks() {
+  const id = document.getElementById('mpl-id').value;
+  const items = await api(`/playlists/${id}/items`) || [];
+  _mplItemIds = items.map(i => i.id);
+  document.getElementById('mpl-count').textContent = items.length;
+  document.getElementById('mpl-tracks').innerHTML = items.length
+    ? items.map(t => `<div style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px solid #f4f4f4">
+        <div style="flex:1;min-width:0"><div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title || 'Untitled')}</div><div style="font-size:11px;color:#999">${esc(t.artist || '')}</div></div>
+        <button class="btn btn-ghost btn-sm" title="Remove" onclick="removePlaylistItem('${t.id}')">✕</button></div>`).join('')
+    : '<div style="color:#999;font-size:13px;padding:16px;text-align:center">No tracks yet — add from the library →</div>';
+  renderMplLibrary();
+}
+
+function renderMplLibrary() {
+  const q = (document.getElementById('mpl-search').value || '').toLowerCase();
+  const lib = (_mplLibrary || []).filter(m => !_mplItemIds.includes(m.id) &&
+    (!q || `${m.title || ''} ${m.artist || ''} ${m.album || ''}`.toLowerCase().includes(q)));
+  document.getElementById('mpl-library').innerHTML = lib.length
+    ? lib.slice(0, 400).map(m => `<div style="display:flex;align-items:center;gap:8px;padding:5px 4px;border-bottom:1px solid #f4f4f4">
+        <div style="flex:1;min-width:0"><div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(m.title || m.original_name || 'Untitled')}</div><div style="font-size:11px;color:#999">${esc(m.artist || '')}</div></div>
+        <button class="btn btn-green btn-sm" onclick="addTrackToPlaylist('${m.id}')">+ Add</button></div>`).join('')
+    : '<div style="color:#999;font-size:13px;padding:16px;text-align:center">Nothing to add</div>';
+}
+
+async function addTrackToPlaylist(mediaId) {
+  const id = document.getElementById('mpl-id').value;
+  await api(`/playlists/${id}/items`, { method: 'POST', body: JSON.stringify({ media_ids: [mediaId] }) });
+  loadMplTracks();
+}
+
+async function removePlaylistItem(mediaId) {
+  const id = document.getElementById('mpl-id').value;
+  await api(`/playlists/${id}/items/${mediaId}`, { method: 'DELETE' });
+  loadMplTracks();
+}
+
+async function savePlaylistSettings() {
+  const id = document.getElementById('mpl-id').value;
+  await api(`/playlists/${id}`, { method: 'PUT', body: JSON.stringify({
+    weight: parseInt(document.getElementById('mpl-weight').value) || 1,
+    play_mode: document.getElementById('mpl-mode').value,
+    is_enabled: document.getElementById('mpl-enabled').checked,
+  }) });
+  showToast('✅ Saved');
+  loadPlaylists();
 }
 
 function showPlaylistModal() {
@@ -2224,11 +2305,21 @@ function showPlaylistModal() {
   }
   document.getElementById('pl-station-id').value = stationId;
   document.getElementById('pl-name').value = '';
-  document.getElementById('pl-type').value = 'jingles';
+  document.getElementById('pl-type').value = 'music';
+  document.getElementById('pl-weight').value = '3';
   document.getElementById('pl-rule').value = '';
   document.getElementById('pl-every-n').value = '3';
+  updatePlaylistTypeUI();
   updatePlaylistRuleUI();
   showModal('modal-new-playlist');
+}
+
+// Weight matters for music playlists; the schedule-rule is for jingle/ad types.
+function updatePlaylistTypeUI() {
+  const isMusic = document.getElementById('pl-type').value === 'music';
+  document.getElementById('pl-weight-group').style.display = isMusic ? 'block' : 'none';
+  document.getElementById('pl-rule-group').style.display = isMusic ? 'none' : 'block';
+  updatePlaylistRuleUI();
 }
 
 function updatePlaylistRuleUI() {
@@ -2243,6 +2334,7 @@ async function createPlaylist() {
   const rule = document.getElementById('pl-rule').value;
   const everyN = parseInt(document.getElementById('pl-every-n').value) || 3;
   const mode = document.getElementById('pl-mode').value;
+  const weight = parseInt(document.getElementById('pl-weight').value) || 3;
 
   if (!name) {
     alert('Playlist name required');
@@ -2252,14 +2344,17 @@ async function createPlaylist() {
   const result = await api(`/stations/${stationId}/playlists`, {
     method: 'POST',
     body: JSON.stringify({
-      name, type, schedule_rule: rule, play_every_n: everyN, play_mode: mode
+      name, type, weight,
+      schedule_rule: type === 'music' ? '' : rule,
+      play_every_n: everyN, play_mode: mode
     })
   });
 
   if (result) {
-    showToast('✅ Playlist created');
+    showToast(type === 'music' ? '✅ Playlist created — open Manage to add tracks' : '✅ Playlist created');
     closeModal('modal-new-playlist');
     loadPlaylists();
+    if (result.id && type === 'music') managePlaylist(result.id);
   }
 }
 
