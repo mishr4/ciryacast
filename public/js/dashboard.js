@@ -1,11 +1,17 @@
 // ── Avatar helper ──
-function getAvatarUrl(user) {
-  // 1) SSO avatar (from the MavionSSO identity payload)
-  const ssoAvatar = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
-  if (ssoAvatar) return ssoAvatar;
-  // 2) UI Avatars fallback (no MD5 needed, generates from name/email)
+function avatarFallback(user) {
   const name = encodeURIComponent(user.display_name || user.email || '?');
   return `https://ui-avatars.com/api/?name=${name}&size=96&background=7C4DFF&color=fff&rounded=true&bold=true`;
+}
+function getAvatarUrl(user) {
+  // 1) direct pfp from the MavionSSO identity payload
+  const direct = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
+  if (direct) return direct;
+  // 2) MavionSSO avatar API (302s to their pfp) — by id, then handle
+  if (user.id) return `https://sso.tmc.gg/api/avatar?id=${encodeURIComponent(user.id)}`;
+  if (user.cirya_handle) return `https://sso.tmc.gg/api/avatar?handle=${encodeURIComponent(user.cirya_handle)}`;
+  // 3) generated initials (the API's own fallback points at a dead URL)
+  return avatarFallback(user);
 }
 
 // ── Auth Gate ──
@@ -25,7 +31,7 @@ function getAvatarUrl(user) {
     if (avatarEl) {
       const pic = getAvatarUrl(u);
       if (pic) {
-        avatarEl.innerHTML = `<img src="${pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`;
+        avatarEl.innerHTML = `<img src="${pic}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:10px" onerror="this.onerror=null;this.src='${avatarFallback(u)}'">`;
       } else {
         avatarEl.textContent = (u.display_name || '?')[0].toUpperCase();
       }

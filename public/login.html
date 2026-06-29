@@ -342,6 +342,7 @@
   // Hand off to MavionSSO (sso.tmc.gg). It signs the user in via Discord/Google,
   // then redirects back to ?return= with a `cirya_sso` identity payload we decode.
   function doSignIn() {
+    sessionStorage.setItem('tmcast_sso_pending', '1');
     const ret = window.location.origin + '/login';
     window.location.href = 'https://sso.tmc.gg/?return=' + encodeURIComponent(ret);
   }
@@ -351,11 +352,19 @@
       `<div class="status-msg ${type || ''}">${msg}</div>`;
   }
 
-  function getAvatarUrl(user) {
-    const sso = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
-    if (sso) return sso;
+  function avatarFallback(user) {
     const name = encodeURIComponent(user.display_name || user.email || '?');
     return `https://ui-avatars.com/api/?name=${name}&size=96&background=7C4DFF&color=fff&rounded=true&bold=true`;
+  }
+  function getAvatarUrl(user) {
+    // 1) direct pfp carried in the SSO identity
+    const direct = user.avatar_url || user.profile_picture || user.photo_url || user.picture || '';
+    if (direct) return direct;
+    // 2) MavionSSO avatar API (302s to their pfp) — by id, then handle
+    if (user.id) return `https://sso.tmc.gg/api/avatar?id=${encodeURIComponent(user.id)}`;
+    if (user.cirya_handle) return `https://sso.tmc.gg/api/avatar?handle=${encodeURIComponent(user.cirya_handle)}`;
+    // 3) generated initials (the API's own fallback points at a dead URL)
+    return avatarFallback(user);
   }
 
   function showUser(user) {
@@ -366,7 +375,7 @@
     const avatar = document.getElementById('user-avatar');
     const pic = getAvatarUrl(user);
     if (pic) {
-      avatar.innerHTML = `<img src="${pic}" alt="">`;
+      avatar.innerHTML = `<img src="${pic}" alt="" onerror="this.onerror=null;this.src='${avatarFallback(user)}'">`;
     } else {
       avatar.textContent = (user.display_name || '?')[0].toUpperCase();
     }
@@ -397,26 +406,45 @@
     } catch { return null; }
   }
 
-  function checkAuth() {
+  // Sign in and go STRAIGHT to the dashboard (no "Enter Dashboard" click).
+  function enterWithSso(ssoUser) {
+    const user = { ...ssoUser, auth_type: 'sso' };
+    sessionStorage.setItem('ciryacast_user', JSON.stringify(user));
+    sessionStorage.removeItem('tmcast_sso_pending');
+    history.replaceState(null, '', location.pathname);
+    window.location.replace('/');
+  }
+
+  async function checkAuth() {
     const rawToken = new URLSearchParams(location.search).get('cirya_sso');
-    // 1) Fresh redirect back from MavionSSO — sign in and go STRAIGHT to the
-    //    dashboard. (Previously this only showed a card + "Enter Dashboard"
-    //    button, so SSO looked like it hadn't logged you in.)
+    const pending = sessionStorage.getItem('tmcast_sso_pending') === '1';
+
+    // 1) URL token — MavionSSO includes ?cirya_sso= only for cross-site returns.
     const ssoUser = readSsoHandoff();
-    if (ssoUser) {
-      const user = { ...ssoUser, auth_type: 'sso' };
-      sessionStorage.setItem('ciryacast_user', JSON.stringify(user)); // persist first
-      history.replaceState(null, '', location.pathname);              // drop the token
-      window.location.replace('/');                                   // into the dashboard
-      return;
-    }
-    // Token was present but we couldn't read it — say so instead of silently
-    // dumping the user back on the login screen.
+    if (ssoUser) return enterWithSso(ssoUser);
+
+    // 2) Cookie identity — for tmc.gg subdomains MavionSSO does NOT put the token
+    //    in the URL; cast.tmc.gg instead reads the signed-in user from the shared
+    //    cookie via /api/me (CORS + credentials are configured for us there).
+    if (pending) showStatus('Signing you in…', '');
+    try {
+      const r = await fetch('https://sso.tmc.gg/api/me', { credentials: 'include' });
+      if (r.ok) {
+        const d = await r.json();
+        if (d && d.user && (d.user.email || d.user.id)) return enterWithSso(d.user);
+      }
+    } catch {}
+    sessionStorage.removeItem('tmcast_sso_pending');
+
+    // Token was present but unreadable — surface it instead of silent logout.
     if (rawToken) {
-      showStatus('Could not read the sign-in token from Mavion — please try again.', 'error');
+      showStatus('Could not read the sign-in from Mavion — please try again.', 'error');
       history.replaceState(null, '', location.pathname);
+    } else if (pending) {
+      document.getElementById('status-area').innerHTML = ''; // clear the spinner text
     }
-    // 2) Existing session in this browser
+
+    // 3) Existing local session in this browser.
     const stored = sessionStorage.getItem('ciryacast_user');
     if (stored) {
       try { showUser(JSON.parse(stored)); } catch {}
