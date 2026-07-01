@@ -745,6 +745,10 @@ app.get('/developers', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'developers.html'));
 });
 
+app.get('/terms', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'terms.html'));
+});
+
 // Clean public metadata alias (CORS-enabled JSON), e.g. /api/np/one
 app.get('/api/np/:stationId', (req, res) => {
   const station = resolveStation(req.params.stationId);
