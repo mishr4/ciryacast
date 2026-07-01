@@ -721,7 +721,6 @@ app.get('/player/:stationId', (req, res) => {
   <meta name="twitter:title" content="${escAttr(station.name)}">
   <meta name="twitter:description" content="${escAttr(desc)}">
   <meta name="twitter:image" content="${escAttr(img)}">
-  <meta name="theme-color" content="#7C4DFF">
 `;
     html = html.replace('</head>', meta + '</head>');
   }
