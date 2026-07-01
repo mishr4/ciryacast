@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>TMCast Overlay</title>
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Instrument Sans', sans-serif;
+    font-family: 'Inter', sans-serif;
     background: transparent;
     color: #fff;
     overflow: hidden;
@@ -25,7 +25,7 @@
   /* Dynamic background — pulls dominant color from album art */
   .bg-layer {
     position: absolute; inset: 0;
-    background: linear-gradient(135deg, #0d0820 0%, #0a1428 50%, #150a20 100%);
+    background: #0d0e16;
     transition: background 2s ease;
   }
   .bg-art-blur {
@@ -52,7 +52,7 @@
   .station-logo {
     width: 52px; height: 52px; border-radius: 14px;
     object-fit: contain;
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC, #0ED7FF, #7C4DFF);
+    background: #4C8DFF;
     background-size: 300% 300%;
     animation: gradient-shift 8s ease infinite;
     padding: 6px;
@@ -64,12 +64,12 @@
   }
 
   .station-text h3 {
-    font-family: 'Lexend', sans-serif;
+    font-family: 'Fraunces', sans-serif;
     font-size: 18px; font-weight: 600;
     letter-spacing: -0.2px;
   }
   .show-name {
-    font-size: 12px; color: rgba(124, 77, 255, 0.9);
+    font-size: 12px; color: rgba(76, 141, 255, 0.9);
     font-weight: 600; margin-top: 2px; letter-spacing: 0.05em;
     text-transform: uppercase;
   }
@@ -96,7 +96,7 @@
     width: 240px; height: 240px;
     border-radius: 20px; overflow: hidden; flex-shrink: 0;
     box-shadow: 0 24px 60px rgba(0,0,0,0.6);
-    background: linear-gradient(135deg, #2a1060, #601030);
+    background: #171821;
     position: relative;
     transition: opacity 0.5s;
   }
@@ -123,7 +123,7 @@
   }
 
   .track-title {
-    font-family: 'Lexend', sans-serif;
+    font-family: 'Fraunces', sans-serif;
     font-size: 52px; font-weight: 700; line-height: 1.05;
     letter-spacing: -1px; margin-bottom: 10px;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
@@ -149,7 +149,7 @@
   }
   .progress-fill {
     height: 100%; width: 0%;
-    background: linear-gradient(90deg, rgba(124,77,255,0.8), rgba(255,72,188,0.8));
+    background: #4C8DFF;
     border-radius: 2px; transition: width 1s linear;
   }
 
@@ -180,13 +180,13 @@
   .bar-art {
     width: 64px; height: 64px; border-radius: 12px;
     overflow: hidden; flex-shrink: 0;
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
+    background: #4C8DFF;
     display: flex; align-items: center; justify-content: center;
   }
   .bar-art img { width: 100%; height: 100%; object-fit: cover; }
   .bar-art svg { width: 22px; height: 22px; color: rgba(255,255,255,0.5); }
   .bar-meta { flex: 1; min-width: 0; }
-  .bar-title { font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-title { font-family: 'Fraunces', sans-serif; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar-artist { font-size: 13px; color: rgba(255,255,255,0.5); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar-progress { width: 280px; }
   .bar-progress .progress-row { margin: 0; }

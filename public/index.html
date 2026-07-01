@@ -17,8 +17,8 @@
 <meta name="twitter:title" content="TMCast — Live Radio">
 <meta name="twitter:description" content="Internet radio by The Mavion Corporation. Tune in and listen live.">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
-<meta name="theme-color" content="#7C4DFF">
-<link rel="stylesheet" href="/css/dashboard.css?v=18">
+<meta name="theme-color" content="#08090b">
+<link rel="stylesheet" href="/css/dashboard.css?v=19">
 </head>
 <body>
 
@@ -177,7 +177,7 @@
         <div class="card-header">
           <div class="card-title">Media Library</div>
           <div style="display:flex;align-items:center;gap:10px">
-            <input type="text" id="media-search" placeholder="Search media..." style="padding:7px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none;width:180px" oninput="filterMedia(this.value)">
+            <input type="text" id="media-search" placeholder="Search media..." style="padding:7px 14px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;background:var(--glass);outline:none;width:180px" oninput="filterMedia(this.value)">
             <button class="btn btn-ghost btn-sm" onclick="showModal('modal-azuracast-import')" title="Import from AzuraCast">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Import
@@ -271,11 +271,11 @@
           <span class="badge" style="background:#FFF0F0;color:#FF2A2A" id="ban-count">0</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
-          <input type="email" id="ban-email-input" placeholder="email@example.com" style="flex:1;min-width:200px;padding:9px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:13px;background:#fafafa;outline:none">
+          <input type="email" id="ban-email-input" placeholder="email@example.com" style="flex:1;min-width:200px;padding:9px 14px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;background:var(--glass);outline:none">
           <button class="btn btn-danger btn-sm" onclick="banUser()">Ban &amp; force reload</button>
           <button class="btn btn-ghost btn-sm" onclick="lookupIPs()">Look up IPs</button>
         </div>
-        <div id="ban-ip-result" style="display:none;background:#fafafa;border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:12px;font-size:12px;margin-bottom:14px"></div>
+        <div id="ban-ip-result" style="display:none;background:var(--glass);border:1px solid rgba(0,0,0,0.06);border-radius:10px;padding:12px;font-size:12px;margin-bottom:14px"></div>
         <div id="banned-list"></div>
       </div>
     </div>
@@ -300,23 +300,23 @@
           <div id="dj-conn-warning" style="display:none;background:#FFF3E0;border:1px solid #FFB74D;color:#7a4a00;border-radius:10px;padding:10px 14px;font-size:12px;margin-bottom:12px">
             ⚠ No Railway TCP Proxy detected — DJ software can't connect yet. In Railway: <strong>Settings → Networking → TCP Proxy</strong> → target port <strong>8005</strong>, then redeploy.
           </div>
-          <p style="font-size:12px;color:#666;margin-bottom:12px">
+          <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
             In <strong>Mixxx</strong>: Preferences → Live Broadcasting → set these values. Type must be <strong>Icecast 2</strong>. Click any value to copy it.
           </p>
           <div style="display:grid;grid-template-columns:100px 1fr;gap:6px 12px;font-size:13px;align-items:center">
-            <span style="color:#777;font-weight:600">Type</span>
+            <span style="color:var(--text-muted);font-weight:600">Type</span>
             <span>Icecast 2</span>
-            <span style="color:#777;font-weight:600">Host</span>
-            <code id="dj-host" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
-            <span style="color:#777;font-weight:600">Port</span>
-            <code id="dj-port" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
-            <span style="color:#777;font-weight:600">Mount</span>
-            <code id="dj-mount" onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
-            <span style="color:#777;font-weight:600">Login</span>
-            <code onclick="copyConnField(this)" title="Click to copy" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer">source</code>
-            <span style="color:#777;font-weight:600">Password</span>
-            <span style="color:#999;font-size:12px">A stream key from the table below (📋 copies the full Mixxx config)</span>
-            <span style="color:#777;font-weight:600">Format</span>
+            <span style="color:var(--text-muted);font-weight:600">Host</span>
+            <code id="dj-host" onclick="copyConnField(this)" title="Click to copy" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
+            <span style="color:var(--text-muted);font-weight:600">Port</span>
+            <code id="dj-port" onclick="copyConnField(this)" title="Click to copy" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
+            <span style="color:var(--text-muted);font-weight:600">Mount</span>
+            <code id="dj-mount" onclick="copyConnField(this)" title="Click to copy" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer"></code>
+            <span style="color:var(--text-muted);font-weight:600">Login</span>
+            <code onclick="copyConnField(this)" title="Click to copy" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;cursor:pointer">source</code>
+            <span style="color:var(--text-muted);font-weight:600">Password</span>
+            <span style="color:var(--text-muted);font-size:12px">A stream key from the table below (📋 copies the full Mixxx config)</span>
+            <span style="color:var(--text-muted);font-weight:600">Format</span>
             <span>MP3, 128 kbps, Stereo</span>
           </div>
         </div>
@@ -329,19 +329,19 @@
         </div>
         <div style="padding:0 0 8px">
           <div style="display:grid;grid-template-columns:120px 1fr;gap:6px 12px;font-size:13px;align-items:center">
-            <span style="color:#777;font-weight:600">Stream URL</span>
-            <code id="int-stream-url" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
-            <span style="color:#777;font-weight:600">OBS Overlay</span>
-            <code id="int-overlay-url" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
-            <span style="color:#777;font-weight:600">OBS Bar</span>
-            <code id="int-bar-url" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
-            <span style="color:#777;font-weight:600">Player Page</span>
-            <code id="int-player-url" style="background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
+            <span style="color:var(--text-muted);font-weight:600">Stream URL</span>
+            <code id="int-stream-url" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
+            <span style="color:var(--text-muted);font-weight:600">OBS Overlay</span>
+            <code id="int-overlay-url" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
+            <span style="color:var(--text-muted);font-weight:600">OBS Bar</span>
+            <code id="int-bar-url" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
+            <span style="color:var(--text-muted);font-weight:600">Player Page</span>
+            <code id="int-player-url" style="background:var(--glass-2);padding:3px 8px;border-radius:6px;user-select:all;font-size:11px;word-break:break-all"></code>
           </div>
           <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.06)">
-            <p style="font-size:12px;color:#777;font-weight:600;margin-bottom:6px">Discord Bot</p>
-            <p style="font-size:12px;color:#999;line-height:1.5">Use the Stream URL above with any Discord music bot. For C Utilities or custom bots, play the .mp3 URL directly in a voice channel.</p>
-            <code style="display:block;background:#f5f5f5;padding:8px 12px;border-radius:8px;font-size:11px;margin-top:8px;color:#444;user-select:all" id="int-discord-cmd"></code>
+            <p style="font-size:12px;color:var(--text-muted);font-weight:600;margin-bottom:6px">Discord Bot</p>
+            <p style="font-size:12px;color:var(--text-muted);line-height:1.5">Use the Stream URL above with any Discord music bot. For C Utilities or custom bots, play the .mp3 URL directly in a voice channel.</p>
+            <code style="display:block;background:var(--glass-2);padding:8px 12px;border-radius:8px;font-size:11px;margin-top:8px;color:#444;user-select:all" id="int-discord-cmd"></code>
           </div>
         </div>
       </div>
@@ -397,9 +397,9 @@
     <!-- Scheduling -->
     <div class="view" id="view-scheduling">
       <div class="card" style="margin-bottom:16px;background:#f9f9f9">
-        <div style="padding:16px;border-bottom:1px solid #eee">
-          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
-          <select id="sch-station-select" onchange="onSchedulingStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <div style="padding:16px;border-bottom:1px solid var(--line-soft)">
+          <label style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:8px">Select Station</label>
+          <select id="sch-station-select" onchange="onSchedulingStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid var(--border);border-radius:4px">
             <option value="">Choose a station...</option>
           </select>
         </div>
@@ -421,9 +421,9 @@
     <!-- Playlists (Jingles, Ads, Sweepers) -->
     <div class="view" id="view-playlists">
       <div class="card" style="margin-bottom:16px;background:#f9f9f9">
-        <div style="padding:16px;border-bottom:1px solid #eee">
-          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
-          <select id="pl-station-select" onchange="onPlaylistStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <div style="padding:16px;border-bottom:1px solid var(--line-soft)">
+          <label style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:8px">Select Station</label>
+          <select id="pl-station-select" onchange="onPlaylistStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid var(--border);border-radius:4px">
             <option value="">Choose a station...</option>
           </select>
         </div>
@@ -433,7 +433,7 @@
           <div class="card-title">Rotation Playlists</div>
           <button class="btn btn-green btn-sm" onclick="showPlaylistModal()" id="pl-playlist-btn" disabled>+ New Playlist</button>
         </div>
-        <p style="font-size:13px;color:#666;margin-bottom:16px">Jingles, ads, sweepers, and other rotation content</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Jingles, ads, sweepers, and other rotation content</p>
         <div id="playlists-list">
           <div class="empty-state">
             <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4h12M6 4v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4M9 9h6M9 13h6"/></svg></div>
@@ -446,9 +446,9 @@
     <!-- Voice Tracks -->
     <div class="view" id="view-voicetracks">
       <div class="card" style="margin-bottom:16px;background:#f9f9f9">
-        <div style="padding:16px;border-bottom:1px solid #eee">
-          <label style="font-size:13px;color:#666;display:block;margin-bottom:8px">Select Station</label>
-          <select id="vt-station-select" onchange="onVTStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <div style="padding:16px;border-bottom:1px solid var(--line-soft)">
+          <label style="font-size:13px;color:var(--text-secondary);display:block;margin-bottom:8px">Select Station</label>
+          <select id="vt-station-select" onchange="onVTStationChange()" style="width:100%;max-width:300px;padding:8px;border:1px solid var(--border);border-radius:4px">
             <option value="">Choose a station...</option>
           </select>
         </div>
@@ -458,7 +458,7 @@
           <div class="card-title">Voice Tracks Library</div>
           <button class="btn btn-green btn-sm" onclick="showRecordVTModal()" id="vt-record-btn" disabled>🎤 Record New</button>
         </div>
-        <p style="font-size:13px;color:#666;margin-bottom:16px">Presenter intros, outros, and station IDs</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Presenter intros, outros, and station IDs</p>
         <div id="voicetracks-list">
           <div class="empty-state">
             <div class="empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div>
@@ -551,7 +551,7 @@
       <button class="modal-close" onclick="closeModal('modal-speedup')">&times;</button>
     </div>
     <input type="hidden" id="speedup-media-id">
-    <p style="font-size:13px;color:#666;margin-bottom:14px">Creates a new <strong>sped-up</strong> copy of <strong id="speedup-track-name"></strong> in this station's library — same cover art, original kept.</p>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">Creates a new <strong>sped-up</strong> copy of <strong id="speedup-track-name"></strong> in this station's library — same cover art, original kept.</p>
     <div class="form-group">
       <label>Speed</label>
       <div id="speedup-speeds" style="display:flex;gap:8px;flex-wrap:wrap">
@@ -588,7 +588,7 @@
     <div class="form-group">
       <label>URL slug</label>
       <input type="text" id="edit-station-slug" placeholder="one">
-      <div style="font-size:11px;color:#666;margin-top:4px">cast.tmc.gg/player/<span id="slug-preview">one</span></div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">cast.tmc.gg/player/<span id="slug-preview">one</span></div>
     </div>
     <div class="form-group">
       <label>Description</label>
@@ -616,12 +616,12 @@
       <div style="display:flex;gap:12px;align-items:flex-start">
         <div style="flex:1">
           <input type="url" id="edit-station-logo" placeholder="https://... (square image URL)" oninput="updateLogoPreview()">
-          <div style="font-size:11px;color:#666;margin-top:4px">Or upload an image below:</div>
+          <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Or upload an image below:</div>
           <input type="file" id="edit-station-logo-file" accept="image/*" style="margin-top:8px;font-size:11px">
           <button class="btn btn-sm btn-ghost" type="button" onclick="uploadStationLogo()" style="margin-top:8px">Upload Logo</button>
         </div>
         <div id="logo-preview" style="width:80px;height:80px;border-radius:12px;overflow:hidden;background:#333;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-          <div style="font-size:24px;color:#666">📻</div>
+          <div style="font-size:24px;color:var(--text-secondary)">📻</div>
         </div>
       </div>
     </div>
@@ -635,10 +635,10 @@
     </div>
     <div class="form-group">
       <label>Owner</label>
-      <select id="edit-station-owner" style="width:100%;padding:10px 14px;border-radius:10px;border:1.5px solid rgba(0,0,0,0.08);font-size:14px;background:#fafafa;outline:none;font-family:inherit;cursor:pointer">
+      <select id="edit-station-owner" style="width:100%;padding:10px 14px;border-radius:10px;border:1.5px solid var(--border);font-size:14px;background:var(--glass);outline:none;font-family:inherit;cursor:pointer">
         <option value="">No owner assigned</option>
       </select>
-      <div style="font-size:11px;color:#666;margin-top:4px">Select yourself or another user to own this station</div>
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Select yourself or another user to own this station</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-danger" onclick="deleteStation(document.getElementById('edit-station-id').value);closeModal('modal-edit-station')">Delete Station</button>
@@ -663,11 +663,11 @@
       <div id="members-list" style="max-height:300px;overflow-y:auto"></div>
     </div>
 
-    <div style="margin-bottom:20px;padding:16px;background:#f5f5f5;border-radius:8px">
+    <div style="margin-bottom:20px;padding:16px;background:var(--glass-2);border-radius:8px">
       <h4 style="margin-bottom:12px">Add New Member</h4>
       <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px">
-        <input type="email" id="add-member-email" placeholder="user@example.com" style="padding:8px;border:1px solid #ddd;border-radius:4px">
-        <select id="add-member-role" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+        <input type="email" id="add-member-email" placeholder="user@example.com" style="padding:8px;border:1px solid var(--border);border-radius:4px">
+        <select id="add-member-role" style="padding:8px;border:1px solid var(--border);border-radius:4px">
           <option value="dj">DJ</option>
           <option value="admin">Admin</option>
           <option value="owner">Owner</option>
@@ -692,15 +692,15 @@
     <input type="hidden" id="live-mic-station-id">
 
     <div style="margin-bottom:16px">
-      <p style="font-size:13px;color:#666;margin-bottom:12px">Broadcast live audio from your microphone to <strong id="live-mic-station-name"></strong></p>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Broadcast live audio from your microphone to <strong id="live-mic-station-name"></strong></p>
 
-      <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin-bottom:16px;text-align:center">
-        <div id="mic-status" style="font-weight:500;color:#666;margin-bottom:8px">Requesting microphone access...</div>
+      <div style="background:var(--glass-2);padding:16px;border-radius:8px;margin-bottom:16px;text-align:center">
+        <div id="mic-status" style="font-weight:500;color:var(--text-secondary);margin-bottom:8px">Requesting microphone access...</div>
         <div style="display:flex;justify-content:center;gap:8px;margin-bottom:12px">
           <div style="display:inline-flex;align-items:center;gap:4px">
-            <span style="font-size:10px;color:#999">Input</span>
-            <div style="width:60px;height:20px;background:#eee;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden">
-              <div id="mic-meter" style="width:30%;height:100%;background:linear-gradient(90deg,#4CAF50,#45a049);transition:width 100ms linear"></div>
+            <span style="font-size:10px;color:var(--text-muted)">Input</span>
+            <div style="width:60px;height:20px;background:var(--glass-2);border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+              <div id="mic-meter" style="width:30%;height:100%;background:#3ecf8e;transition:width 100ms linear"></div>
             </div>
           </div>
         </div>
@@ -716,7 +716,7 @@
         </button>
       </div>
 
-      <div style="font-size:12px;color:#666;line-height:1.6">
+      <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
         <strong>Tips:</strong>
         <ul style="margin:8px 0 0 16px;padding:0">
           <li>Allow browser access to your microphone</li>
@@ -753,13 +753,13 @@
       </div>
     </div>
 
-    <div style="background:#f5f5f5;padding:16px;border-radius:8px;margin-bottom:16px;text-align:center">
-      <div id="vt-status" style="font-weight:500;color:#666;margin-bottom:8px">Requesting microphone access...</div>
+    <div style="background:var(--glass-2);padding:16px;border-radius:8px;margin-bottom:16px;text-align:center">
+      <div id="vt-status" style="font-weight:500;color:var(--text-secondary);margin-bottom:8px">Requesting microphone access...</div>
       <div style="display:flex;justify-content:center;gap:8px;margin-bottom:12px">
         <div style="display:inline-flex;align-items:center;gap:4px">
-          <span style="font-size:10px;color:#999">Level</span>
-          <div style="width:60px;height:20px;background:#eee;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden">
-            <div id="vt-meter" style="width:30%;height:100%;background:linear-gradient(90deg,#4CAF50,#45a049);transition:width 100ms linear"></div>
+          <span style="font-size:10px;color:var(--text-muted)">Level</span>
+          <div style="width:60px;height:20px;background:var(--glass-2);border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+            <div id="vt-meter" style="width:30%;height:100%;background:#3ecf8e;transition:width 100ms linear"></div>
           </div>
         </div>
       </div>
@@ -798,7 +798,7 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="form-group">
         <label>Type</label>
-        <select id="pl-type" onchange="updatePlaylistTypeUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="pl-type" onchange="updatePlaylistTypeUI()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
           <option value="music">Music (weighted rotation)</option>
           <option value="jingles">Jingles</option>
           <option value="ads">Ads</option>
@@ -811,7 +811,7 @@
 
       <div class="form-group">
         <label>Play Mode</label>
-        <select id="pl-mode" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="pl-mode" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
           <option value="shuffle">Shuffle (random)</option>
           <option value="sequential">Sequential (in order)</option>
         </select>
@@ -819,13 +819,13 @@
     </div>
 
     <div class="form-group" id="pl-weight-group">
-      <label>Weight <span style="font-weight:400;color:#999">— higher plays more often (e.g. 5 vs 1)</span></label>
-      <input type="number" id="pl-weight" value="3" min="1" max="20" style="width:100px;padding:8px;border:1px solid #ddd;border-radius:4px">
+      <label>Weight <span style="font-weight:400;color:var(--text-muted)">— higher plays more often (e.g. 5 vs 1)</span></label>
+      <input type="number" id="pl-weight" value="3" min="1" max="20" style="width:100px;padding:8px;border:1px solid var(--border);border-radius:4px">
     </div>
 
     <div class="form-group" id="pl-rule-group" style="display:none">
       <label>Schedule Rule</label>
-      <select id="pl-rule" onchange="updatePlaylistRuleUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+      <select id="pl-rule" onchange="updatePlaylistRuleUI()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
         <option value="">No automatic play</option>
         <option value="every_N_songs">Every N songs</option>
         <option value="top_of_hour">Top of hour (:00)</option>
@@ -836,7 +836,7 @@
 
     <div id="pl-rule-extra" style="display:none;margin-bottom:16px">
       <label>Play every N songs:</label>
-      <input type="number" id="pl-every-n" value="3" min="1" max="30" style="width:80px;padding:6px;border:1px solid #ddd;border-radius:4px">
+      <input type="number" id="pl-every-n" value="3" min="1" max="30" style="width:80px;padding:6px;border:1px solid var(--border);border-radius:4px">
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px">
@@ -857,11 +857,11 @@
     <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
       <div class="form-group" style="margin:0">
         <label>Weight</label>
-        <input type="number" id="mpl-weight" min="1" max="20" style="width:80px;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <input type="number" id="mpl-weight" min="1" max="20" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:4px">
       </div>
       <div class="form-group" style="margin:0">
         <label>Order</label>
-        <select id="mpl-mode" style="padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="mpl-mode" style="padding:8px;border:1px solid var(--border);border-radius:4px">
           <option value="shuffle">Shuffle</option>
           <option value="sequential">In order</option>
         </select>
@@ -873,12 +873,12 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div>
         <div style="font-weight:600;font-size:13px;margin-bottom:8px">In this playlist (<span id="mpl-count">0</span>)</div>
-        <div id="mpl-tracks" style="height:300px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:6px"></div>
+        <div id="mpl-tracks" style="height:300px;overflow:auto;border:1px solid var(--line-soft);border-radius:8px;padding:6px"></div>
       </div>
       <div>
         <div style="font-weight:600;font-size:13px;margin-bottom:8px">Add from library</div>
-        <input type="text" id="mpl-search" oninput="renderMplLibrary()" placeholder="Search library…" style="width:100%;padding:7px;border:1px solid #ddd;border-radius:6px;margin-bottom:6px;box-sizing:border-box">
-        <div id="mpl-library" style="height:255px;overflow:auto;border:1px solid #eee;border-radius:8px;padding:6px"></div>
+        <input type="text" id="mpl-search" oninput="renderMplLibrary()" placeholder="Search library…" style="width:100%;padding:7px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;box-sizing:border-box">
+        <div id="mpl-library" style="height:255px;overflow:auto;border:1px solid var(--line-soft);border-radius:8px;padding:6px"></div>
       </div>
     </div>
   </div>
@@ -905,14 +905,14 @@
 
     <div class="form-group">
       <label>Playlist to play</label>
-      <select id="sch-playlist" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px"></select>
-      <div style="font-size:11px;color:#999;margin-top:4px">This playlist takes over the station for the whole show window (e.g. "Latino Time" 6–9pm).</div>
+      <select id="sch-playlist" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px"></select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">This playlist takes over the station for the whole show window (e.g. "Latino Time" 6–9pm).</div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
       <div class="form-group">
         <label>Schedule Type</label>
-        <select id="sch-type" onchange="updateScheduleTypeUI()" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <select id="sch-type" onchange="updateScheduleTypeUI()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
           <option value="daily">Daily</option>
           <option value="weekly">Weekly</option>
           <option value="once">Once (specific date)</option>
@@ -921,7 +921,7 @@
 
       <div class="form-group">
         <label>Start Time</label>
-        <input type="time" id="sch-time" value="09:00" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+        <input type="time" id="sch-time" value="09:00" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
       </div>
     </div>
 
@@ -940,12 +940,12 @@
 
     <div id="sch-date-ui" class="form-group" style="display:none;margin-bottom:16px">
       <label>Date (once only)</label>
-      <input type="date" id="sch-target-date" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+      <input type="date" id="sch-target-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px">
     </div>
 
     <div class="form-group">
       <label>Duration (minutes)</label>
-      <input type="number" id="sch-duration" value="60" min="5" max="480" style="width:120px;padding:8px;border:1px solid #ddd;border-radius:4px">
+      <input type="number" id="sch-duration" value="60" min="5" max="480" style="width:120px;padding:8px;border:1px solid var(--border);border-radius:4px">
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:8px">
@@ -962,7 +962,7 @@
       <h3>Import from AzuraCast</h3>
       <button class="modal-close" onclick="closeModal('modal-azuracast-import')">&times;</button>
     </div>
-    <p style="font-size:13px;color:#777;margin-bottom:16px">Pull media files and playlists from an AzuraCast station into TMCast. Duplicates are automatically skipped.</p>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Pull media files and playlists from an AzuraCast station into TMCast. Duplicates are automatically skipped.</p>
     <div class="form-group">
       <label>AzuraCast URL</label>
       <input type="url" id="input-azura-url" placeholder="https://your-azuracast.example.com">
