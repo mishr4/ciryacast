@@ -351,6 +351,23 @@ class AutoDJ {
     }
   }
 
+  /** Skip an unplayable track (missing/corrupt file) WITHOUT recursing. A run
+   *  of bad files — e.g. a scheduled playlist whose files were deleted, which is
+   *  now active for its whole window — must not blow the call stack or spin the
+   *  CPU. Deferring to a fresh tick breaks the _streamFile→_next recursion. */
+  _skip(stationId) {
+    const s = this.sessions.get(stationId);
+    if (!s || !s.active) return;
+    s.skips = (s.skips || 0) + 1;
+    if (s.skips > 40) {
+      console.log(`  ⚠ ${stationId}: 40+ unplayable files in a row — backing off 5s`);
+      s.skips = 0;
+      s.timer = setTimeout(() => this._next(stationId), 5000);
+    } else {
+      s.timer = setTimeout(() => this._next(stationId), 0);
+    }
+  }
+
   /** Stream a file to a station — shared by music tracks and voice tracks */
   _streamFile(stationId, filePath, meta) {
     const s = this.sessions.get(stationId);
@@ -358,27 +375,24 @@ class AutoDJ {
 
     if (!fs.existsSync(filePath)) {
       console.log(`  ⚠ Missing: ${meta.title}, skip`);
-      this._next(stationId);
-      return;
+      return this._skip(stationId);
     }
 
     let buf;
     try { buf = fs.readFileSync(filePath); } catch (e) {
       console.log(`  ⚠ Read error: ${e.message}`);
-      this._next(stationId);
-      return;
+      return this._skip(stationId);
     }
     if (buf.length < 1000) {
-      this._next(stationId);
-      return;
+      return this._skip(stationId);
     }
 
     buf = stripID3(buf);
     buf = alignFrame(buf);
     if (buf.length < 500) {
-      this._next(stationId);
-      return;
+      return this._skip(stationId);
     }
+    s.skips = 0;   // a good file played — reset the unplayable-file counter
 
     const station = this.db.prepare('SELECT * FROM stations WHERE id = ?').get(stationId);
     // Stream each file at ITS real bitrate (falls back to the station setting).
