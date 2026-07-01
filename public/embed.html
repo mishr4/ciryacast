@@ -8,12 +8,14 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
     --card: #ffffff; --text: #111; --sub: #777; --line: rgba(0,0,0,0.07);
-    --accent: #7C4DFF; --ph: #ecebf2;
+    --accent: #4C8DFF; --ph: #ecebf2;
   }
   body[data-theme="dark"] {
-    --card: #16131f; --text: #fff; --sub: rgba(255,255,255,0.6); --line: rgba(255,255,255,0.08);
-    --ph: #2a2440;
+    --card: #131419; --text: #fafafa; --sub: #9a9ca2; --line: rgba(255,255,255,0.075);
+    --ph: #24252c;
   }
+  .label.live { color: #FF3B33; }
+  .label.live .dot { background: #FF3B33; }
   body[data-theme="transparent"] { --card: transparent; }
   html, body { height: 100%; }
   body {
@@ -83,6 +85,7 @@
       const np = d.now_playing;
       const live = d.live;
       document.getElementById('label').textContent = live ? 'Live' : 'Now Playing';
+      document.querySelector('.label').classList.toggle('live', !!live);
       const key = (np?.title || '') + (np?.artist || '') + (np?.artwork_url || '');
       if (key === lastKey) return;
       lastKey = key;

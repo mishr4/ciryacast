@@ -5,19 +5,23 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TMCast Player</title>
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#08090b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/mavion.css?v=1">
 <style>
-  /* Theme accents — recolored at runtime from the current album art so the
-     player matches the music instead of a one-size-fits-all gradient.
-     Defaults are a calm single-hue indigo, not the rainbow. */
+  /* Accent is recolored at runtime from the current album art so the player
+     matches the music. Default is the Mavion interactive blue (used before art
+     loads / for art-less stations). */
   :root {
-    --accent: #5B5BD6;
-    --accent-2: #3A3A8C;
-    --accent-soft: rgba(91,91,214,0.16);
+    --accent: #4C8DFF;
+    --accent-2: #2f5fb0;
+    --accent-soft: rgba(76,141,255,0.16);
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: 'Instrument Sans', 'Inter', sans-serif;
+    font-family: 'Inter', 'Inter', sans-serif;
     background: #faf8fb;
     color: #000;
     min-height: 100vh;
@@ -43,7 +47,7 @@
     margin-bottom: 28px;
   }
   .player-header img { width: 28px; height: 28px; border-radius: 6px; object-fit: contain; }
-  .player-header span { font-family: 'Lexend', sans-serif; font-size: 14px; font-weight: 600; color: #000; }
+  .player-header span { font-family: 'Fraunces', sans-serif; font-size: 14px; font-weight: 600; color: #000; }
 
   .player-card {
     background: #fff;
@@ -82,7 +86,7 @@
   .art-container img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
 
   .station-name { font-size: 12px; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; transition: color 0.8s ease; }
-  .track-title { font-family: 'Lexend', sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 4px; min-height: 30px; }
+  .track-title { font-family: 'Fraunces', sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 4px; min-height: 30px; }
   .track-artist { font-size: 15px; color: #777; font-weight: 500; margin-bottom: 4px; }
   .track-album { font-size: 12px; color: #aaa; font-weight: 500; margin-bottom: 6px; min-height: 16px; }
 
@@ -156,7 +160,7 @@
   .volume-wrap { display: flex; align-items: center; gap: 10px; justify-content: center; }
   .volume-wrap svg { width: 16px; height: 16px; color: #aaa; }
   input[type="range"] { -webkit-appearance: none; width: 100px; height: 4px; border-radius: 2px; background: #e8e8e8; outline: none; }
-  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #7C4DFF; cursor: pointer; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #4C8DFF; cursor: pointer; }
 
   /* ── Song Request Card ── */
   .request-card {
@@ -175,7 +179,7 @@
     background: var(--accent);
     color: #fff;
     border: none; border-radius: 14px;
-    font-family: 'Lexend', sans-serif; font-size: 15px; font-weight: 600;
+    font-family: 'Fraunces', sans-serif; font-size: 15px; font-weight: 600;
     cursor: pointer;
     transition: filter 0.15s, transform 0.1s;
   }
@@ -210,7 +214,7 @@
     outline: none;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
-  .search-input:focus { border-color: #7C4DFF; box-shadow: 0 0 0 3px rgba(124,77,255,0.12); }
+  .search-input:focus { border-color: #4C8DFF; box-shadow: 0 0 0 3px rgba(76, 141, 255,0.12); }
   .search-input::placeholder { color: #aaa; }
   .search-icon {
     position: absolute;
@@ -261,7 +265,7 @@
   }
   .lib-detail-cover .cover-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .lib-detail-cover svg { width: 48px; height: 48px; color: #b3afc7; }
-  .lib-detail h3 { font-family: 'Lexend', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+  .lib-detail h3 { font-family: 'Fraunces', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 2px; }
   .lib-detail p { font-size: 14px; color: #777; margin-bottom: 18px; }
   .lib-detail-actions { display: flex; gap: 10px; width: 100%; }
   .lib-btn {
@@ -286,7 +290,7 @@
   }
   .request-msg.show { display: block; }
   .request-msg.success { background: #e8f5e9; color: #2e7d32; }
-  .request-msg.info { background: #f0eaff; color: #7C4DFF; }
+  .request-msg.info { background: #f0eaff; color: #4C8DFF; }
   .request-msg.error { background: #fce4ec; color: #c62828; }
 
   /* Request Queue */
@@ -301,7 +305,7 @@
     font-size: 13px;
   }
   .queue-item:last-child { border-bottom: none; }
-  .queue-num { width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #7C4DFF; }
+  .queue-num { width: 20px; text-align: center; font-size: 11px; font-weight: 700; color: #4C8DFF; }
   .queue-info { flex: 1; }
   .queue-info strong { font-weight: 600; }
   .queue-info span { color: #777; }
@@ -331,7 +335,7 @@
     background: #f5f5f5;
     border: 1.5px solid rgba(0,0,0,0.06);
     border-radius: 10px;
-    font-family: 'Instrument Sans', monospace;
+    font-family: 'Inter', monospace;
     font-size: 12px;
     color: #333;
     outline: none;
@@ -339,7 +343,7 @@
   }
   .stream-copy-btn {
     padding: 8px 16px;
-    background: #7C4DFF;
+    background: #4C8DFF;
     color: #fff;
     border: none;
     border-radius: 10px;
@@ -361,7 +365,46 @@
     color: #bbb;
   }
   .player-footer a { color: #999; text-decoration: none; font-weight: 600; transition: color 0.15s; }
-  .player-footer a:hover { color: #7C4DFF; }
+  .player-footer a:hover { color: #4C8DFF; }
+
+  /* ── Mavion dark surface override — flips the player onto the near-black
+     canvas. The album-art accent (var(--accent)) is kept for the art /
+     visualizer / progress ambiance; interactive controls use it too. ── */
+  body { background: var(--bg); color: var(--ink-2); }
+  .player-header span { color: var(--ink); }
+  .player-card, .request-card, .stream-link-card {
+    background: var(--card); border: 1px solid var(--line-soft); box-shadow: var(--shadow);
+  }
+  .track-title, .lib-detail h3, .history-title, .queue-info strong { color: var(--ink); }
+  .track-artist { color: var(--muted); }
+  .track-album, .progress-times, .req-counter, .lib-tile-artist, .lib-detail p,
+  .history-artist, .queue-by, .queue-info span, .queue-section h4, .lib-empty { color: var(--muted); }
+  .progress-bar, input[type="range"] { background: var(--glass-2); }
+  input[type="range"]::-webkit-slider-thumb { background: var(--accent); }
+  .play-btn { background: var(--accent); color: #08090b; box-shadow: 0 6px 26px var(--accent-soft); }
+  .play-btn.playing { background: var(--accent); }
+  .art-container, .history-art { background: var(--raised); }
+  .search-input, .stream-url-input { background: var(--glass); border-color: var(--line); color: var(--ink); }
+  .search-input::placeholder { color: var(--faint); }
+  .search-icon, .volume-wrap svg { color: var(--faint); }
+  .request-close, .lib-btn-back { background: var(--glass); color: var(--muted); }
+  .request-close:hover, .lib-btn-back:hover { background: var(--glass-2); color: var(--ink); }
+  .lib-cover, .lib-detail-cover { background: var(--raised); box-shadow: none; }
+  .lib-cover svg, .lib-detail-cover svg { color: var(--faint); }
+  .lib-tile:hover .lib-cover { box-shadow: 0 8px 22px rgba(0,0,0,.5); }
+  .lib-btn-add:disabled { background: var(--glass-2); color: var(--faint); }
+  .listeners-badge { background: var(--glass); color: var(--muted); }
+  .listeners-badge { color: var(--muted); }
+  .queue-item, .history-row { border-bottom-color: var(--line-soft); }
+  .request-toggle, .lib-btn-add, .stream-copy-btn { color: #08090b; }
+  .stream-copy-btn { background: var(--accent); }
+  .stream-copy-btn:hover { background: var(--accent-hover); }
+  .player-footer { color: var(--faint); }
+  .player-footer a { color: var(--muted); }
+  .player-footer a:hover { color: var(--accent); }
+  .request-msg.success { background: rgba(62,207,142,.1); color: #7ee0b0; }
+  .request-msg.info { background: rgba(76,141,255,.1); color: var(--accent); }
+  .request-msg.error { background: rgba(255,59,51,.1); color: #ff8a85; }
 </style>
 </head>
 <body>
@@ -450,7 +493,7 @@
   <!-- Direct Stream Link -->
   <div class="stream-link-card" id="stream-link-card">
     <div style="display:flex;align-items:center;gap:10px">
-      <svg viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="2" style="width:18px;height:18px;flex-shrink:0"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      <svg viewBox="0 0 24 24" fill="none" stroke="#4C8DFF" stroke-width="2" style="width:18px;height:18px;flex-shrink:0"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
       <input type="text" id="stream-url" class="stream-url-input" readonly>
       <button class="stream-copy-btn" id="stream-copy-btn" onclick="copyStreamUrl()">Copy</button>
     </div>

@@ -10,241 +10,68 @@
 <meta property="og:image" content="https://cast.tmc.gg/share.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
-<meta name="theme-color" content="#7C4DFF">
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#08090b">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..600;1,9..144,400..600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/mavion.css?v=1">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: 'Instrument Sans', 'Inter', sans-serif;
-    background: linear-gradient(135deg, #fef6f0, #fdf2fd, #f0eaff, #fef6f0, #fdf2fd);
-    background-size: 400% 400%;
-    animation: gradientMove 12s ease infinite;
-    color: #000;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    -webkit-font-smoothing: antialiased;
-  }
-  @keyframes gradientMove {
-    0% { background-position: 0% 50%; }
-    25% { background-position: 100% 25%; }
-    50% { background-position: 100% 50%; }
-    75% { background-position: 0% 75%; }
-    100% { background-position: 0% 50%; }
-  }
+  body { display:flex; align-items:center; justify-content:center; padding:24px; }
+  .login-wrap { width:400px; max-width:100%; }
 
-  .login-wrap {
-    text-align: center;
-    width: 400px;
-    max-width: 90vw;
-  }
+  .logo-row { display:flex; align-items:center; gap:12px; margin-bottom:26px; }
+  .logo-row img { width:38px; height:38px; object-fit:contain; }
+  .logo-text h1 { font-family:var(--serif); font-size:1.4rem; font-weight:500; letter-spacing:-.01em; color:var(--ink); }
+  .logo-text p { font-size:.74rem; color:var(--faint); text-transform:uppercase; letter-spacing:.12em; font-weight:600; margin-top:2px; }
 
-  .logo-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    margin-bottom: 12px;
-  }
+  .login-card { background:var(--card); border:1px solid var(--line-soft); border-radius:var(--r-feat); padding:34px 30px; box-shadow:var(--shadow); }
+  .login-card h2 { font-family:var(--serif); font-size:1.5rem; font-weight:500; color:var(--ink); margin-bottom:6px; }
+  .login-card > p { font-size:.9rem; color:var(--muted); margin-bottom:26px; line-height:1.55; }
 
-  .logo-row img {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
-    object-fit: contain;
+  .field {
+    width:100%; padding:12px 15px; margin-bottom:10px; border-radius:var(--r-sm);
+    background:var(--glass); border:1px solid var(--line); color:var(--ink);
+    font-family:var(--sans); font-size:.92rem; outline:none; transition:border-color .2s var(--ease), background .2s var(--ease);
   }
+  .field::placeholder { color:var(--faint); }
+  .field:focus { border-color:var(--accent); background:var(--card-hover); }
 
-  .logo-text h1 {
-    font-family: 'Lexend', sans-serif;
-    font-size: 22px;
-    font-weight: 600;
-    text-align: left;
-    letter-spacing: -0.3px;
-  }
-
-  .logo-text p {
-    font-size: 12px;
-    color: #777;
-    text-align: left;
-    font-weight: 500;
-  }
-
-  .login-card {
-    background: #fff;
-    border-radius: 22px;
-    padding: 40px 32px;
-    margin-top: 28px;
-    box-shadow: 0 1px 21px rgba(0,0,0,0.08);
-  }
-
-  .login-card h2 {
-    font-family: 'Lexend', sans-serif;
-    font-size: 20px;
-    font-weight: 600;
-    margin-bottom: 6px;
-  }
-
-  .login-card p {
-    font-size: 14px;
-    color: #777;
-    margin-bottom: 28px;
-    line-height: 1.5;
-  }
-
+  /* base = ghost; the SSO button (#btn-sso) is the blue primary */
   .btn-sso {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    padding: 14px 24px;
-    border-radius: 14px;
-    background: #000;
-    color: #fff;
-    font-family: 'Instrument Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    border: none;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    display:flex; align-items:center; justify-content:center; gap:10px; width:100%;
+    padding:13px 22px; border-radius:var(--r-sm); font-family:var(--sans); font-size:.94rem; font-weight:600;
+    background:var(--glass); border:1px solid var(--line); color:var(--ink); cursor:pointer;
+    transition:background .25s var(--ease), border-color .25s var(--ease), transform .25s var(--ease);
   }
+  .btn-sso:hover { background:var(--glass-2); border-color:var(--glass-2); transform:translateY(-1px); }
+  .btn-sso svg { width:19px; height:19px; }
+  #btn-sso { background:var(--accent); border-color:transparent; color:#08090b; }
+  #btn-sso:hover { background:var(--accent-hover); }
 
-  .btn-sso:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-  }
+  .divider { display:flex; align-items:center; gap:12px; margin:22px 0; }
+  .divider::before, .divider::after { content:''; flex:1; height:1px; background:var(--line); }
+  .divider span { font-size:.66rem; color:var(--faint); font-weight:600; text-transform:uppercase; letter-spacing:.12em; }
 
-  .btn-sso svg { width: 20px; height: 20px; }
+  .status-msg { font-size:.82rem; color:var(--muted); padding:12px 14px; border-radius:var(--r-sm); background:var(--glass); border:1px solid var(--line-soft); }
+  .status-msg.success { color:#7ee0b0; background:rgba(62,207,142,.1); border-color:rgba(62,207,142,.22); }
+  .status-msg.error { color:#ff8a85; background:rgba(255,59,51,.1); border-color:rgba(255,59,51,.24); }
 
-  .divider {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 24px 0;
-  }
+  .tmc-footer { margin-top:24px; display:flex; align-items:center; justify-content:center; gap:6px; font-size:.72rem; color:var(--faint); }
+  .tmc-footer a { color:var(--muted); text-decoration:none; }
+  .tmc-footer a:hover { color:var(--ink); }
 
-  .divider::before, .divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: rgba(0,0,0,0.06);
-  }
+  .user-card { display:none; align-items:center; gap:14px; padding:16px; background:var(--glass); border:1px solid var(--line); border-radius:var(--r); margin-bottom:16px; text-align:left; }
+  .user-card.show { display:flex; }
+  .user-avatar { width:44px; height:44px; border-radius:12px; background:var(--raised); display:flex; align-items:center; justify-content:center; font-size:16px; font-weight:700; color:var(--ink); flex-shrink:0; overflow:hidden; }
+  .user-avatar img { width:100%; height:100%; object-fit:cover; }
+  .user-info h3 { font-family:var(--sans); font-size:.94rem; font-weight:600; color:var(--ink); }
+  .user-info p { font-size:.78rem; color:var(--muted); }
 
-  .divider span {
-    font-size: 11px;
-    color: #aaa;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
+  .badge { padding:3px 10px; border-radius:999px; font-size:.62rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; background:var(--glass-2); color:var(--muted); border:1px solid var(--line-soft); }
+  .badge-staff, .badge-founder { color:var(--accent); background:rgba(76,141,255,.1); border-color:rgba(76,141,255,.25); }
 
-  .status-msg {
-    font-size: 13px;
-    color: #777;
-    padding: 12px;
-    border-radius: 12px;
-    background: #fafafa;
-    border: 1px solid rgba(0,0,0,0.04);
-  }
-
-  .status-msg.success {
-    color: #2e7d32;
-    background: #e8f5e9;
-    border-color: rgba(0,200,83,0.15);
-  }
-
-  .status-msg.error {
-    color: #c62828;
-    background: #fce4ec;
-    border-color: rgba(255,42,42,0.15);
-  }
-
-  .tmc-footer {
-    margin-top: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    font-size: 11px;
-    color: #aaa;
-  }
-
-  .tmc-footer a { color: #777; text-decoration: none; font-weight: 600; }
-  .tmc-footer a:hover { color: #7C4DFF; }
-
-  .user-card {
-    display: none;
-    align-items: center;
-    gap: 14px;
-    padding: 16px;
-    background: #faf8ff;
-    border: 1px solid rgba(124,77,255,0.1);
-    border-radius: 14px;
-    margin-bottom: 16px;
-    text-align: left;
-  }
-
-  .user-card.show { display: flex; }
-
-  .user-avatar {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #7C4DFF, #FF48BC);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: 700;
-    color: #fff;
-    flex-shrink: 0;
-    overflow: hidden;
-  }
-
-  .user-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .user-info h3 { font-family: 'Instrument Sans', sans-serif; font-size: 15px; font-weight: 600; }
-  .user-info p { font-size: 12px; color: #777; }
-
-  .badge {
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .badge-staff { background: #f0eaff; color: #7C4DFF; }
-  .badge-founder { background: #fff0f7; color: #FF48BC; }
-  .badge-plus { background: #e0f7fa; color: #0097a7; }
-  .badge-member { background: #f5f5f5; color: #777; }
-
-  .btn-enter {
-    display: block;
-    width: 100%;
-    padding: 14px;
-    border-radius: 14px;
-    background: var(--accent-green, #00C853);
-    color: #fff;
-    font-family: 'Instrument Sans', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    border: none;
-    cursor: pointer;
-    transition: all 0.2s;
-    box-shadow: 0 4px 16px rgba(0,200,83,0.25);
-    text-decoration: none;
-    text-align: center;
-  }
-
-  .btn-enter:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,200,83,0.35); }
+  .btn-enter { display:block; width:100%; padding:13px; border-radius:var(--r-sm); background:var(--accent); color:#08090b; font-family:var(--sans); font-size:.94rem; font-weight:600; border:none; cursor:pointer; transition:background .25s var(--ease), transform .25s var(--ease); text-decoration:none; text-align:center; }
+  .btn-enter:hover { background:var(--accent-hover); transform:translateY(-1px); }
 </style>
 </head>
 <body>
@@ -273,11 +100,10 @@
     </div>
 
     <div id="login-area">
-      <!-- Email/Password login -->
-      <form id="login-form" onsubmit="doEmailLogin(event)" style="margin-bottom:20px">
-        <input type="email" id="login-email" placeholder="Email" style="width:100%;padding:12px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-family:inherit;font-size:14px;outline:none;margin-bottom:10px;background:#fafafa" required>
-        <input type="password" id="login-password" placeholder="Password" style="width:100%;padding:12px 16px;border-radius:12px;border:1.5px solid rgba(0,0,0,0.08);font-family:inherit;font-size:14px;outline:none;margin-bottom:14px;background:#fafafa" required>
-        <button type="submit" class="btn-sso" style="width:100%">
+      <form id="login-form" onsubmit="doEmailLogin(event)" style="margin-bottom:18px">
+        <input type="email" id="login-email" class="field" placeholder="Email" required>
+        <input type="password" id="login-password" class="field" placeholder="Password" required>
+        <button type="submit" class="btn-sso" style="margin-top:4px">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           Sign In
         </button>
@@ -285,7 +111,7 @@
 
       <div class="divider"><span>or</span></div>
 
-      <button class="btn-sso" id="btn-sso" onclick="doSignIn()" style="background:#7C4DFF">
+      <button class="btn-sso" id="btn-sso" onclick="doSignIn()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
         Sign in with Mavion
       </button>
@@ -298,9 +124,9 @@
 
   <div class="tmc-footer">
     <span>Powered by</span>
-    <a href="https://tmc.gg" target="_blank">TMC</a>
+    <a href="https://tmc.gg" target="_blank" rel="noopener">TMC</a>
     <span>&middot;</span>
-    <a href="https://tmc.gg" target="_blank">The Mavion Corporation</a>
+    <a href="https://tmc.gg" target="_blank" rel="noopener">The Mavion Corporation</a>
   </div>
 </div>
 
@@ -354,7 +180,7 @@
 
   function avatarFallback(user) {
     const name = encodeURIComponent(user.display_name || user.email || '?');
-    return `https://ui-avatars.com/api/?name=${name}&size=96&background=7C4DFF&color=fff&rounded=true&bold=true`;
+    return `https://ui-avatars.com/api/?name=${name}&size=96&background=4C8DFF&color=fff&rounded=true&bold=true`;
   }
   function getAvatarUrl(user) {
     // 1) direct pfp carried in the SSO identity
