@@ -72,6 +72,57 @@ function signOut() {
   reset();
 })();
 
+// ── Simulcast: relay a partner's broadcast onto an existing station ──
+function openSimulcast(stationId) {
+  const s = stations.find(st => st.id === stationId);
+  document.getElementById('sim-station-id').value = stationId;
+  document.getElementById('sim-station-name').textContent = s ? s.name : 'this station';
+  document.getElementById('sim-name').value = '';
+  document.getElementById('sim-stream').value = '';
+  document.getElementById('sim-api').value = '';
+  showModal('modal-simulcast');
+  // Reflect current state (already relaying vs idle)
+  api(`/stations/${stationId}/stream-relay`).then(st => {
+    const active = !!(st && st.active);
+    document.getElementById('sim-idle').style.display = active ? 'none' : 'block';
+    document.getElementById('sim-active').style.display = active ? 'block' : 'none';
+  }).catch(() => {});
+}
+
+async function startSimulcast() {
+  const id = document.getElementById('sim-station-id').value;
+  const stream_url = document.getElementById('sim-stream').value.trim();
+  const api_url = document.getElementById('sim-api').value.trim();
+  const name = document.getElementById('sim-name').value.trim();
+  if (!stream_url) return showToast('Enter the partner’s broadcast link', 'error');
+  const btn = document.getElementById('sim-start-btn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Starting…';
+  const res = await api(`/stations/${id}/stream-relay/start`, {
+    method: 'POST',
+    body: JSON.stringify({ stream_url, api_url, title: name || 'Simulcast', artist: name || 'Partner broadcast' }),
+  });
+  btn.disabled = false; btn.textContent = orig;
+  if (res && res.ok) {
+    showToast('📡 Simulcast started');
+    document.getElementById('sim-active-name').textContent = name || 'a partner';
+    document.getElementById('sim-idle').style.display = 'none';
+    document.getElementById('sim-active').style.display = 'block';
+    refreshDashboard();
+  } else {
+    showToast((res && res.error) || 'Could not start simulcast', 'error');
+  }
+}
+
+async function stopSimulcast() {
+  const id = document.getElementById('sim-station-id').value;
+  const res = await api(`/stations/${id}/stream-relay/stop`, { method: 'POST' });
+  showToast(res && res.ok ? 'Simulcast stopped' : ((res && res.error) || 'Stopped'));
+  document.getElementById('sim-idle').style.display = 'block';
+  document.getElementById('sim-active').style.display = 'none';
+  refreshDashboard();
+}
+
 // ── State ──
 let stations = [];
 let currentStationId = null;
@@ -294,6 +345,10 @@ function renderDashboardStations() {
           </button>
           <button class="btn btn-ghost btn-sm" onclick="goLive('${s.id}')">
             🎤 Live
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="openSimulcast('${s.id}')" title="Simulcast a partner broadcast">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M4.93 19.07a10 10 0 0 1 0-14.14M7.76 16.24a6 6 0 0 1 0-8.48M19.07 4.93a10 10 0 0 1 0 14.14M16.24 7.76a6 6 0 0 1 0 8.48"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>
+            Simulcast
           </button>
           <button class="btn btn-ghost btn-sm" onclick="editStation('${s.id}')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>

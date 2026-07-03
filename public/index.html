@@ -1038,6 +1038,51 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
+<!-- Simulcast (partner broadcast relay) -->
+<div class="modal-overlay" id="modal-simulcast">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>📡 Simulcast a partner</h3>
+      <button class="modal-close" onclick="closeModal('modal-simulcast')">&times;</button>
+    </div>
+    <input type="hidden" id="sim-station-id">
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Relay a partner's live broadcast onto <strong id="sim-station-name"></strong>. Their audio plays on this station and their now-playing is mirrored while it's on. Your AutoDJ pauses, and resumes when you stop.</p>
+
+    <div id="sim-idle">
+      <div class="form-group">
+        <label>Partner name <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="text" id="sim-name" placeholder="e.g., SNO Radio" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>Broadcast link <span style="color:var(--text-muted);font-weight:400">— their stream URL</span></label>
+        <input type="url" id="sim-stream" placeholder="https://…/radio.mp3" style="width:100%">
+      </div>
+      <div class="form-group">
+        <label>API link <span style="color:var(--text-muted);font-weight:400">— their now-playing API (optional)</span></label>
+        <input type="url" id="sim-api" placeholder="https://…/api/nowplaying  or  /api/np/one" style="width:100%">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Mirrors what the partner is playing — works with TMCast and AzuraCast formats. Leave blank to just relay the audio.</div>
+      </div>
+      <div class="modal-actions">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal('modal-simulcast')">Cancel</button>
+        <button class="btn btn-primary" id="sim-start-btn" onclick="startSimulcast()">Start simulcast</button>
+      </div>
+    </div>
+
+    <div id="sim-active" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;background:rgba(255,59,51,.1);border:1px solid rgba(255,59,51,.25);border-radius:12px;margin-bottom:16px">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-red);flex-shrink:0"></span>
+        <div style="font-size:13px">Simulcasting <strong id="sim-active-name">a partner</strong> now — AutoDJ is paused.</div>
+      </div>
+      <div class="modal-actions">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeModal('modal-simulcast')">Close</button>
+        <button class="btn btn-danger" onclick="stopSimulcast()">Stop simulcast</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Inactivity auto-logout screen -->
 <div id="idle-screen" aria-hidden="true">
   <div class="idle-card">
@@ -1052,6 +1097,6 @@
   </div>
 </div>
 
-<script src="/js/dashboard.js?v=20"></script>
+<script src="/js/dashboard.js?v=21"></script>
 </body>
 </html>

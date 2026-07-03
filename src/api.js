@@ -1599,8 +1599,29 @@ router.post('/stations/:id/ad-break', async (req, res) => {
 // Proxy an external MP3 stream URL as a live source
 // ════════════════════════════════════
 
+// Normalize a now-playing payload from a partner's API into our shape.
+// Handles TMCast/clean ({now_playing:{title,artist,artwork_url}}) and
+// AzuraCast ({now_playing:{song:{title,artist,art,album}}}).
+function relayNowPlaying(data) {
+  const np = (data && data.now_playing) ? data.now_playing : data;
+  if (!np) return null;
+  const s = np.song || np;                       // AzuraCast nests under .song
+  const title = s.title || np.title || '';
+  const artist = s.artist || np.artist || '';
+  if (!title && !artist) return null;
+  return {
+    title, artist,
+    album: s.album || np.album || '',
+    artwork_url: s.art || s.artwork_url || np.art || np.artwork_url || '',
+    duration: 0, media_id: null,
+  };
+}
+
+// ── Partner simulcast ──
+// Relay an external broadcast onto an existing station (audio from stream_url),
+// optionally mirroring the partner's now-playing from api_url.
 router.post('/stations/:id/stream-relay/start', async (req, res) => {
-  const { stream_url, title, artist } = req.body;
+  const { stream_url, api_url, title, artist } = req.body;
   if (!stream_url) return res.status(400).json({ error: 'stream_url required' });
 
   const stationId = req.params.id;
@@ -1610,33 +1631,55 @@ router.post('/stations/:id/stream-relay/start', async (req, res) => {
 
   const relays = req.app.get('streamRelays') || new Map();
   req.app.set('streamRelays', relays);
+  if (relays.has(stationId)) return res.status(409).json({ error: 'Already simulcasting on this station' });
 
-  if (relays.has(stationId)) return res.status(409).json({ error: 'Already relaying on this station' });
-
-  console.log(`  📡 Relay: ${stream_url} → station ${stationId}`);
+  console.log(`  📡 Simulcast: ${stream_url} → station ${stationId}${api_url ? ` (meta: ${api_url})` : ''}`);
 
   const wasRunning = autoDJ.isRunning(stationId);
   if (wasRunning) autoDJ.stop(stationId);
   streamEngine.setLive(stationId, true);
   streamEngine.setNowPlaying(stationId, {
-    title: title || 'Live Stream',
-    artist: artist || 'External Source',
+    title: title || 'Simulcast', artist: artist || 'Partner broadcast',
     album: '', duration: 0, media_id: null, artwork_url: '',
   });
-  broadcast('live_start', { stationId, dj: title || 'External Stream' });
+  broadcast('live_start', { stationId, dj: title || artist || 'Simulcast' });
 
-  // Fetch and relay the stream
   const controller = new AbortController();
-  const relay = { controller, wasRunning, url: stream_url };
+  const relay = { controller, wasRunning, url: stream_url, api_url: api_url || '', metaTimer: null, done: false };
   relays.set(stationId, relay);
 
+  const teardown = () => {
+    if (relay.done) return;
+    relay.done = true;
+    if (relay.metaTimer) { clearInterval(relay.metaTimer); relay.metaTimer = null; }
+    relays.delete(stationId);
+    streamEngine.setLive(stationId, false);
+    broadcast('live_end', { stationId });
+    if (wasRunning) autoDJ.start(stationId);
+  };
+  relay.teardown = teardown;
+
+  // Mirror the partner's now-playing from their API link, if given.
+  if (api_url) {
+    const pollMeta = async () => {
+      if (!relays.has(stationId)) return;
+      try {
+        const r = await fetch(api_url, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) return;
+        const meta = relayNowPlaying(await r.json());
+        if (meta && relays.has(stationId)) {
+          streamEngine.setNowPlaying(stationId, meta);
+          broadcast('now_playing', { stationId, ...meta });
+        }
+      } catch {}
+    };
+    pollMeta();
+    relay.metaTimer = setInterval(pollMeta, 12000);
+  }
+
+  // Relay the partner's audio stream to our listeners.
   fetch(stream_url, { signal: controller.signal }).then(async (r) => {
-    if (!r.ok) {
-      relays.delete(stationId);
-      streamEngine.setLive(stationId, false);
-      if (wasRunning) autoDJ.start(stationId);
-      return;
-    }
+    if (!r.ok) { teardown(); return; }
     const reader = r.body.getReader();
     try {
       while (true) {
@@ -1645,28 +1688,26 @@ router.post('/stations/:id/stream-relay/start', async (req, res) => {
         streamEngine.pushAudio(stationId, Buffer.from(value));
       }
     } catch {}
-    relays.delete(stationId);
-    streamEngine.setLive(stationId, false);
-    broadcast('live_end', { stationId });
-    if (wasRunning) autoDJ.start(stationId);
-  }).catch(() => {
-    relays.delete(stationId);
-    streamEngine.setLive(stationId, false);
-    if (wasRunning) autoDJ.start(stationId);
-  });
+    teardown();
+  }).catch(() => { teardown(); });
 
-  res.json({ ok: true, url: stream_url });
+  res.json({ ok: true, url: stream_url, api_url: api_url || null });
 });
 
 router.post('/stations/:id/stream-relay/stop', (req, res) => {
-  const stationId = req.params.id;
   const relays = req.app.get('streamRelays') || new Map();
-  const relay = relays.get(stationId);
-  if (!relay) return res.status(404).json({ error: 'No relay active' });
-
+  const relay = relays.get(req.params.id);
+  if (!relay) return res.status(404).json({ error: 'No simulcast active' });
   try { relay.controller.abort(); } catch {}
-  relays.delete(stationId);
+  if (relay.teardown) relay.teardown();
   res.json({ ok: true });
+});
+
+// Simulcast status for a station (so the dashboard shows the right state).
+router.get('/stations/:id/stream-relay', (req, res) => {
+  const relays = req.app.get('streamRelays') || new Map();
+  const relay = relays.get(req.params.id);
+  res.json(relay ? { active: true, url: relay.url, api_url: relay.api_url || null } : { active: false });
 });
 
 
