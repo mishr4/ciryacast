@@ -46,6 +46,32 @@ function signOut() {
   window.location.href = '/login';
 }
 
+// ── Inactivity auto-logout ──
+// After a stretch of no activity we sign the user out and show the idle screen
+// (their work stays blurred behind it) instead of an abrupt redirect. The
+// stations keep broadcasting server-side; "Sign back in" goes to /login.
+(function idleGuard() {
+  const IDLE_MS = 30 * 60 * 1000; // 30 minutes
+  let timer = null, timedOut = false;
+  function trigger() {
+    if (timedOut) return;
+    timedOut = true;
+    try { document.getElementById('station-monitor-audio')?.pause(); } catch {}
+    try { sessionStorage.removeItem('ciryacast_user'); } catch {}
+    const el = document.getElementById('idle-screen');
+    if (el) { el.classList.add('show'); el.setAttribute('aria-hidden', 'false'); }
+  }
+  function reset() {
+    if (timedOut) return;
+    clearTimeout(timer);
+    timer = setTimeout(trigger, IDLE_MS);
+  }
+  ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(ev =>
+    window.addEventListener(ev, reset, { passive: true }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) reset(); });
+  reset();
+})();
+
 // ── State ──
 let stations = [];
 let currentStationId = null;

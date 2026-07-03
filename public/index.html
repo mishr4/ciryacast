@@ -18,7 +18,7 @@
 <meta name="twitter:description" content="Internet radio by The Mavion Corporation. Tune in and listen live.">
 <meta name="twitter:image" content="https://cast.tmc.gg/share.png">
 <meta name="theme-color" content="#08090b">
-<link rel="stylesheet" href="/css/dashboard.css?v=19">
+<link rel="stylesheet" href="/css/dashboard.css?v=20">
 </head>
 <body>
 
@@ -1038,6 +1038,20 @@
 <!-- Mobile sidebar overlay -->
 <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-<script src="/js/dashboard.js?v=18"></script>
+<!-- Inactivity auto-logout screen -->
+<div id="idle-screen" aria-hidden="true">
+  <div class="idle-card">
+    <div class="idle-visual" aria-hidden="true">
+      <span class="idle-glow"></span>
+      <div class="idle-eq"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <span class="idle-kicker">Session timed out</span>
+    <h2 class="idle-title">We held down the fort.</h2>
+    <p class="idle-body">You were away for a while, so we signed you out to keep TMCast secure. Your stations kept broadcasting the whole time — sign back in and pick up right where you left off.</p>
+    <a class="idle-btn" href="/login">Sign back in</a>
+  </div>
+</div>
+
+<script src="/js/dashboard.js?v=20"></script>
 </body>
 </html>
