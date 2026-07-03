@@ -564,6 +564,11 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
     "SELECT title, artist, album, artwork_url, played_at FROM play_history WHERE station_id = ? ORDER BY played_at DESC LIMIT 8"
   ).all(station.id);
 
+  // If a partner broadcast is being simulcast on this station, surface it so the
+  // player can show "Simulcast · <partner>" instead of a generic live badge.
+  const relays = app.get('streamRelays');
+  const relay = relays && relays.get(station.id);
+
   res.json({
     station: {
       id: station.id,
@@ -576,6 +581,7 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
     now_playing: streamEngine.getNowPlaying(station.id),
     listeners: { current: streamEngine.getListenerCount(station.id) },
     live: streamEngine.isLive(station.id),
+    simulcast: relay ? { partner: relay.partner || null } : null,
     listen_url: `/listen/${station.slug || station.id}/radio.mp3`,
     request_queue: pendingRequests,
     song_history: history,

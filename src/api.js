@@ -1617,14 +1617,35 @@ function relayNowPlaying(data) {
   };
 }
 
+// Look up fast, CORS-friendly album art (Deezer CDN) for a mirrored track.
+// Partner metadata often points at slow or hotlink-hostile art hosts (e.g. the
+// Cover Art Archive, which can hang for 15s and return nothing), leaving the
+// player blank. Deezer art loads instantly and themes correctly — the same
+// source the rest of TMCast uses for covers.
+async function deezerArt(artist, title) {
+  const q = `${artist || ''} ${title || ''}`.trim();
+  if (q.length < 2) return '';
+  try {
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const d = await r.json();
+    const t = (d.data || [])[0];
+    return t ? (t.album?.cover_big || t.album?.cover_medium || '') : '';
+  } catch { return ''; }
+}
+
 // ── Partner simulcast ──
 // Relay an external broadcast onto an existing station (audio from stream_url),
 // optionally mirroring the partner's now-playing from api_url.
 router.post('/stations/:id/stream-relay/start', async (req, res) => {
-  const { stream_url, api_url, title, artist } = req.body;
+  const { stream_url, api_url, title, artist, partner } = req.body;
   if (!stream_url) return res.status(400).json({ error: 'stream_url required' });
 
-  const stationId = req.params.id;
+  // Resolve slug OR id → canonical id so the relay map, live flag and
+  // now-playing all key consistently (the dashboard passes the id).
+  const resolveStation = req.app.get('resolveStation');
+  const st = resolveStation && resolveStation(req.params.id);
+  const stationId = st ? st.id : req.params.id;
   const streamEngine = req.app.get('streamEngine');
   const autoDJ = req.app.get('autoDJ');
   const broadcast = req.app.get('broadcast');
@@ -1645,7 +1666,7 @@ router.post('/stations/:id/stream-relay/start', async (req, res) => {
   broadcast('live_start', { stationId, dj: title || artist || 'Simulcast' });
 
   const controller = new AbortController();
-  const relay = { controller, wasRunning, url: stream_url, api_url: api_url || '', metaTimer: null, done: false };
+  const relay = { controller, wasRunning, url: stream_url, api_url: api_url || '', partner: (partner || '').trim() || null, metaTimer: null, done: false };
   relays.set(stationId, relay);
 
   const teardown = () => {
@@ -1668,6 +1689,11 @@ router.post('/stations/:id/stream-relay/start', async (req, res) => {
         if (!r.ok) return;
         const meta = relayNowPlaying(await r.json());
         if (meta && relays.has(stationId)) {
+          // Prefer fast, themeable Deezer art — the partner's own art host is
+          // often slow or blocks hotlinking, which leaves the player blank.
+          const art = await deezerArt(meta.artist, meta.title);
+          if (art) meta.artwork_url = art;
+          if (!relays.has(stationId)) return;        // torn down during lookup
           streamEngine.setNowPlaying(stationId, meta);
           broadcast('now_playing', { stationId, ...meta });
         }
@@ -1695,8 +1721,11 @@ router.post('/stations/:id/stream-relay/start', async (req, res) => {
 });
 
 router.post('/stations/:id/stream-relay/stop', (req, res) => {
+  const resolveStation = req.app.get('resolveStation');
+  const st = resolveStation && resolveStation(req.params.id);
+  const stationId = st ? st.id : req.params.id;
   const relays = req.app.get('streamRelays') || new Map();
-  const relay = relays.get(req.params.id);
+  const relay = relays.get(stationId);
   if (!relay) return res.status(404).json({ error: 'No simulcast active' });
   try { relay.controller.abort(); } catch {}
   if (relay.teardown) relay.teardown();
@@ -1705,8 +1734,11 @@ router.post('/stations/:id/stream-relay/stop', (req, res) => {
 
 // Simulcast status for a station (so the dashboard shows the right state).
 router.get('/stations/:id/stream-relay', (req, res) => {
+  const resolveStation = req.app.get('resolveStation');
+  const st = resolveStation && resolveStation(req.params.id);
+  const stationId = st ? st.id : req.params.id;
   const relays = req.app.get('streamRelays') || new Map();
-  const relay = relays.get(req.params.id);
+  const relay = relays.get(stationId);
   res.json(relay ? { active: true, url: relay.url, api_url: relay.api_url || null } : { active: false });
 });
 

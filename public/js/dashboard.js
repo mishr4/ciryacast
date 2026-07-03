@@ -100,7 +100,7 @@ async function startSimulcast() {
   btn.disabled = true; btn.textContent = 'Starting…';
   const res = await api(`/stations/${id}/stream-relay/start`, {
     method: 'POST',
-    body: JSON.stringify({ stream_url, api_url, title: name || 'Simulcast', artist: name || 'Partner broadcast' }),
+    body: JSON.stringify({ stream_url, api_url, title: name || 'Simulcast', artist: name || 'Partner broadcast', partner: name }),
   });
   btn.disabled = false; btn.textContent = orig;
   if (res && res.ok) {
