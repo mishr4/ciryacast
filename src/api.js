@@ -1623,14 +1623,22 @@ function relayNowPlaying(data) {
 // player blank. Deezer art loads instantly and themes correctly — the same
 // source the rest of TMCast uses for covers.
 async function deezerArt(artist, title) {
-  const q = `${artist || ''} ${title || ''}`.trim();
+  const c = cleanTrackMeta(title, artist);
+  // Partner feeds carry channel-junk prefixes ("Topic - X") and version tags
+  // ("- Remastered 2011", "- Radio Edit") that break Deezer matching — strip
+  // them for the search query only (the displayed title stays the source's).
+  const t = c.title
+    .replace(/^\s*(topic|various\s*artists?|va)\s*[-–]\s*/i, '')
+    .replace(/\s*[-–]\s*((\d{4}\s*)?remaster(ed)?(\s*\d{4})?|mono|stereo|radio\s*edit|single\s*version|album\s*version|anniversary(\s*\w+)?|deluxe(\s*edition)?|bonus\s*track|re-?recorded|live)\s*$/i, '')
+    .trim();
+  const q = `${c.artist} ${t}`.trim();
   if (q.length < 2) return '';
   try {
     const url = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`;
     const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
     const d = await r.json();
-    const t = (d.data || [])[0];
-    return t ? (t.album?.cover_big || t.album?.cover_medium || '') : '';
+    const hit = (d.data || [])[0];
+    return hit ? (hit.album?.cover_big || hit.album?.cover_medium || '') : '';
   } catch { return ''; }
 }
 
