@@ -33,10 +33,13 @@ function buildFilterGraph(s = {}) {
   if (s.freq && s.freq.inputFilter && s.freq.lowpassHz && s.freq.lowpassHz > 1000)
     F.push(`lowpass=f=${Math.round(clamp(s.freq.lowpassHz, 3000, 20000))}`);
 
-  // 3) Wideband leveler (slow AGC) — dynaudnorm lifts quiet passages toward a steady level
+  // 3) Wideband leveler (gentle AGC). Tracks are already loudnorm'd to -14 LUFS at
+  //    ingest, so this only smooths within-track level — kept at a SHORT window so
+  //    the live latency stays well under a second (a large window buffers seconds of
+  //    audio and starves the listener → start/stop).
   if (!s.wideband || s.wideband.enabled !== false) {
-    const maxg = clamp(Math.pow(10, (s.wideband?.maxGainDb ?? 12) / 20), 1.5, 30);
-    F.push(`dynaudnorm=f=250:g=31:p=0.95:m=${maxg.toFixed(1)}:r=0.0`);
+    const maxg = clamp(Math.pow(10, (s.wideband?.maxGainDb ?? 12) / 20), 1.5, 12);
+    F.push(`dynaudnorm=f=100:g=5:p=0.9:m=${maxg.toFixed(1)}:r=0.0`);
   }
 
   // 4) Tone — QuickTweak bass / mid / treble macros as parametric bands
