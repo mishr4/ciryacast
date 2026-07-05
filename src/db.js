@@ -206,6 +206,10 @@ try { db.exec('ALTER TABLE media ADD COLUMN folder TEXT DEFAULT ""'); } catch {}
 // genre tag for individual tracks
 try { db.exec('ALTER TABLE media ADD COLUMN genre TEXT DEFAULT ""'); } catch {}
 
+// ── On-air processing (Spectra air-chain) ──
+// Full ProcessorSettings JSON per station (its own top-level `enabled` gates the chain).
+try { db.exec('ALTER TABLE stations ADD COLUMN processing TEXT DEFAULT ""'); } catch {}
+
 // ── Scheduled Shows ──
 // Create scheduled_shows table for time-based show automation
 try {

@@ -739,6 +739,11 @@ app.get('/overlay/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'overlay.html'));
 });
 
+// ── Spectra Control Surface — the on-air audio processor GUI ──
+app.get('/processor', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'processor.html'));
+});
+
 // ── Embeddable "now playing" widget (for other sites via <iframe>) ──
 app.get('/embed/:stationId', (req, res) => {
   res.set('X-Frame-Options', 'ALLOWALL');
@@ -955,4 +960,15 @@ server.listen(PORT, () => {
     console.log(`  ▶ AutoDJ starting: "${s.name}"`);
     autoDJ.start(s.id);
   });
+
+  // Restore saved on-air processing (Spectra air-chain) per station.
+  try {
+    const withProc = db.prepare("SELECT id, name, processing FROM stations WHERE processing IS NOT NULL AND processing != ''").all();
+    withProc.forEach(s => {
+      try {
+        const settings = JSON.parse(s.processing);
+        if (settings && settings.enabled) { streamEngine.setProcessing(s.id, settings); console.log(`  🎛 Processing restored: "${s.name}"`); }
+      } catch {}
+    });
+  } catch {}
 });

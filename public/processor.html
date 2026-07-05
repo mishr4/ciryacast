@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spectra — Control Surface</title>
+<style>
+  :root{
+    --page:#08090b; --raised:#0e0f12; --card:#131419; --card2:#171921;
+    --line:rgba(255,255,255,.075); --line2:rgba(255,255,255,.13);
+    --ink:#fafafa; --ink2:#e6e7ea; --mut:#9a9ca2; --mut2:#80828a;
+    --blue:#4C8DFF; --blue-dim:rgba(76,141,255,.16); --red:#FF3B33;
+    --ok:#3ddc84; --radius:14px;
+    --serif:ui-serif,Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","Consolas",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--page);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:var(--blue);text-decoration:none}
+  ::selection{background:var(--blue-dim)}
+
+  /* Header */
+  header{position:sticky;top:0;z-index:40;background:rgba(8,9,11,.86);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;gap:16px;padding:12px 20px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:9px;margin-right:2px}
+  .brand .mark{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:-.02em}
+  .brand .mark b{color:var(--blue);font-weight:600}
+  .brand .sub{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2)}
+  .spacer{flex:1}
+  .tabs{display:flex;gap:2px;background:var(--raised);border:1px solid var(--line);border-radius:11px;padding:3px}
+  .tabs button{appearance:none;border:0;background:transparent;color:var(--mut);font:inherit;font-weight:600;padding:6px 15px;border-radius:8px;cursor:pointer;letter-spacing:.01em}
+  .tabs button.on{background:var(--card2);color:var(--ink)}
+  .tabs button:hover:not(.on){color:var(--ink2)}
+
+  select,.btn,input[type=text],input[type=number]{font:inherit}
+  .btn{appearance:none;border:1px solid var(--line2);background:var(--card2);color:var(--ink2);font-weight:600;padding:7px 13px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .btn:hover{border-color:var(--blue);color:var(--ink)}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#06122b}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{background:transparent}
+  .btn.danger:hover{border-color:var(--red);color:var(--red)}
+  .btn svg{width:15px;height:15px}
+
+  .preset-wrap{display:flex;align-items:center;gap:8px}
+  select.preset{background:var(--raised);border:1px solid var(--line2);color:var(--ink);padding:7px 30px 7px 12px;border-radius:9px;cursor:pointer;font-weight:600;
+    appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9ca2' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}
+  select.preset optgroup{background:var(--card);color:var(--mut2)}
+  select.preset option{background:var(--card);color:var(--ink)}
+
+  main{max-width:1500px;margin:0 auto;padding:20px;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;align-items:start}
+  @media(max-width:1080px){main{grid-template-columns:1fr}}
+
+  /* Cards / sections */
+  .panel{display:flex;flex-direction:column;gap:16px;min-width:0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .card>.head{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none}
+  .card>.head:hover{background:var(--card2)}
+  .card>.head .idx{font-family:var(--mono);font-size:11px;color:var(--mut2);min-width:20px}
+  .card>.head h3{font-family:var(--serif);font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em;flex:1}
+  .card>.head .desc{color:var(--mut);font-size:12.5px;font-weight:400}
+  .card>.head .chev{color:var(--mut2);transition:transform .18s cubic-bezier(.16,1,.3,1)}
+  .card.closed>.head .chev{transform:rotate(-90deg)}
+  .card>.body{padding:6px 18px 18px;border-top:1px solid var(--line)}
+  .card.closed>.body{display:none}
+  .card.off>.head h3{color:var(--mut)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:2px 26px}
+  .subhead{grid-column:1/-1;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin:16px 0 6px;padding-top:10px;border-top:1px solid var(--line)}
+  .subhead:first-child{border-top:0;padding-top:2px;margin-top:6px}
+
+  /* Control row */
+  .ctrl{display:flex;align-items:center;gap:12px;padding:8px 0;min-height:40px}
+  .ctrl .lab{flex:1;min-width:0}
+  .ctrl .lab .name{color:var(--ink2);font-weight:500}
+  .ctrl .lab .hint{color:var(--mut2);font-size:11.5px;line-height:1.35;margin-top:1px}
+  .ctrl.changed .lab .name{color:var(--ink)}
+  .ctrl.changed .lab .name::after{content:"•";color:var(--blue);margin-left:5px;font-size:11px;vertical-align:2px}
+
+  input[type=range]{-webkit-appearance:none;appearance:none;width:118px;height:4px;background:var(--line2);border-radius:3px;outline:none;flex-shrink:0}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--blue);cursor:pointer;border:2px solid #0b1220}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--blue);cursor:pointer;border:2px solid #0b1220}
+  input[type=range].detent{background:linear-gradient(90deg,var(--line2) 0,var(--line2) calc(50% - 1px),var(--mut2) calc(50% - 1px),var(--mut2) calc(50% + 1px),var(--line2) calc(50% + 1px))}
+  input.num{width:66px;background:var(--raised);border:1px solid var(--line);color:var(--ink);text-align:right;padding:5px 7px;border-radius:7px;font-family:var(--mono);font-size:12.5px}
+  input.num:focus{border-color:var(--blue);outline:none}
+  input.txt{flex:1;max-width:200px;background:var(--raised);border:1px solid var(--line);color:var(--ink);padding:6px 9px;border-radius:7px}
+  input.txt:focus{border-color:var(--blue);outline:none}
+  .unit{color:var(--mut2);font-size:11.5px;font-family:var(--mono);min-width:26px}
+  select.sel{background:var(--raised);border:1px solid var(--line2);color:var(--ink);padding:6px 26px 6px 10px;border-radius:8px;cursor:pointer;appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239a9ca2' stroke-width='3'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 8px center;min-width:120px}
+
+  /* Toggle */
+  .tog{position:relative;width:40px;height:23px;flex-shrink:0}
+  .tog input{opacity:0;width:0;height:0;position:absolute}
+  .tog .track{position:absolute;inset:0;background:var(--line2);border-radius:20px;transition:.16s cubic-bezier(.16,1,.3,1)}
+  .tog .track::before{content:"";position:absolute;width:17px;height:17px;left:3px;top:3px;background:#cbd0da;border-radius:50%;transition:.16s cubic-bezier(.16,1,.3,1)}
+  .tog input:checked+.track{background:var(--blue)}
+  .tog input:checked+.track::before{transform:translateX(17px);background:#fff}
+
+  /* enabled pill in card head */
+  .en{display:flex;align-items:center;gap:8px}
+  .en .st{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--mut2)}
+  .en .st.on{color:var(--blue)}
+
+  /* Bands */
+  .bands{display:flex;flex-direction:column;gap:12px}
+  .xover{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:var(--raised);border:1px solid var(--line);border-radius:10px}
+  .xover .t{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);font-weight:700;margin-right:4px}
+  .xover input.num{width:74px}
+  .xover .cnt{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .rbtn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line2);background:var(--card2);color:var(--ink2);cursor:pointer;font-size:16px;line-height:1;display:grid;place-items:center;padding:0}
+  .rbtn:hover{border-color:var(--blue);color:var(--blue)}
+  .bandrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+  .band{background:var(--raised);border:1px solid var(--line);border-radius:11px;padding:10px 13px}
+  .band>.bh{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+  .band>.bh .bn{font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+  .band>.bh .br{font-family:var(--mono);font-size:11px;color:var(--mut2)}
+  .band .ctrl{padding:5px 0;min-height:34px;gap:9px}
+  .band .ctrl .lab .name{font-size:12.5px}
+  .band input[type=range]{width:82px}
+  .band input.num{width:58px}
+
+  /* Easy view */
+  .easy{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+  .macrocard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .macrocard h4,.macrocard h4{margin:0}
+  .mgh{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+  .mgh .dot{width:9px;height:9px;border-radius:50%;background:var(--blue)}
+  .mgh h4{font-family:var(--serif);font-size:16px;font-weight:600;margin:0}
+  .macro{display:flex;align-items:center;gap:12px;padding:7px 0}
+  .macro .mn{flex:1;color:var(--ink2);font-weight:500}
+  .macro input[type=range]{width:150px}
+  .macro .mv{font-family:var(--mono);font-size:12.5px;color:var(--blue);min-width:30px;text-align:right;font-weight:600}
+  .macro .mv.mid{color:var(--mut2)}
+
+  /* JSON rail */
+  .rail{position:sticky;top:74px;display:flex;flex-direction:column;gap:14px}
+  @media(max-width:1080px){.rail{position:static}}
+  .jcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 110px)}
+  .jcard .jh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .jcard .jh h3{font-family:var(--serif);font-size:15px;font-weight:600;margin:0;flex:1}
+  .jcard .jh .badge{font-family:var(--mono);font-size:10.5px;color:var(--mut2);background:var(--raised);border:1px solid var(--line);padding:2px 7px;border-radius:6px}
+  pre.json{margin:0;padding:14px 16px;overflow:auto;font-family:var(--mono);font-size:11.5px;line-height:1.5;color:var(--ink2);flex:1}
+  .json .k{color:var(--blue)}
+  .json .n{color:#e0b872}
+  .json .b{color:var(--red)}
+  .json .s{color:var(--ok)}
+  .flowcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .flowcard h3{font-family:var(--serif);font-size:14px;font-weight:600;margin:0 0 9px;color:var(--ink2)}
+  .flow{display:flex;flex-wrap:wrap;gap:5px}
+  .flow span{font-size:10.5px;font-family:var(--mono);color:var(--mut);background:var(--raised);border:1px solid var(--line);padding:3px 7px;border-radius:6px}
+  .flow span.a{color:var(--blue);border-color:rgba(76,141,255,.35)}
+  .info{font-size:11.5px;color:var(--mut2);padding:0 2px}
+  /* On-Air control */
+  .onair{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .onair .oh{display:flex;align-items:center;gap:9px}
+  .onair .oh h3{font-family:var(--serif);font-size:15px;font-weight:600;margin:0;flex:1}
+  .onair .oh .dot{width:9px;height:9px;border-radius:50%;background:var(--mut2);transition:.2s}
+  .onair .oh .dot.live{background:var(--red);box-shadow:0 0 0 3px rgba(255,59,51,.18);animation:livePulse 2s ease-in-out infinite}
+  @keyframes livePulse{0%,100%{opacity:1}50%{opacity:.65}}
+  .onair .lnk{appearance:none;border:0;background:transparent;color:var(--blue);font:inherit;font-size:12px;cursor:pointer;padding:0}
+  .oa-conn{display:flex;flex-direction:column;gap:7px}
+  .oa-conn input{width:100%;background:var(--raised);border:1px solid var(--line);color:var(--ink);padding:7px 9px;border-radius:8px;font-family:var(--mono);font-size:12px}
+  .oa-conn input:focus{border-color:var(--blue);outline:none}
+  .oa-row{display:flex;gap:8px;align-items:center}
+  .oa-row select.sel{flex:1;min-width:0}
+  .oa-row .btn{flex:1;justify-content:center}
+  .oa-status{font-size:12px;color:var(--mut);line-height:1.4;padding-top:2px;border-top:1px solid var(--line);margin-top:2px;padding-top:9px}
+  .oa-status b{color:var(--ink2)}
+  .oa-status .on{color:var(--red);font-weight:700}
+  .oa-status .off{color:var(--mut2);font-weight:700}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--card2);border:1px solid var(--line2);color:var(--ink);padding:10px 18px;border-radius:11px;font-weight:600;opacity:0;pointer-events:none;transition:.22s cubic-bezier(.16,1,.3,1);z-index:60}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  input[type=file]{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <span class="mark"><b>Spectra</b></span>
+      <span class="sub">Control&nbsp;Surface</span>
+    </div>
+    <div class="preset-wrap">
+      <select class="preset" id="presetSel" title="Load a preset"></select>
+      <button class="btn ghost" id="savePreset" title="Save current settings as a named preset">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>
+        Save
+      </button>
+    </div>
+    <div class="spacer"></div>
+    <div class="tabs" id="tabs">
+      <button data-tab="easy" class="on">Easy</button>
+      <button data-tab="advanced">Advanced</button>
+    </div>
+    <button class="btn ghost danger" id="resetBtn" title="Reset every parameter to Spectra defaults">Reset</button>
+    <button class="btn ghost" id="importBtn" title="Load a settings JSON file">Import</button>
+    <button class="btn ghost" id="downloadBtn" title="Download the settings JSON">Download</button>
+    <button class="btn primary" id="copyBtn" title="Copy the control-plane JSON">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Copy JSON
+    </button>
+    <input type="file" id="fileInput" accept="application/json,.json">
+  </div>
+</header>
+
+<main>
+  <div class="panel">
+    <section id="easyView" class="easy"></section>
+    <section id="advView" class="panel" style="display:none"></section>
+  </div>
+  <aside class="rail">
+    <div class="onair" id="onair">
+      <div class="oh">
+        <span class="dot" id="oa-dot"></span>
+        <h3>On-Air · TMCast</h3>
+        <button class="lnk" id="oa-cfg">connection</button>
+      </div>
+      <div class="oa-conn" id="oa-conn" style="display:none">
+        <input id="oa-base" placeholder="Server, e.g. https://cast.tmc.gg">
+        <input id="oa-key" type="password" placeholder="Staff API key (only if enabled)">
+      </div>
+      <div class="oa-row">
+        <select class="sel" id="oa-station"><option value="">Loading stations…</option></select>
+        <button class="rbtn" id="oa-refresh" title="Refresh station list">⟳</button>
+      </div>
+      <div class="oa-row">
+        <button class="btn ghost" id="oa-load" title="Pull this station's current air settings into the editor">Load from air</button>
+        <button class="btn primary" id="oa-send" title="Apply the current settings to this station live">Send to air ▸</button>
+      </div>
+      <div class="oa-status" id="oa-status">Pick a station to load or push its sound.</div>
+    </div>
+    <div class="flowcard">
+      <h3>Signal flow</h3>
+      <div class="flow">
+        <span class="a">preamp</span><span>phase rot</span><span class="a">WB AGC</span><span>WB AGC2</span>
+        <span class="a">MB AGC</span><span>dyn-EQ</span><span class="a">MB limit</span><span>look-ahead</span>
+        <span>bass clip</span><span class="a">Edge clip</span><span>output</span><span>width</span><span class="a">true-peak</span>
+      </div>
+    </div>
+    <div class="jcard">
+      <div class="jh">
+        <h3>Payload</h3>
+        <span class="badge" id="jsize">— B</span>
+        <span class="badge">ProcessorSettings</span>
+      </div>
+      <pre class="json" id="jsonOut"></pre>
+    </div>
+    <div class="info">Emits the exact camelCase <b>ProcessorSettings</b> the Spectra engine consumes. Missing fields fall back to neutral defaults on the wire, but the full object is sent for clarity.</div>
+  </aside>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+//////////////////// Defaults — mirror of settings.rs ////////////////////
+const agcBand = () => ({driveDb:0, ratio:2, attackMs:25, releaseMs:250, gateDb:-45, outputDb:0});
+const limBand = () => ({thresholdDb:-1, releaseMs:80});
+const dynBand = (freqHz,q) => ({freqHz, thresholdDb:-24, gainDb:0, q});
+
+const DEFAULTS = {
+  enabled:false,
+  preampDb:0,
+  wideband:{enabled:true, targetDb:-12, ratio:2, attackMs:200, releaseMs:1200, gateDb:-45, maxGainDb:18},
+  agcCrossoversHz:[120,400,1600,5000],
+  agc:[agcBand(),agcBand(),agcBand(),agcBand(),agcBand()],
+  limiterCrossoversHz:[100,300,900,2500,6000],
+  limiters:[limBand(),limBand(),limBand(),limBand(),limBand(),limBand()],
+  dynEq:[dynBand(80,1), dynBand(3000,1.2), dynBand(12000,0.8)],
+  clipper:{fmClipDriveDb:0, limiterDriveDb:0, ceilingDb:-1, oversample:2, clipHardness:0,
+    bassClipFreqHz:150, bassClipThresholdDb:0, bassSlope:1, bassClipDriveDb:0,
+    solarPlexusDb:0, solarPlexusFreqHz:55, bassHardClipDb:0, intermodProtect:true,
+    bassShapeStrength:35, bassShapeFreqHz:55, punchThresholdDb:0, punchMs:12},
+  quickTweak:{bassOverall:5,bassThump:5,bassGrowl:5,subBass:5,midOverall:5,punch:5,density:5,
+    treblePresence:5,trebleBrightness:5,trebleSparkle:5,airBand:5,loudnessOverall:5,
+    fmClipDrive:5,limDrive:5,phat:5,warm:5,phatHarmonics:5,stereoWidth:5,phaseRotation:5,phaseDelay:5},
+  outputGainDb:0,
+  wb2:{enabled:false, mode:"off", targetDb:-12, ratio:3, attackMs:60, releaseMs:400, gateDb:-45, maxGainDb:12, sidechainHz:150},
+  fm:{enabled:false, preemphasisUs:75, stereo:true, clipDriveDb:0, highpassHz:30, lowpassHz:15000,
+    mpx:{enabled:false, pilotLevelPct:9, stereoSeparationDb:45, deviationKhz:75, softClipMpx:false,
+      pilotProtect:false, mpxOverIp:false, mpxIp:"", mpxPort:9000, mpxIpFormat:"s16le"},
+    rds:{enabled:false, piCode:"", psName:"", radioText:"", radioTextStatic:"", ptyCode:0, levelPct:4, ta:false, tp:false, ms:true}},
+  enhancers:{stereoLink:false, dynamicDynEq:false, multibandLookahead:false, phaseFlatten:false,
+    twoSidedAgc:false, clipMasking:false, restore:false, truePeakCeiling:false, declip:false,
+    bandLimitedClip:false, distributedClip:false, subHarmonic:false, subHarmonicAmount:0.35,
+    maskedRelease:false, multibandWidth:false, widthLow:1, widthMid:1, widthHigh:1},
+  spatial:{enabled:false, stereoize:0, surround:0, space:0, spaceSize:0.5},
+  exciter:{enabled:false, highs:0, bass:0},
+  freq:{inputFilter:false, highpassHz:30, lowpassHz:0, autoEq:false, autoEqStrength:0.5},
+  deEsser:{enabled:false, freqHz:6500, thresholdDb:-30, amount:0.5},
+};
+
+//////////////////// Field DSL ////////////////////
+// f=float slider, i=int slider, b=bool, e=enum select, t=text
+const f=(path,label,min,max,step,unit,hint,zero)=>({t:"f",path,label,min,max,step,unit:unit||"",hint,zero});
+const b=(path,label,hint)=>({t:"b",path,label,hint});
+const e=(path,label,opts,hint)=>({t:"e",path,label,opts,hint});
+const txt=(path,label,hint,ph)=>({t:"t",path,label,hint,ph});
+
+// Advanced sections in signal-flow order
+const SECTIONS=[
+  {id:"input",title:"Input & Filters",desc:"pre-gain, input band-pass, auto-balance",fields:[
+    b("enabled","Processor enabled","Master on/off. Off = clean bypass (the engine passes audio untouched)."),
+    f("preampDb","Pre-amp",-12,12,0.1,"dB","Gain into the whole chain."),
+    {sub:"Input filter (Frequency control)"},
+    b("freq.inputFilter","Input filter","Enable the main-path input band-pass (HPF + LPF)."),
+    f("freq.highpassHz","High-pass",10,200,1,"Hz","Rumble/subsonic cut. ≤10 Hz = off."),
+    f("freq.lowpassHz","Low-pass",0,20000,100,"Hz","Top-end limit. 0 = off (Nyquist).",0),
+    b("freq.autoEq","Auto-EQ","Slow spectral-balance corrector."),
+    f("freq.autoEqStrength","Auto-EQ strength",0,1,0.01,"","How hard the auto-balance pulls toward the target curve."),
+  ]},
+  {id:"wideband",title:"Wideband AGC",desc:"slow master leveler",enable:"wideband.enabled",fields:[
+    f("wideband.targetDb","Target",-30,0,0.5,"dB","Operating level the leveler drives toward."),
+    f("wideband.ratio","Ratio",1,10,0.1,":1","Gain-riding aggressiveness."),
+    f("wideband.attackMs","Attack",1,1000,1,"ms"),
+    f("wideband.releaseMs","Release",50,5000,10,"ms"),
+    f("wideband.gateDb","Gate",-80,-20,1,"dB","Freeze gain below this input level (stops pumping on silence)."),
+    f("wideband.maxGainDb","Max gain",0,30,0.5,"dB","How far it may lift quiet material."),
+  ]},
+  {id:"wb2",title:"Wideband AGC 2",desc:"optional 2nd leveler w/ placement mode",enable:"wb2.enabled",fields:[
+    e("wb2.mode","Mode",[["off","Off"],["pre","Pre-multiband"],["post","Post-multiband"],["bassOnly","Bass only (LP sidechain)"],["bassWide","Bass, full-mix driven"]],
+      "Bass modes compress ONLY the lows so bass can be pushed hard without overdriving the final clip."),
+    f("wb2.targetDb","Target",-30,0,0.5,"dB"),
+    f("wb2.ratio","Ratio",1,10,0.1,":1"),
+    f("wb2.attackMs","Attack",1,500,1,"ms"),
+    f("wb2.releaseMs","Release",50,2000,10,"ms"),
+    f("wb2.gateDb","Gate",-80,-20,1,"dB"),
+    f("wb2.maxGainDb","Max gain",0,24,0.5,"dB"),
+    f("wb2.sidechainHz","Sidechain split",60,400,5,"Hz","Bass split frequency for the bass-only / bass-wide modes."),
+  ]},
+  {id:"agc",title:"Multiband AGC",desc:"per-band density (2–7 bands)",bands:"agc"},
+  {id:"dyneq",title:"Dynamic EQ",desc:"program-adaptive tone shaping",bands:"dyneq"},
+  {id:"limiters",title:"Multiband Limiter",desc:"per-band peak control (2–7 bands)",bands:"limiters"},
+  {id:"clipper",title:'Final Clipper — "Edge"',desc:"broadband + dedicated bass clipper",fields:[
+    {sub:"Broadband"},
+    f("clipper.fmClipDriveDb","FM clip drive",0,12,0.1,"dB","Drive into the broadband clipper — the main loudness lever."),
+    f("clipper.limiterDriveDb","Limiter drive",0,12,0.1,"dB","Extra drive into the pre-clip look-ahead limiter."),
+    f("clipper.ceilingDb","Ceiling",-3,0,0.1,"dB","Output clip ceiling."),
+    e("clipper.oversample","Oversample",[[1,"1× (off)"],[2,"2×"],[4,"4×"]],"Higher = cleaner loudness, more CPU."),
+    f("clipper.clipHardness","Clip hardness",0,1,0.01,"","0 = soft tanh (rounded, safe). Higher sharpens toward a flat-topped FM clip (louder-for-cleaner)."),
+    {sub:"Bass clipper (Clipper Lows)"},
+    f("clipper.bassClipFreqHz","Split freq",60,300,1,"Hz","Low/high split for the dedicated bass clipper."),
+    f("clipper.bassClipThresholdDb","Soft threshold",-12,0,0.1,"dB","Soft-clip threshold. 0 = OFF (never clips).",0),
+    e("clipper.bassSlope","Slope",[[1,"Soft"],[2,"Hard"],[3,"Soft+Hard blend"]]),
+    f("clipper.bassClipDriveDb","Bass drive",0,12,0.1,"dB","Drive into the bass clipper."),
+    f("clipper.solarPlexusDb","Solar-plexus",0,12,0.1,"dB","Low-octave “felt” bass enhancer, pre-clip."),
+    f("clipper.solarPlexusFreqHz","Solar-plexus freq",35,90,1,"Hz"),
+    f("clipper.bassHardClipDb","Hard limit",-6,0,0.1,"dB","Near-brickwall final bass limit. 0 = full scale (catches overshoot only).",0),
+    b("clipper.intermodProtect","Intermod protect","Duck the highs while the lows clip hard (kills IMD splatter)."),
+    f("clipper.bassShapeStrength","Shape strength",0,100,1,"%","Square-wave-ness of the clipped low (odd-harmonic emphasis)."),
+    f("clipper.bassShapeFreqHz","Shape freq",30,120,1,"Hz"),
+    {sub:"Punch"},
+    f("clipper.punchThresholdDb","Punch threshold",-12,0,0.1,"dB","Bass-transient protect. 0 = OFF.",0),
+    f("clipper.punchMs","Punch hold",1,50,1,"ms"),
+  ]},
+  {id:"enhancers",title:"Enhancers",desc:"staged competitive-FM refinements",fields:[
+    {sub:"Imaging & dynamics"},
+    b("enhancers.stereoLink","Stereo link","Link L/R wideband-AGC gain — stops stereo-image wander under heavy GR."),
+    b("enhancers.dynamicDynEq","Dynamic dyn-EQ","Make the dynamic EQ program-adaptive (threshold dynamics)."),
+    b("enhancers.multibandLookahead","Multiband look-ahead","Band-split the pre-clipper look-ahead limiter."),
+    b("enhancers.twoSidedAgc","Two-sided AGC","Per-band AGC also lifts below threshold — constant per-band density."),
+    b("enhancers.maskedRelease","Veil — masked release","Look-ahead release adapts to program density (fast when masked)."),
+    b("enhancers.restore","Reclaim (Restore)","Multiband downward expander — re-opens over-compressed “crushed” masters."),
+    {sub:"Clipping"},
+    b("enhancers.truePeakCeiling","Apex — true-peak ceiling","Final brickwall measures INTER-SAMPLE peaks (ISP-safe)."),
+    b("enhancers.clipMasking","Clip masking","Keep clip grit only where the program masks it."),
+    b("enhancers.bandLimitedClip","Edge HD — band-limited clip","Cubic-interpolated oversampling + anti-image LP (cleaner, +8× ceiling)."),
+    b("enhancers.distributedClip","Cascade — distributed clip","Split clip drive across 2 gentler stages with an inter-stage low-pass."),
+    b("enhancers.declip","Reclaim (De-clip)","Sample-domain de-clipper — rebuild peaks on a flat-topped master."),
+    {sub:"Bass & width"},
+    b("enhancers.subHarmonic","Lift — sub-harmonic","Synthesize low-bass harmonics so small speakers imply the fundamental."),
+    f("enhancers.subHarmonicAmount","Lift amount",0,1,0.01,""),
+    b("enhancers.multibandWidth","Span — multiband width","3-band M/S width: mono-tight lows, open highs."),
+    f("enhancers.widthLow","Span — low",0,2,0.01,"","1.0 = untouched"),
+    f("enhancers.widthMid","Span — mid",0,2,0.01,""),
+    f("enhancers.widthHigh","Span — high",0,2,0.01,""),
+    {sub:"Experimental"},
+    b("enhancers.phaseFlatten","Phase-flatten (exp.)","Phase-transparent subtractive crossovers. Audition carefully."),
+  ]},
+  {id:"spatial",title:"Spatial",desc:"program-bus stereo treatment",enable:"spatial.enabled",fields:[
+    f("spatial.stereoize","Stereoize",0,1,0.01,"","Mono → stereo (allpass decorrelation)."),
+    f("spatial.surround","Surround",0,1,0.01,"","Fake-surround / spatial expander (Haas anti-phase)."),
+    f("spatial.space","Space",0,1,0.01,"","Stereo reverb wet amount."),
+    f("spatial.spaceSize","Space size",0,1,0.01,"","Reverb size / decay."),
+  ]},
+  {id:"exciter",title:"Exciter",desc:"harmonic air + felt bass",enable:"exciter.enabled",fields:[
+    f("exciter.highs","Air (highs)",0,1,0.01,"","High-frequency harmonic exciter."),
+    f("exciter.bass","True bass (lows)",0,1,0.01,"","Low-octave harmonic exciter."),
+  ]},
+  {id:"deEsser",title:"De-Esser",desc:"split-band sibilance tamer",enable:"deEsser.enabled",fields:[
+    f("deEsser.freqHz","Ess band",4000,10000,50,"Hz","Sibilance band centre / detector corner."),
+    f("deEsser.thresholdDb","Threshold",-60,0,0.5,"dB","Ess-band level above which it acts."),
+    f("deEsser.amount","Amount",0,1,0.01,"","Scales to ~12 dB max cut."),
+  ]},
+  {id:"fm",title:"FM / MPX / RDS",desc:"pre-emphasis, composite, RDS (foundation)",enable:"fm.enabled",fields:[
+    {sub:"FM path"},
+    e("fm.preemphasisUs","Pre-emphasis",[[0,"Off"],[50,"50 µs (Europe)"],[75,"75 µs (Americas)"]]),
+    b("fm.stereo","Stereo","Encode a stereo composite (vs mono)."),
+    f("fm.clipDriveDb","FM clip drive",0,12,0.1,"dB"),
+    f("fm.highpassHz","High-pass",0,100,1,"Hz"),
+    f("fm.lowpassHz","Low-pass",10000,16000,100,"Hz","15 kHz protects the 19 kHz pilot."),
+    {sub:"MPX (composite)"},
+    b("fm.mpx.enabled","MPX enabled","Generate the composite/multiplex baseband."),
+    f("fm.mpx.pilotLevelPct","Pilot level",6,12,0.1,"%"),
+    f("fm.mpx.stereoSeparationDb","Separation",20,60,1,"dB"),
+    f("fm.mpx.deviationKhz","Deviation",50,90,1,"kHz"),
+    b("fm.mpx.softClipMpx","Soft-clip MPX"),
+    b("fm.mpx.pilotProtect","Pilot protect","Steep ~16 kHz LP before the FM clip so harmonics never splatter the pilot."),
+    {sub:"MPX-over-IP"},
+    b("fm.mpx.mpxOverIp","MPX-over-IP","Stream the composite baseband to a remote decoder (192 kHz card → exciter)."),
+    txt("fm.mpx.mpxIp","Target IP","Raw mono PCM over UDP.","e.g. 10.0.0.5"),
+    f("fm.mpx.mpxPort","Port",1,65535,1,""),
+    e("fm.mpx.mpxIpFormat","PCM format",[["s16le","s16le (i16)"],["f32le","f32le (float)"]]),
+    {sub:"RDS"},
+    b("fm.rds.enabled","RDS enabled"),
+    txt("fm.rds.piCode","PI code","Programme Identification (hex).","e.g. 1FA2"),
+    txt("fm.rds.psName","PS name","8-char station name.","STATION"),
+    txt("fm.rds.radioText","Radio text","Scrolling RadioText (RT)."),
+    txt("fm.rds.radioTextStatic","Static text","Static / fallback RadioText."),
+    f("fm.rds.ptyCode","PTY code",0,31,1,"","Programme type (0–31)."),
+    f("fm.rds.levelPct","RDS level",0,10,0.1,"%"),
+    b("fm.rds.tp","TP — traffic programme"),
+    b("fm.rds.ta","TA — traffic announcement"),
+    b("fm.rds.ms","MS — music/speech","On = music, off = speech."),
+  ]},
+  {id:"output",title:"Output",desc:"final make-up gain",fields:[
+    f("outputGainDb","Output gain",-12,12,0.1,"dB","Final make-up gain after the clipper/width."),
+  ]},
+];
+
+// Easy view — QuickTweak macros (0..10, neutral 5)
+const MACROS=[
+  {group:"Bass", items:[["bassOverall","Overall"],["bassThump","Thump"],["bassGrowl","Growl"],["subBass","Sub-bass"]]},
+  {group:"Mids", items:[["midOverall","Overall"],["punch","Punch"],["density","Density"]]},
+  {group:"Treble", items:[["treblePresence","Presence"],["trebleBrightness","Brightness"],["trebleSparkle","Sparkle"],["airBand","Air"]]},
+  {group:"Loudness", items:[["loudnessOverall","Overall"],["fmClipDrive","Clip drive"],["limDrive","Limiter drive"]]},
+  {group:"Character", items:[["phat","Phat"],["warm","Warm"],["phatHarmonics","Harmonics"]]},
+  {group:"Stereo", items:[["stereoWidth","Width"],["phaseRotation","Phase rot"],["phaseDelay","Phase delay"]]},
+];
+
+//////////////////// Presets ////////////////////
+// Each preset deep-merges its overrides onto DEFAULTS. Character is voiced mainly via the
+// QuickTweak macros (which the engine folds into effective params) + a few key stage flags.
+const qt=o=>({quickTweak:o});
+const PRESETS=[
+  {name:"Bypass", desc:"Clean pass-through — processor off.", ov:{enabled:false}},
+  {name:"Natural / Open", desc:"Transparent leveling, minimal coloration.", ov:{enabled:true, ...qt({loudnessOverall:4, fmClipDrive:3, limDrive:4}), enhancers:{truePeakCeiling:true}}},
+  {name:"Open FM", desc:"Clean, open major-market FM.", ov:{enabled:true, ...qt({loudnessOverall:6, treblePresence:6, trebleBrightness:6, stereoWidth:6, punch:6}), enhancers:{truePeakCeiling:true, maskedRelease:true, stereoLink:true}}},
+  {name:"CHR / Pop (Loud)", desc:"Aggressive, dense, competitive loudness.", ov:{enabled:true,
+    ...qt({loudnessOverall:8, fmClipDrive:8, limDrive:7, density:7, punch:7, bassThump:6, treblePresence:7, trebleSparkle:6, airBand:6, stereoWidth:6}),
+    clipper:{oversample:4, clipHardness:0.4}, enhancers:{truePeakCeiling:true, maskedRelease:true, bandLimitedClip:true, stereoLink:true}}},
+  {name:"Rock", desc:"Punchy mids, gutsy guitars.", ov:{enabled:true,
+    ...qt({punch:8, midOverall:6, bassGrowl:7, warm:6, loudnessOverall:7, density:6, fmClipDrive:7}), enhancers:{truePeakCeiling:true, stereoLink:true}}},
+  {name:"Urban / Bass", desc:"Deep, felt low end.", ov:{enabled:true,
+    ...qt({subBass:8, bassThump:8, bassOverall:7, phat:7, loudnessOverall:7, fmClipDrive:7}),
+    clipper:{bassClipThresholdDb:-3, bassClipDriveDb:3, solarPlexusDb:4, bassSlope:3},
+    enhancers:{subHarmonic:true, subHarmonicAmount:0.5, truePeakCeiling:true}}},
+  {name:"Warm AC", desc:"Smooth, warm adult-contemporary.", ov:{enabled:true,
+    ...qt({warm:7, trebleSparkle:4, trebleBrightness:4, loudnessOverall:6, density:5, phat:6, fmClipDrive:5}), enhancers:{truePeakCeiling:true}}},
+  {name:"Talk / Spoken", desc:"Intelligible voice, tamed sibilance, tight lows.", ov:{enabled:true,
+    ...qt({bassOverall:3, subBass:2, midOverall:6, treblePresence:7, loudnessOverall:6, density:6, stereoWidth:3, fmClipDrive:4}),
+    wideband:{gateDb:-50, releaseMs:800}, deEsser:{enabled:true, amount:0.6}}},
+  {name:"Classical / Jazz", desc:"Wide dynamics, gentle, audiophile.", ov:{enabled:true,
+    ...qt({loudnessOverall:3, density:3, fmClipDrive:2, limDrive:3, stereoWidth:6, warm:5}),
+    wideband:{ratio:1.5, releaseMs:2000, maxGainDb:12}, enhancers:{truePeakCeiling:true}}},
+];
+
+//////////////////// State + helpers ////////////////////
+const clone=o=>JSON.parse(JSON.stringify(o));
+function deepMerge(base, ov){
+  for(const k in ov){
+    if(ov[k] && typeof ov[k]==="object" && !Array.isArray(ov[k])){
+      base[k]=deepMerge(base[k]?clone(base[k]):{}, ov[k]);
+    } else base[k]=clone(ov[k]);
+  }
+  return base;
+}
+const get=(o,path)=>path.split(".").reduce((a,k)=>a?.[k], o);
+function set(o,path,v){
+  const ks=path.split("."); const last=ks.pop();
+  let t=o; for(const k of ks) t=t[k];
+  t[last]=v;
+}
+let state = clone(DEFAULTS);
+const LS_STATE="spectra.state", LS_PRESETS="spectra.userPresets";
+
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast._);toast._=setTimeout(()=>t.classList.remove("show"),1600);}
+
+//////////////////// Rendering ////////////////////
+function ctrlRow(fd){
+  const row=document.createElement("div"); row.className="ctrl";
+  const lab=document.createElement("div"); lab.className="lab";
+  lab.innerHTML=`<div class="name">${fd.label}</div>${fd.hint?`<div class="hint">${fd.hint}</div>`:""}`;
+  row.appendChild(lab);
+  const val=get(state,fd.path), def=get(DEFAULTS,fd.path);
+  const markChanged=()=>{ const changed=JSON.stringify(get(state,fd.path))!==JSON.stringify(get(DEFAULTS,fd.path)); row.classList.toggle("changed",changed); };
+
+  if(fd.t==="b"){
+    const w=document.createElement("label"); w.className="tog";
+    w.innerHTML=`<input type="checkbox" ${val?"checked":""}><span class="track"></span>`;
+    w.querySelector("input").addEventListener("change",ev=>{set(state,fd.path,ev.target.checked);onChange();markChanged();refreshCardStates();});
+    row.appendChild(w);
+  } else if(fd.t==="e"){
+    const s=document.createElement("select"); s.className="sel";
+    for(const [v,l] of fd.opts){const o=document.createElement("option");o.value=String(v);o.textContent=l;if(String(v)===String(val))o.selected=true;s.appendChild(o);}
+    s.addEventListener("change",ev=>{const raw=ev.target.value; const num=fd.opts.every(([v])=>typeof v==="number"); set(state,fd.path, num?Number(raw):raw); onChange();markChanged();});
+    row.appendChild(s);
+  } else if(fd.t==="t"){
+    const inp=document.createElement("input"); inp.className="txt"; inp.type="text"; inp.value=val??""; if(fd.ph)inp.placeholder=fd.ph;
+    inp.addEventListener("input",ev=>{set(state,fd.path,ev.target.value);onChange();markChanged();});
+    row.appendChild(inp);
+  } else { // float / int
+    const rng=document.createElement("input"); rng.type="range"; rng.min=fd.min; rng.max=fd.max; rng.step=fd.step; rng.value=val;
+    const num=document.createElement("input"); num.type="number"; num.className="num"; num.min=fd.min; num.max=fd.max; num.step=fd.step; num.value=val;
+    const unit=document.createElement("span"); unit.className="unit"; unit.textContent=fd.unit||"";
+    const fmt=x=>{ if(fd.zero!==undefined && Number(x)===fd.zero) return "off"; return String(x); };
+    const sync=(v,fromNum)=>{ let n=Number(v); if(isNaN(n))return; n=Math.min(fd.max,Math.max(fd.min,n)); set(state,fd.path,n); if(!fromNum)num.value=n; rng.value=n; if(fd.zero!==undefined){unit.textContent=(n===fd.zero)?"off":(fd.unit||"");} onChange();markChanged(); };
+    rng.addEventListener("input",ev=>sync(ev.target.value,false));
+    num.addEventListener("input",ev=>sync(ev.target.value,true));
+    if(fd.zero!==undefined && Number(val)===fd.zero) unit.textContent="off";
+    row.append(rng,num,unit);
+  }
+  markChanged();
+  return row;
+}
+
+function renderAdvanced(){
+  const host=document.getElementById("advView"); host.innerHTML="";
+  for(const sec of SECTIONS){
+    const card=document.createElement("div"); card.className="card"; card.dataset.id=sec.id;
+    // collapsed state remembered
+    const openKey="spectra.open."+sec.id;
+    const closed=localStorage.getItem(openKey)==="0";
+    if(closed) card.classList.add("closed");
+    const head=document.createElement("div"); head.className="head";
+    head.innerHTML=`<span class="idx">${String(SECTIONS.indexOf(sec)+1).padStart(2,"0")}</span>
+      <h3>${sec.title}</h3><span class="desc">${sec.desc||""}</span>`;
+    // per-section enable toggle
+    if(sec.enable){
+      const en=document.createElement("div"); en.className="en";
+      const on=get(state,sec.enable);
+      en.innerHTML=`<span class="st ${on?"on":""}">${on?"On":"Off"}</span><label class="tog"><input type="checkbox" ${on?"checked":""}><span class="track"></span></label>`;
+      en.querySelector("input").addEventListener("click",e=>e.stopPropagation());
+      en.querySelector("input").addEventListener("change",ev=>{set(state,sec.enable,ev.target.checked);en.querySelector(".st").textContent=ev.target.checked?"On":"Off";en.querySelector(".st").classList.toggle("on",ev.target.checked);card.classList.toggle("off",!ev.target.checked);onChange();});
+      head.appendChild(en);
+    }
+    const chev=document.createElement("span"); chev.className="chev";
+    chev.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>`;
+    head.appendChild(chev);
+    head.addEventListener("click",()=>{card.classList.toggle("closed");localStorage.setItem(openKey,card.classList.contains("closed")?"0":"1");});
+    card.appendChild(head);
+    if(sec.enable && !get(state,sec.enable)) card.classList.add("off");
+
+    const body=document.createElement("div"); body.className="body";
+    if(sec.bands){ body.appendChild(renderBands(sec.bands)); }
+    else{
+      const grid=document.createElement("div"); grid.className="grid";
+      for(const fd of sec.fields){
+        if(fd.sub){ const h=document.createElement("div"); h.className="subhead"; h.textContent=fd.sub; grid.appendChild(h); }
+        else grid.appendChild(ctrlRow(fd));
+      }
+      body.appendChild(grid);
+    }
+    card.appendChild(body);
+    host.appendChild(card);
+  }
+}
+
+function bandRange(cross,i,n){
+  const lo=i===0?0:cross[i-1], hi=i===n-1?null:cross[i];
+  const h=x=>x>=1000?(x/1000)+"k":Math.round(x);
+  return `${lo===0?"0":h(lo)}–${hi===null?"∞":h(hi)} Hz`;
+}
+function logCrossovers(nX,lo,hi){return Array.from({length:nX},(_,i)=>Math.round(lo*Math.pow(hi/lo,(i+1)/(nX+1))));}
+
+function renderBands(kind){
+  const wrap=document.createElement("div"); wrap.className="bands";
+  const isAgc=kind==="agc", isLim=kind==="limiters", isDyn=kind==="dyneq";
+  const arrKey=isAgc?"agc":isLim?"limiters":"dynEq";
+  const crossKey=isAgc?"agcCrossoversHz":isLim?"limiterCrossoversHz":null;
+  const bands=state[arrKey];
+
+  // crossover / count row (AGC + limiter). DynEq has no crossovers.
+  const bar=document.createElement("div"); bar.className="xover";
+  if(crossKey){
+    bar.innerHTML=`<span class="t">Crossovers</span>`;
+    state[crossKey].forEach((hz,i)=>{
+      const n=document.createElement("input"); n.type="number"; n.className="num"; n.value=hz; n.min=20; n.max=20000; n.step=10;
+      n.addEventListener("input",ev=>{state[crossKey][i]=Number(ev.target.value)||hz; onChange(); renderAdvanced&&refreshBandLabels();});
+      bar.appendChild(n);
+      const u=document.createElement("span"); u.className="unit"; u.textContent="Hz"; bar.appendChild(u);
+    });
+  } else { bar.innerHTML=`<span class="t">Parametric bands</span>`; }
+  const cnt=document.createElement("div"); cnt.className="cnt";
+  const min=isDyn?1:2, max=7;
+  cnt.innerHTML=`<span class="unit">${bands.length} band${bands.length>1?"s":""}</span>`;
+  const minus=document.createElement("button"); minus.className="rbtn"; minus.textContent="−";
+  const plus=document.createElement("button"); plus.className="rbtn"; plus.textContent="+";
+  minus.addEventListener("click",()=>changeBandCount(kind,-1,min,max));
+  plus.addEventListener("click",()=>changeBandCount(kind,+1,min,max));
+  cnt.append(minus,plus); bar.appendChild(cnt);
+  wrap.appendChild(bar);
+
+  // band cards
+  const row=document.createElement("div"); row.className="bandrow";
+  bands.forEach((bd,i)=>{
+    const c=document.createElement("div"); c.className="band";
+    const rangeTxt=crossKey?bandRange(state[crossKey],i,bands.length):`${bd.freqHz>=1000?(bd.freqHz/1000)+"k":bd.freqHz} Hz`;
+    c.innerHTML=`<div class="bh"><span class="bn">${isDyn?"EQ "+(i+1):"Band "+(i+1)}</span><span class="br" data-range>${rangeTxt}</span></div>`;
+    let fields;
+    if(isAgc) fields=[
+      f(`agc.${i}.driveDb`,"Drive",-12,12,0.1,"dB"),
+      f(`agc.${i}.ratio`,"Ratio",1,10,0.1,":1"),
+      f(`agc.${i}.attackMs`,"Attack",1,500,1,"ms"),
+      f(`agc.${i}.releaseMs`,"Release",20,2000,10,"ms"),
+      f(`agc.${i}.gateDb`,"Gate",-80,-20,1,"dB"),
+      f(`agc.${i}.outputDb`,"Output",-12,12,0.1,"dB"),
+    ];
+    else if(isLim) fields=[
+      f(`limiters.${i}.thresholdDb`,"Threshold",-12,0,0.1,"dB"),
+      f(`limiters.${i}.releaseMs`,"Release",10,500,5,"ms"),
+    ];
+    else fields=[
+      f(`dynEq.${i}.freqHz`,"Freq",20,20000,10,"Hz"),
+      f(`dynEq.${i}.thresholdDb`,"Threshold",-60,0,0.5,"dB"),
+      f(`dynEq.${i}.gainDb`,"Gain",-12,12,0.1,"dB"),
+      f(`dynEq.${i}.q`,"Q",0.2,5,0.05,""),
+    ];
+    for(const fd of fields) c.appendChild(ctrlRow(fd));
+    row.appendChild(c);
+  });
+  wrap.appendChild(row);
+  return wrap;
+}
+function refreshBandLabels(){
+  document.querySelectorAll("#advView .band").forEach(()=>{}); // ranges refresh on full re-render
+}
+function changeBandCount(kind,delta,min,max){
+  const isAgc=kind==="agc", isLim=kind==="limiters";
+  const arrKey=isAgc?"agc":isLim?"limiters":"dynEq";
+  const crossKey=isAgc?"agcCrossoversHz":isLim?"limiterCrossoversHz":null;
+  let n=state[arrKey].length+delta; if(n<min||n>max)return;
+  const mk=isAgc?agcBand:isLim?limBand:()=>dynBand(1000,1);
+  if(delta>0) state[arrKey].push(mk()); else state[arrKey].pop();
+  if(crossKey){ // regenerate log-spaced crossovers to match (mirrors sanitized())
+    const lo=isAgc?100:100, hi=isAgc?10000:12000;
+    state[crossKey]=logCrossovers(n-1,lo,hi);
+  }
+  onChange(); renderAdvanced();
+}
+
+function renderEasy(){
+  const host=document.getElementById("easyView"); host.innerHTML="";
+  for(const grp of MACROS){
+    const c=document.createElement("div"); c.className="macrocard";
+    c.innerHTML=`<div class="mgh"><span class="dot"></span><h4>${grp.group}</h4></div>`;
+    for(const [key,label] of grp.items){
+      const path="quickTweak."+key, v=get(state,path);
+      const r=document.createElement("div"); r.className="macro";
+      r.innerHTML=`<span class="mn">${label}</span>`;
+      const rng=document.createElement("input"); rng.type="range"; rng.className="detent"; rng.min=0; rng.max=10; rng.step=0.1; rng.value=v;
+      const mv=document.createElement("span"); mv.className="mv"+(Number(v)===5?" mid":""); mv.textContent=Number(v).toFixed(1);
+      rng.addEventListener("input",ev=>{const n=Number(ev.target.value);set(state,path,n);mv.textContent=n.toFixed(1);mv.classList.toggle("mid",n===5);onChange();});
+      r.append(rng,mv); c.appendChild(r);
+    }
+    host.appendChild(c);
+  }
+}
+
+function refreshCardStates(){
+  document.querySelectorAll("#advView .card").forEach(card=>{
+    const sec=SECTIONS.find(s=>s.id===card.dataset.id);
+    if(sec?.enable){ const on=get(state,sec.enable); card.classList.toggle("off",!on);
+      const st=card.querySelector(".en .st"), cb=card.querySelector(".en input");
+      if(st){st.textContent=on?"On":"Off";st.classList.toggle("on",on);} if(cb)cb.checked=on;
+    }
+  });
+}
+
+//////////////////// JSON output ////////////////////
+function syntaxHl(json){
+  return json.replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/"([^"]+)":/g,'"<span class="k">$1</span>":')
+    .replace(/: (-?\d+\.?\d*)/g,': <span class="n">$1</span>')
+    .replace(/: (true|false)/g,': <span class="b">$1</span>')
+    .replace(/: "([^"]*)"/g,': "<span class="s">$1</span>"');
+}
+function onChange(){
+  const json=JSON.stringify(state,null,2);
+  document.getElementById("jsonOut").innerHTML=syntaxHl(json);
+  document.getElementById("jsize").textContent=new Blob([json]).size+" B";
+  try{ localStorage.setItem(LS_STATE,json); }catch{}
+}
+
+//////////////////// Presets UI ////////////////////
+function userPresets(){ try{return JSON.parse(localStorage.getItem(LS_PRESETS)||"[]");}catch{return[];} }
+function buildPresetMenu(){
+  const sel=document.getElementById("presetSel"); sel.innerHTML="";
+  const ph=document.createElement("option"); ph.value=""; ph.textContent="Load preset…"; ph.disabled=true; ph.selected=true; sel.appendChild(ph);
+  const g1=document.createElement("optgroup"); g1.label="Built-in";
+  PRESETS.forEach((p,i)=>{const o=document.createElement("option");o.value="b"+i;o.textContent=p.name;sel.appendChild&&g1.appendChild(o);});
+  sel.appendChild(g1);
+  const ups=userPresets();
+  if(ups.length){ const g2=document.createElement("optgroup"); g2.label="Saved"; ups.forEach((p,i)=>{const o=document.createElement("option");o.value="u"+i;o.textContent=p.name;g2.appendChild(o);}); sel.appendChild(g2); }
+}
+function applyPreset(v){
+  if(v[0]==="b"){ const p=PRESETS[+v.slice(1)]; state=deepMerge(clone(DEFAULTS), p.ov); state=deepMerge(state,{}); toast("Loaded “"+p.name+"”"); }
+  else { const p=userPresets()[+v.slice(1)]; state=deepMerge(clone(DEFAULTS), p.settings); toast("Loaded “"+p.name+"”"); }
+  rerenderAll();
+}
+function rerenderAll(){ renderEasy(); renderAdvanced(); onChange(); }
+
+//////////////////// Wire-up ////////////////////
+document.getElementById("tabs").addEventListener("click",e=>{
+  const btn=e.target.closest("button"); if(!btn)return;
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b===btn));
+  const easy=btn.dataset.tab==="easy";
+  document.getElementById("easyView").style.display=easy?"grid":"none";
+  document.getElementById("advView").style.display=easy?"none":"flex";
+});
+document.getElementById("presetSel").addEventListener("change",e=>{ if(e.target.value) applyPreset(e.target.value); e.target.selectedIndex=0; });
+document.getElementById("copyBtn").addEventListener("click",async()=>{
+  const json=JSON.stringify(state,null,2);
+  try{ await navigator.clipboard.writeText(json); toast("JSON copied to clipboard"); }
+  catch{ const ta=document.createElement("textarea");ta.value=json;document.body.appendChild(ta);ta.select();document.execCommand("copy");ta.remove();toast("JSON copied"); }
+});
+document.getElementById("downloadBtn").addEventListener("click",()=>{
+  const json=JSON.stringify(state,null,2);
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([json],{type:"application/json"}));
+  a.download="spectra-preset.json"; a.click(); URL.revokeObjectURL(a.href); toast("Downloaded spectra-preset.json");
+});
+document.getElementById("importBtn").addEventListener("click",()=>document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change",ev=>{
+  const file=ev.target.files[0]; if(!file)return;
+  const r=new FileReader(); r.onload=()=>{ try{ const obj=JSON.parse(r.result); state=deepMerge(clone(DEFAULTS),obj); rerenderAll(); toast("Imported "+file.name); }catch(e){ toast("Invalid JSON"); } };
+  r.readAsText(file); ev.target.value="";
+});
+document.getElementById("resetBtn").addEventListener("click",()=>{ if(confirm("Reset every parameter to Spectra defaults?")){ state=clone(DEFAULTS); rerenderAll(); toast("Reset to defaults"); }});
+document.getElementById("savePreset").addEventListener("click",()=>{
+  const name=prompt("Save current settings as preset:"); if(!name)return;
+  const ups=userPresets(); ups.push({name, settings:clone(state)}); localStorage.setItem(LS_PRESETS,JSON.stringify(ups));
+  buildPresetMenu(); toast("Saved “"+name+"”");
+});
+
+// Boot — restore last session if present
+try{ const saved=localStorage.getItem(LS_STATE); if(saved){ state=deepMerge(clone(DEFAULTS),JSON.parse(saved)); } }catch{}
+buildPresetMenu(); rerenderAll();
+
+//////////////////// On-Air control (TMCast) ////////////////////
+const gi=id=>document.getElementById(id);
+const OA={ base:'', key:'', active:false };
+const oaDefaultBase=()=> location.protocol.startsWith('http') ? location.origin : 'https://cast.tmc.gg';
+function oaLoadConn(){
+  try{ OA.base=localStorage.getItem('spectra.apiBase')||oaDefaultBase(); }catch{ OA.base=oaDefaultBase(); }
+  try{ OA.key=localStorage.getItem('ciryacast_api_key')||''; }catch{}
+  gi('oa-base').value=OA.base; gi('oa-key').value=OA.key;
+}
+function oaSaveConn(){
+  OA.base=(gi('oa-base').value.trim()||oaDefaultBase()).replace(/\/+$/,'');
+  OA.key=gi('oa-key').value.trim();
+  try{ localStorage.setItem('spectra.apiBase',OA.base); localStorage.setItem('ciryacast_api_key',OA.key); }catch{}
+}
+const oaHeaders=extra=>Object.assign({},extra||{},OA.key?{'x-api-key':OA.key}:{});
+const oaHost=()=>OA.base.replace(/^https?:\/\//,'');
+const oaStatus=html=>{ gi('oa-status').innerHTML=html; };
+const oaActive=a=>{ OA.active=a; gi('oa-dot').classList.toggle('live',!!a); };
+const oaName=()=>gi('oa-station').selectedOptions[0]?.textContent||'station';
+
+async function oaLoadStations(){
+  oaSaveConn();
+  gi('oa-station').innerHTML='<option value="">Loading…</option>';
+  try{
+    const r=await fetch(OA.base+'/api/stations',{headers:oaHeaders()});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const list=await r.json(); const arr=Array.isArray(list)?list:(list.stations||[]);
+    if(!arr.length){ gi('oa-station').innerHTML='<option value="">No stations</option>'; return oaStatus('Connected — no stations found.'); }
+    gi('oa-station').innerHTML='<option value="">Select a station…</option>'+arr.map(s=>`<option value="${s.id}">${(s.name||s.slug||s.id).replace(/</g,'&lt;')}</option>`).join('');
+    oaStatus(`Connected to <b>${oaHost()}</b> · ${arr.length} stations.`);
+  }catch(e){ gi('oa-station').innerHTML='<option value="">— unreachable —</option>'; oaStatus(`Can't reach <b>${oaHost()}</b> — open <b>connection</b> to set the server. (${e.message})`); }
+}
+async function oaLoad(){
+  const id=gi('oa-station').value; if(!id) return toast('Pick a station first');
+  try{
+    const r=await fetch(`${OA.base}/api/stations/${id}/processing`,{headers:oaHeaders()});
+    if(r.status===401) return oaStatus('<span class="off">Auth required</span> — add the staff key under <b>connection</b>.');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json(); oaActive(d.active);
+    if(d.settings){ state=deepMerge(clone(DEFAULTS),d.settings); rerenderAll(); toast('Loaded air settings'); }
+    else toast('No processing set yet — start from a preset');
+    oaStatus(d.active?`<span class="on">● ON AIR</span> — processing <b>${oaName()}</b>.`:`<span class="off">Bypassed</span> on <b>${oaName()}</b>${d.settings?'':' (none saved yet)'}.`);
+  }catch(e){ oaStatus('Load failed — '+e.message); }
+}
+async function oaSend(){
+  const id=gi('oa-station').value; if(!id) return toast('Pick a station first');
+  const btn=gi('oa-send'), orig=btn.textContent; btn.disabled=true; btn.textContent='Sending…';
+  try{
+    const r=await fetch(`${OA.base}/api/stations/${id}/processing`,{method:'PUT',headers:oaHeaders({'Content-Type':'application/json'}),body:JSON.stringify(state)});
+    if(r.status===401){ oaStatus('<span class="off">Auth required</span> — add the staff key under <b>connection</b>.'); return; }
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json(); oaActive(d.active);
+    oaStatus(d.active?`<span class="on">● ON AIR</span> — <b>${oaName()}</b> now sounds like this.`:`<span class="off">Bypassed</span> — enable the processor (Advanced ▸ Input) then re-send to hear it on <b>${oaName()}</b>.`);
+    toast(d.active?'On air ▸ '+oaName():'Bypassed '+oaName());
+  }catch(e){ oaStatus('Send failed — '+e.message); toast('Send failed'); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+gi('oa-cfg').addEventListener('click',()=>{ const c=gi('oa-conn'); c.style.display=c.style.display==='none'?'flex':'none'; });
+gi('oa-refresh').addEventListener('click',oaLoadStations);
+gi('oa-base').addEventListener('change',oaLoadStations);
+gi('oa-key').addEventListener('change',oaSaveConn);
+gi('oa-station').addEventListener('change',()=>{ if(gi('oa-station').value) oaLoad(); });
+gi('oa-load').addEventListener('click',oaLoad);
+gi('oa-send').addEventListener('click',oaSend);
+oaLoadConn(); oaLoadStations();
+</script>
+</body>
+</html>
