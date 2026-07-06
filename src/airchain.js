@@ -33,14 +33,10 @@ function buildFilterGraph(s = {}) {
   if (s.freq && s.freq.inputFilter && s.freq.lowpassHz && s.freq.lowpassHz > 1000)
     F.push(`lowpass=f=${Math.round(clamp(s.freq.lowpassHz, 3000, 20000))}`);
 
-  // 3) Wideband leveler (gentle AGC). Tracks are already loudnorm'd to -14 LUFS at
-  //    ingest, so this only smooths within-track level — kept at a SHORT window so
-  //    the live latency stays well under a second (a large window buffers seconds of
-  //    audio and starves the listener → start/stop).
-  if (!s.wideband || s.wideband.enabled !== false) {
-    const maxg = clamp(Math.pow(10, (s.wideband?.maxGainDb ?? 12) / 20), 1.5, 12);
-    F.push(`dynaudnorm=f=100:g=5:p=0.9:m=${maxg.toFixed(1)}:r=0.0`);
-  }
+  // 3) Wideband leveler — DISABLED in the live chain. dynaudnorm is both the biggest
+  //    CPU cost and a latency source, and the CPU budget on the streaming box is tight
+  //    (per-station real-time ffmpeg). Tracks are already loudnorm'd to -14 LUFS at
+  //    ingest, so we lean on that + the compressor below instead of a live leveler.
 
   // 4) Tone — QuickTweak bass / mid / treble macros as parametric bands
   const eq = (f, w, g) => { if (Math.abs(g) > 0.15) F.push(`equalizer=f=${f}:width_type=q:w=${w}:g=${g.toFixed(2)}`); };
@@ -85,9 +81,6 @@ function buildFilterGraph(s = {}) {
   // 8) Output make-up gain
   const out = clamp(s.outputGainDb || 0, -24, 24);
   if (Math.abs(out) > 0.05) F.push(`volume=${out.toFixed(2)}dB`);
-
-  // Safety brickwall so nothing ever leaves above full scale
-  F.push('alimiter=limit=0.995:attack=1:release=20:level=disabled');
 
   return F.join(',');
 }
