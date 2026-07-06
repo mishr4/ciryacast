@@ -1757,21 +1757,29 @@ router.get('/stations/:id/stream-relay', (req, res) => {
 // The Spectra Control Surface reads/writes a full ProcessorSettings JSON per station.
 // Its own top-level `enabled` gates the live ffmpeg air-chain (decode → filter → encode).
 
+const preprocess = require('./preprocess');
+
 router.get('/stations/:id/processing', (req, res) => {
   const db = req.app.get('db');
-  const streamEngine = req.app.get('streamEngine');
   const resolveStation = req.app.get('resolveStation');
   const st = resolveStation && resolveStation(req.params.id);
   const stationId = st ? st.id : req.params.id;
   const row = db.prepare('SELECT processing FROM stations WHERE id = ?').get(stationId);
   let settings = null;
   if (row && row.processing) { try { settings = JSON.parse(row.processing); } catch {} }
-  res.json({ settings, active: streamEngine.isProcessing(stationId) });
+  res.json({ settings, active: !!(settings && settings.enabled), progress: preprocess.getJob(stationId) });
+});
+
+// Progress of the background bake (so the GUI can show "baking 12/45").
+router.get('/stations/:id/processing/progress', (req, res) => {
+  const resolveStation = req.app.get('resolveStation');
+  const st = resolveStation && resolveStation(req.params.id);
+  const stationId = st ? st.id : req.params.id;
+  res.json(preprocess.getJob(stationId) || { total: 0, done: 0, running: false });
 });
 
 router.put('/stations/:id/processing', (req, res) => {
   const db = req.app.get('db');
-  const streamEngine = req.app.get('streamEngine');
   const resolveStation = req.app.get('resolveStation');
   const broadcast = req.app.get('broadcast');
   const st = resolveStation && resolveStation(req.params.id);
@@ -1780,10 +1788,18 @@ router.put('/stations/:id/processing', (req, res) => {
   if (!settings) return res.status(400).json({ error: 'ProcessorSettings object required' });
 
   db.prepare('UPDATE stations SET processing = ? WHERE id = ?').run(JSON.stringify(settings), st.id);
-  const { active } = streamEngine.setProcessing(st.id, settings);
-  if (broadcast) broadcast('processing', { stationId: st.id, active });
-  console.log(`  🎛 Processing ${active ? 'APPLIED' : 'cleared'} on ${st.name} (${st.id})`);
-  res.json({ ok: true, active });
+  if (broadcast) broadcast('processing', { stationId: st.id, enabled: !!settings.enabled });
+
+  if (settings.enabled) {
+    // Bake the library in the background (non-blocking). AutoDJ streams originals until
+    // each processed copy lands, so nothing on air is interrupted while it works.
+    const media = db.prepare("SELECT filename FROM media WHERE station_id = ? AND filename IS NOT NULL AND filename != ''").all(st.id);
+    preprocess.processLibrary(st.id, settings, media, broadcast).catch((e) => console.log('  ⚠ processLibrary:', e.message));
+    console.log(`  🎛 Processing ENABLED on ${st.name} — baking ${media.length} tracks`);
+    return res.json({ ok: true, enabled: true, queued: media.length });
+  }
+  console.log(`  🎛 Processing disabled on ${st.name}`);
+  res.json({ ok: true, enabled: false, queued: 0 });
 });
 
 

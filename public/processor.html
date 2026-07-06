@@ -780,16 +780,33 @@ async function oaLoadStations(){
     oaStatus(`Connected to <b>${oaHost()}</b> · ${arr.length} stations.`);
   }catch(e){ gi('oa-station').innerHTML='<option value="">— unreachable —</option>'; oaStatus(`Can't reach <b>${oaHost()}</b> — open <b>connection</b> to set the server. (${e.message})`); }
 }
+let oaPollTimer=null;
+function oaPollProgress(id){
+  clearInterval(oaPollTimer);
+  const tick=async()=>{
+    try{
+      const r=await fetch(`${OA.base}/api/stations/${id}/processing/progress`,{headers:oaHeaders()});
+      if(!r.ok) return;
+      const p=await r.json();
+      if(!p || !p.total){ oaStatus(`<span class="on">● ON AIR</span> — <b>${oaName()}</b> pre-processed.`); clearInterval(oaPollTimer); return; }
+      if(p.running){ oaStatus(`⚙ Baking <b>${oaName()}</b> — ${p.done}/${p.total} tracks… (plays clean until each lands)`); }
+      else { oaStatus(`<span class="on">● ON AIR</span> — <b>${oaName()}</b> pre-processed (${p.done}/${p.total} tracks).`); clearInterval(oaPollTimer); }
+    }catch{}
+  };
+  tick(); oaPollTimer=setInterval(tick,2500);
+}
 async function oaLoad(){
   const id=gi('oa-station').value; if(!id) return toast('Pick a station first');
+  clearInterval(oaPollTimer);
   try{
     const r=await fetch(`${OA.base}/api/stations/${id}/processing`,{headers:oaHeaders()});
     if(r.status===401) return oaStatus('<span class="off">Auth required</span> — add the staff key under <b>connection</b>.');
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json(); oaActive(d.active);
+    const d=await r.json(); const on=!!(d.settings && d.settings.enabled); oaActive(on);
     if(d.settings){ state=deepMerge(clone(DEFAULTS),d.settings); rerenderAll(); toast('Loaded air settings'); }
     else toast('No processing set yet — start from a preset');
-    oaStatus(d.active?`<span class="on">● ON AIR</span> — processing <b>${oaName()}</b>.`:`<span class="off">Bypassed</span> on <b>${oaName()}</b>${d.settings?'':' (none saved yet)'}.`);
+    if(on) oaPollProgress(id);
+    else oaStatus(`<span class="off">Off</span> on <b>${oaName()}</b>${d.settings?'':' (none saved yet)'}.`);
   }catch(e){ oaStatus('Load failed — '+e.message); }
 }
 async function oaSend(){
@@ -799,9 +816,9 @@ async function oaSend(){
     const r=await fetch(`${OA.base}/api/stations/${id}/processing`,{method:'PUT',headers:oaHeaders({'Content-Type':'application/json'}),body:JSON.stringify(state)});
     if(r.status===401){ oaStatus('<span class="off">Auth required</span> — add the staff key under <b>connection</b>.'); return; }
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json(); oaActive(d.active);
-    oaStatus(d.active?`<span class="on">● ON AIR</span> — <b>${oaName()}</b> now sounds like this.`:`<span class="off">Bypassed</span> — enable the processor (Advanced ▸ Input) then re-send to hear it on <b>${oaName()}</b>.`);
-    toast(d.active?'On air ▸ '+oaName():'Bypassed '+oaName());
+    const d=await r.json();
+    if(d.enabled){ oaActive(true); toast(`Baking ${d.queued} tracks…`); oaPollProgress(id); }
+    else { oaActive(false); clearInterval(oaPollTimer); oaStatus(`<span class="off">Off</span> — <b>${oaName()}</b> plays clean (enable the processor in Advanced ▸ Input, then re-send).`); toast('Processing off · '+oaName()); }
   }catch(e){ oaStatus('Send failed — '+e.message); toast('Send failed'); }
   finally{ btn.disabled=false; btn.textContent=orig; }
 }

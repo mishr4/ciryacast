@@ -15,10 +15,12 @@ const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(+x) ? +x 
 const dev = v => clamp((Number(v ?? 5) - 5) / 5, -1, 1);
 
 /**
- * @param {object} s  a ProcessorSettings object (from the Spectra GUI)
- * @returns {string}  an ffmpeg `-af` filterchain, or "" for a true bypass
+ * @param {object} s     a ProcessorSettings object (from the Spectra GUI)
+ * @param {object} opts  { offline } — offline (pre-process) mode adds the CPU-heavy
+ *                       wideband leveler that the real-time path can't afford.
+ * @returns {string}     an ffmpeg `-af` filterchain, or "" for a true bypass
  */
-function buildFilterGraph(s = {}) {
+function buildFilterGraph(s = {}, opts = {}) {
   const qt = s.quickTweak || {};
   const F = [];
 
@@ -33,10 +35,13 @@ function buildFilterGraph(s = {}) {
   if (s.freq && s.freq.inputFilter && s.freq.lowpassHz && s.freq.lowpassHz > 1000)
     F.push(`lowpass=f=${Math.round(clamp(s.freq.lowpassHz, 3000, 20000))}`);
 
-  // 3) Wideband leveler — DISABLED in the live chain. dynaudnorm is both the biggest
-  //    CPU cost and a latency source, and the CPU budget on the streaming box is tight
-  //    (per-station real-time ffmpeg). Tracks are already loudnorm'd to -14 LUFS at
-  //    ingest, so we lean on that + the compressor below instead of a live leveler.
+  // 3) Wideband leveler — OFFLINE (pre-process) only. dynaudnorm is the biggest CPU cost
+  //    and a latency source, so the real-time path skips it; when baking files ahead of
+  //    time neither matters, so we include it for smoother, more consistent level.
+  if (opts.offline && (!s.wideband || s.wideband.enabled !== false)) {
+    const maxg = clamp(Math.pow(10, (s.wideband?.maxGainDb ?? 12) / 20), 1.5, 12);
+    F.push(`dynaudnorm=f=150:g=15:p=0.9:m=${maxg.toFixed(1)}:r=0.0`);
+  }
 
   // 4) Tone — QuickTweak bass / mid / treble macros as parametric bands
   const eq = (f, w, g) => { if (Math.abs(g) > 0.15) F.push(`equalizer=f=${f}:width_type=q:w=${w}:g=${g.toFixed(2)}`); };

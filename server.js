@@ -961,13 +961,19 @@ server.listen(PORT, () => {
     autoDJ.start(s.id);
   });
 
-  // Restore saved on-air processing (Spectra air-chain) per station.
+  // Resume pre-processing — bake any still-missing tracks for stations that have it on.
+  // (Processed copies persist on the volume, so this is a cheap no-op when already done.)
   try {
+    const preprocess = require('./src/preprocess');
     const withProc = db.prepare("SELECT id, name, processing FROM stations WHERE processing IS NOT NULL AND processing != ''").all();
     withProc.forEach(s => {
       try {
         const settings = JSON.parse(s.processing);
-        if (settings && settings.enabled) { streamEngine.setProcessing(s.id, settings); console.log(`  🎛 Processing restored: "${s.name}"`); }
+        if (settings && settings.enabled) {
+          const media = db.prepare("SELECT filename FROM media WHERE station_id = ? AND filename IS NOT NULL AND filename != ''").all(s.id);
+          preprocess.processLibrary(s.id, settings, media, broadcast).catch(() => {});
+          console.log(`  🎛 Resuming pre-processing: "${s.name}" (${media.length} tracks)`);
+        }
       } catch {}
     });
   } catch {}

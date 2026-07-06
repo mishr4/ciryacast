@@ -369,9 +369,25 @@ class AutoDJ {
   }
 
   /** Stream a file to a station — shared by music tracks and voice tracks */
+  /** If on-air processing is enabled and a baked copy of this file exists, use it. */
+  _resolveProcessed(stationId, filePath) {
+    try {
+      const row = this.db.prepare('SELECT processing FROM stations WHERE id = ?').get(stationId);
+      if (!row || !row.processing) return filePath;
+      const settings = JSON.parse(row.processing);
+      if (!settings || !settings.enabled) return filePath;
+      const pp = require('./preprocess').resolveProcessed(stationId, path.basename(filePath), settings);
+      return pp || filePath;
+    } catch { return filePath; }
+  }
+
   _streamFile(stationId, filePath, meta) {
     const s = this.sessions.get(stationId);
     if (!s || !s.active) return;
+
+    // Swap in the pre-processed ("air-chain baked") copy of this track if one is ready.
+    // Falls back to the original whenever it isn't → never a gap while a preset processes.
+    filePath = this._resolveProcessed(stationId, filePath);
 
     if (!fs.existsSync(filePath)) {
       console.log(`  ⚠ Missing: ${meta.title}, skip`);

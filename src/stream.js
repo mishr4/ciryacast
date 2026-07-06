@@ -1,16 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-const { buildFilterGraph } = require('./airchain');
-
-// ffmpeg binary — 'ffmpeg' on PATH (Railway/nixpacks), overridable for local dev.
-const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
-
-// A valid 128kbps/44.1k/stereo MPEG silence frame (~26ms). Used to prime the air-chain
-// ffmpeg pipe so its MP3 demuxer initialises even when the station is momentarily idle.
-const SILENCE_FRAME = Buffer.from(
-  'fffb9004' + '00'.repeat(413), 'hex'
-);
 
 const VOLUME = process.env.RAILWAY_VOLUME_MOUNT_PATH || null;
 const RECORDINGS_DIR = VOLUME ? path.join(VOLUME, 'recordings') : path.join(__dirname, '..', 'recordings');
@@ -39,30 +28,13 @@ class StreamEngine {
         live: false,
         // Recording state
         recording: null, // { id, stream, startedAt, title }
-        // Air-chain processing state
-        proc: null,        // running ffmpeg child (null = passthrough)
-        processing: null,  // the ProcessorSettings applied (null = never configured)
       });
     }
     return this.stations.get(stationId);
   }
 
-  /**
-   * Ingest an MP3 chunk from any source (AutoDJ, mic, simulcast). If the station's
-   * air-chain is active, the chunk is fed into the processing ffmpeg (whose output is
-   * delivered); otherwise it goes straight to listeners. This is the single on-air
-   * insertion point, so everything the station plays gets the same processed sound.
-   */
+  /** Push MP3 chunk to all listeners, ring buffer, and active recording */
   pushAudio(stationId, chunk) {
-    const s = this._ensure(stationId);
-    if (s.proc && s.proc.stdin && s.proc.stdin.writable) {
-      try { s.proc.stdin.write(chunk); return; } catch { /* fall through to direct */ }
-    }
-    this._deliver(stationId, chunk);
-  }
-
-  /** Deliver a (possibly processed) MP3 chunk to listeners, ring buffer, and recording. */
-  _deliver(stationId, chunk) {
     const s = this._ensure(stationId);
 
     // Ring buffer — keep ~256KB so a burst tail is always available
@@ -267,73 +239,6 @@ class StreamEngine {
 
   setLive(stationId, live) {
     this._ensure(stationId).live = live;
-  }
-
-  /* ── Air-chain processing (Spectra → ffmpeg) ── */
-
-  /**
-   * Apply (or clear) the on-air processor for a station. Pass a ProcessorSettings
-   * object with `enabled:true` to start/reload the ffmpeg air-chain; `enabled:false`
-   * or null tears it down (clean passthrough). Hot-reloading swaps the ffmpeg process
-   * (a sub-second gap while the new graph spins up).
-   */
-  setProcessing(stationId, settings) {
-    const s = this._ensure(stationId);
-    s.processing = settings || null;
-    if (s.proc) { try { s.proc._killed = true; s.proc.stdin.end(); s.proc.kill('SIGKILL'); } catch {} s.proc = null; }
-    if (settings && settings.enabled) s.proc = this._startProc(stationId, settings);
-    return { active: !!s.proc };
-  }
-
-  stopProcessing(stationId) {
-    const s = this.stations.get(stationId);
-    if (s && s.proc) { try { s.proc._killed = true; s.proc.stdin.end(); s.proc.kill('SIGKILL'); } catch {} s.proc = null; }
-  }
-
-  isProcessing(stationId) { return !!this.stations.get(stationId)?.proc; }
-  getProcessing(stationId) { return this.stations.get(stationId)?.processing || null; }
-
-  /** Spawn the per-station processing ffmpeg (MP3 pipe in → filtergraph → MP3 pipe out). */
-  _startProc(stationId, settings) {
-    const graph = buildFilterGraph(settings);
-    const args = [
-      '-hide_banner', '-loglevel', 'error', '-fflags', 'nobuffer',
-      '-f', 'mp3', '-i', 'pipe:0',
-      '-af', graph,
-      '-c:a', 'libmp3lame', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-      '-flush_packets', '1', '-f', 'mp3', 'pipe:1',
-    ];
-    let proc;
-    try {
-      proc = spawn(FFMPEG, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-    } catch (e) {
-      console.log(`  ⚠ Air-chain: ffmpeg unavailable (${e.message}) — station ${stationId} passthrough`);
-      return null;
-    }
-    const startedAt = Date.now();
-    console.log(`  🎛 Air-chain ON (${stationId}): ${graph.split(',').length} stages`);
-    proc.stdout.on('data', (out) => this._deliver(stationId, out));
-    proc.stderr.on('data', (d) => { const m = d.toString().trim(); if (m) console.log(`  [airchain ${stationId}] ${m.split('\n')[0]}`); });
-    proc.stdin.on('error', () => {}); // ignore EPIPE during teardown
-    proc.on('error', (e) => { console.log(`  ⚠ Air-chain ffmpeg error (${stationId}): ${e.message}`); });
-    proc.on('exit', (code) => {
-      const s = this.stations.get(stationId);
-      if (!s || s.proc !== proc) return;
-      s.proc = null;
-      if (proc._killed || !s.processing || !s.processing.enabled) return;
-      // Restart only a genuine mid-stream crash (ran a while) — never a fast startup
-      // failure (e.g. a malformed graph), which would spin.
-      if (Date.now() - startedAt > 5000) {
-        console.log(`  ↻ Air-chain crashed (${stationId}, exit ${code}) — restarting`);
-        setTimeout(() => { const cur = this.stations.get(stationId); if (cur && cur.processing && cur.processing.enabled && !cur.proc) cur.proc = this._startProc(stationId, cur.processing); }, 1000);
-      } else {
-        console.log(`  ⚠ Air-chain exited early (${stationId}, exit ${code}) — passthrough; check the graph`);
-      }
-    });
-    // Prime the demuxer with a little MP3 silence so ffmpeg initialises even on a
-    // momentarily-idle station (it can't probe an empty pipe). Real audio flows after.
-    try { proc.stdin.write(Buffer.concat(Array(24).fill(SILENCE_FRAME))); } catch {}
-    return proc;
   }
 }
 
