@@ -1787,6 +1787,31 @@ router.put('/stations/:id/processing', (req, res) => {
 });
 
 
+// TEMP diagnostic — measure THIS server's ffmpeg real-time factor for the air-chain,
+// to tell CPU-starvation apart from event-loop contention. realtime > 1 = can keep up.
+router.get('/_airbench', async (req, res) => {
+  const { spawn } = require('child_process');
+  const os = require('os');
+  const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+  const full = buildFilterGraph({ enabled: true, wideband: { enabled: true, maxGainDb: 12 }, clipper: { ceilingDb: -1 },
+    quickTweak: { loudnessOverall: 7, fmClipDrive: 6, limDrive: 6, density: 6, punch: 6, bassThump: 6, subBass: 6, treblePresence: 6, airBand: 6, stereoWidth: 6 } });
+  const light = 'highpass=f=30,equalizer=f=80:width_type=q:w=1:g=2,equalizer=f=3000:width_type=q:w=1.4:g=2,acompressor=threshold=-14dB:ratio=3:attack=15:release=200:makeup=2dB,alimiter=limit=0.89:attack=5:release=50';
+  const NUL = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  const AUDIO = 15;
+  const bench = (graph) => new Promise((resolve) => {
+    const args = ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', `sine=f=220:d=${AUDIO}`, '-af', `aformat=channel_layouts=stereo,${graph}`, '-c:a', 'libmp3lame', '-b:a', '128k', '-f', 'mp3', '-y', NUL];
+    const t0 = Date.now(); let er = '';
+    let p; try { p = spawn(FFMPEG, args); } catch (e) { return resolve({ error: e.message }); }
+    p.stderr.on('data', (d) => { er += d; });
+    p.on('error', (e) => resolve({ error: e.message }));
+    p.on('exit', (code) => { const w = Date.now() - t0; resolve({ wallMs: w, realtime: +(AUDIO * 1000 / w).toFixed(2), stages: graph.split(',').length, code, er: er.slice(0, 120) }); });
+  });
+  const fr = await bench(full);
+  const lr = await bench(light);
+  res.json({ audioSec: AUDIO, cpus: os.cpus().length, loadavg: os.loadavg(), full: fr, light: lr });
+});
+
+
 // ════════════════════════════════════
 // RECORDINGS
 // ════════════════════════════════════
