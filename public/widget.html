@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TMCast Widget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* Light (default) */
+  :root {
+    --card: #ffffff; --text: #111; --sub: #6b6b70; --line: rgba(0,0,0,0.08);
+    --accent: #4C8DFF; --ph: #eceaf2; --raised: #f4f3f7;
+  }
+  /* Dark */
+  body[data-theme="dark"] {
+    --card: #171717; --text: #fafafa; --sub: #a1a1aa; --line: rgba(255,255,255,0.08);
+    --ph: #232326; --raised: #202023;
+  }
+  /* Transparent — inherit host bg, keep text readable via dark defaults */
+  body[data-theme="transparent"] { --card: transparent; --text: #fafafa; --sub: #a1a1aa; --line: rgba(255,255,255,0.12); --ph: rgba(255,255,255,0.08); --raised: rgba(255,255,255,0.05); }
+  html, body { height: 100%; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: transparent; -webkit-font-smoothing: antialiased; display: flex; align-items: center; }
+
+  .card { width: 100%; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 16px; }
+
+  /* now-playing + listeners + status share a row layout */
+  .widget-row { display: flex; align-items: center; gap: 13px; padding: 13px 15px; text-decoration: none; color: inherit; }
+  a.widget-row { transition: transform 0.15s, box-shadow 0.15s; }
+  a.widget-row:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0,0,0,0.14); }
+
+  .cover { position: relative; width: 52px; height: 52px; border-radius: 11px; overflow: hidden; flex-shrink: 0; background: var(--ph); display: flex; align-items: center; justify-content: center; }
+  .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cover svg { width: 20px; height: 20px; color: var(--sub); }
+  .meta { flex: 1; min-width: 0; }
+  .label { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 3px; }
+  .label.live { color: #FF3B33; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.6s ease-in-out infinite; }
+  .label.live .dot { background: #FF3B33; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .title { font-size: 15px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .play { flex-shrink: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; }
+  .play svg { width: 15px; height: 15px; color: #fff; margin-left: 2px; }
+
+  /* listeners big number */
+  .big { display: flex; align-items: center; gap: 13px; padding: 14px 16px; }
+  .big .n { font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big .n small { font-size: 13px; font-weight: 600; color: var(--sub); margin-left: 6px; }
+  .big .icon { width: 40px; height: 40px; border-radius: 10px; background: var(--raised); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .big .icon svg { width: 20px; height: 20px; color: var(--accent); }
+
+  /* status */
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.on { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); animation: pulse 2s ease-in-out infinite; }
+  .status-dot.off { background: #71717a; }
+
+  /* history list */
+  .hist { padding: 14px 16px; }
+  .hist-head { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sub); margin-bottom: 10px; }
+  .hist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .hist-row + .hist-row { border-top: 1px solid var(--line); }
+  .hist-art { width: 34px; height: 34px; border-radius: 8px; overflow: hidden; flex-shrink: 0; background: var(--ph); display: flex; align-items: center; justify-content: center; }
+  .hist-art img { width: 100%; height: 100%; object-fit: cover; }
+  .hist-art svg { width: 14px; height: 14px; color: var(--sub); }
+  .hist-meta { flex: 1; min-width: 0; }
+  .hist-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hist-artist { font-size: 11px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .powered { font-size: 10px; color: var(--sub); text-align: right; padding: 4px 6px 0; }
+  .powered a { color: var(--sub); text-decoration: none; }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+<script>
+  const parts = location.pathname.split('/');           // ['', 'widget', type, station]
+  const type = (parts[2] || 'nowplaying').toLowerCase();
+  const slug = decodeURIComponent(parts[3] || '');
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') || 'dark';
+  document.body.dataset.theme = theme;
+  const root = document.getElementById('root');
+
+  const NOTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+  function esc(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : s); return d.innerHTML; }
+  function playerUrl(d) { return `${location.origin}/player/${d.station.slug || d.station.id}`; }
+
+  let lastKey = '';
+
+  function renderNowPlaying(d) {
+    const np = d.now_playing, live = d.live;
+    const title = (np && np.title && np.title !== 'Unknown') ? np.title : d.station.name;
+    const artist = (np && np.artist && np.artist !== 'Unknown') ? np.artist : 'TMCast';
+    const art = (np && np.artwork_url) || d.station.logo_url || '';
+    root.innerHTML = `
+      <a class="card widget-row" href="${playerUrl(d)}" target="_blank" rel="noopener">
+        <div class="cover">${art ? `<img src="${esc(art)}" alt="" onerror="this.remove()">` : NOTE}</div>
+        <div class="meta">
+          <span class="label ${live ? 'live' : ''}"><span class="dot"></span>${live ? 'Live' : 'Now Playing'}</span>
+          <div class="title">${esc(title)}</div>
+          <div class="sub">${esc(artist)}</div>
+        </div>
+        <div class="play"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg></div>
+      </a>`;
+  }
+
+  function renderListeners(d) {
+    root.innerHTML = `
+      <div class="card big">
+        <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <div><div class="n">${d.listeners.current}<small>listening</small></div>
+        <div class="sub" style="margin-top:4px">${esc(d.station.name)}</div></div>
+      </div>`;
+  }
+
+  function renderStatus(d) {
+    const live = d.live;
+    const online = true; // reachable = online
+    const state = live ? 'Live broadcast' : 'AutoDJ · on air';
+    root.innerHTML = `
+      <div class="card widget-row" style="cursor:default">
+        <span class="status-dot ${online ? 'on' : 'off'}"></span>
+        <div class="meta">
+          <div class="title" style="font-size:14px">${esc(d.station.name)}</div>
+          <div class="sub">${state} · ${d.listeners.current} listening</div>
+        </div>
+        <span class="label ${live ? 'live' : ''}" style="margin:0"><span class="dot"></span>${live ? 'Live' : 'On air'}</span>
+      </div>`;
+  }
+
+  function renderHistory(d) {
+    const hist = (d.song_history || []).slice(0, 5);
+    const rows = hist.length ? hist.map(h => `
+      <div class="hist-row">
+        <div class="hist-art">${h.artwork_url ? `<img src="${esc(h.artwork_url)}" alt="" onerror="this.remove()">` : NOTE}</div>
+        <div class="hist-meta">
+          <div class="hist-title">${esc(h.title || '—')}</div>
+          <div class="hist-artist">${esc(h.artist || '')}</div>
+        </div>
+      </div>`).join('') : `<div class="sub" style="padding:6px 0">Nothing played yet</div>`;
+    root.innerHTML = `
+      <div class="card hist">
+        <div class="hist-head">Recently played · ${esc(d.station.name)}</div>
+        ${rows}
+        <div class="powered"><a href="${playerUrl(d)}" target="_blank" rel="noopener">TMCast ↗</a></div>
+      </div>`;
+  }
+
+  const RENDER = { nowplaying: renderNowPlaying, listeners: renderListeners, status: renderStatus, history: renderHistory };
+  const render = RENDER[type] || renderNowPlaying;
+  // history needs the richer per-station endpoint; the rest use the light alias
+  const endpoint = (type === 'history')
+    ? `/api/nowplaying/${encodeURIComponent(slug)}`
+    : `/api/nowplaying/${encodeURIComponent(slug)}`;
+
+  async function tick() {
+    try {
+      const d = await fetch(endpoint).then(r => r.json());
+      if (!d || !d.station) return;
+      // Skip needless re-render when nothing changed (except history which is cheap)
+      const key = type + '|' + d.live + '|' + d.listeners.current + '|' + (d.now_playing?.title || '') + '|' + (d.now_playing?.artist || '') + '|' + (d.song_history || []).map(h => h.title).join(',');
+      if (key === lastKey) return;
+      lastKey = key;
+      render(d);
+    } catch {}
+  }
+  tick();
+  setInterval(tick, type === 'listeners' || type === 'status' ? 8000 : 12000);
+</script>
+</body>
+</html>

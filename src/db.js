@@ -210,6 +210,13 @@ try { db.exec('ALTER TABLE media ADD COLUMN genre TEXT DEFAULT ""'); } catch {}
 // Full ProcessorSettings JSON per station (its own top-level `enabled` gates the chain).
 try { db.exec('ALTER TABLE stations ADD COLUMN processing TEXT DEFAULT ""'); } catch {}
 
+// ── DJ source priority (five-layer priority resolver) ──
+// role: 'studio' (Priority 2 — your main encoder) or 'guest' (Priority 1 — a
+// co-host that can take over above the studio feed). A guest source overrides a
+// live studio source; the studio waits underneath, muted, and resumes the moment
+// the guest disconnects. See startLiveSession() in server.js.
+try { db.exec("ALTER TABLE dj_accounts ADD COLUMN role TEXT DEFAULT 'studio'"); } catch {}
+
 // ── Scheduled Shows ──
 // Create scheduled_shows table for time-based show automation
 try {

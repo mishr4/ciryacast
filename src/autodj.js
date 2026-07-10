@@ -173,7 +173,27 @@ class AutoDJ {
     return Array.from(days).sort((a, b) => a - b);
   }
 
-  /** Pick the next track and start streaming it */
+  /**
+   * SMART FALLBACK RESOLVER — the core of AutoDJ.
+   *
+   * Five priority layers; the highest layer with audio wins, and each falls
+   * through to the next automatically so the station never goes dark:
+   *
+   *   P1  Guest DJ input   ─┐  live layers — handled in server.js: a live source
+   *   P2  Studio input     ─┘  pauses AutoDJ entirely (startLiveSession), so we
+   *                            only run when P1+P2 are both absent.
+   *   P3  Scheduled playlists — _getActiveScheduledShow(): a show scheduled for
+   *                            right now wins. PARTIAL schedules are fine — an
+   *                            empty slot simply returns null and falls through.
+   *   P4  Weighted rotation  — _buildQueue(): A-list/B-list/jingles/sweepers,
+   *                            each playlist weighted (CentovaCast-style).
+   *   P5  Random library     — _buildQueue() fallback: when no playlist has
+   *                            tracks, shuffle the whole library forever. Also
+   *                            the emergency floor — if everything above is
+   *                            empty we retry here rather than emit silence.
+   *
+   * Pick the next track along that ladder and start streaming it.
+   */
   _next(stationId) {
     const s = this.sessions.get(stationId);
     if (!s || !s.active) return;

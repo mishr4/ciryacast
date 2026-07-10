@@ -1226,7 +1226,7 @@ function generateStreamKey() {
 router.get('/stations/:id/dj-accounts', (req, res) => {
   const db = req.app.get('db');
   const accounts = db.prepare(
-    'SELECT id, station_id, username, stream_key, display_name, is_active, created_at, last_connected FROM dj_accounts WHERE station_id = ? ORDER BY created_at'
+    'SELECT id, station_id, username, stream_key, display_name, role, is_active, created_at, last_connected FROM dj_accounts WHERE station_id = ? ORDER BY created_at'
   ).all(req.params.id);
   res.json(accounts);
 });
@@ -1235,6 +1235,8 @@ router.get('/stations/:id/dj-accounts', (req, res) => {
 router.post('/stations/:id/dj-accounts', (req, res) => {
   const db = req.app.get('db');
   const { username, display_name } = req.body;
+  // role: 'studio' (Priority 2) or 'guest' (Priority 1 — takes over above studio)
+  const role = req.body.role === 'guest' ? 'guest' : 'studio';
   if (!username) return res.status(400).json({ error: 'Username is required' });
 
   const station = db.prepare('SELECT id FROM stations WHERE id = ?').get(req.params.id);
@@ -1248,8 +1250,8 @@ router.post('/stations/:id/dj-accounts', (req, res) => {
   const streamKey = generateStreamKey();
 
   db.prepare(
-    'INSERT INTO dj_accounts (id, station_id, username, stream_key, display_name) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, req.params.id, username, streamKey, display_name || username);
+    'INSERT INTO dj_accounts (id, station_id, username, stream_key, display_name, role) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, req.params.id, username, streamKey, display_name || username, role);
 
   const account = db.prepare('SELECT * FROM dj_accounts WHERE id = ?').get(id);
   res.status(201).json(account);
@@ -1259,10 +1261,12 @@ router.post('/stations/:id/dj-accounts', (req, res) => {
 router.put('/dj-accounts/:id', (req, res) => {
   const db = req.app.get('db');
   const { display_name, is_active } = req.body;
+  // Only accept a valid role; null leaves it unchanged (COALESCE)
+  const role = (req.body.role === 'guest' || req.body.role === 'studio') ? req.body.role : null;
 
   db.prepare(
-    'UPDATE dj_accounts SET display_name = COALESCE(?, display_name), is_active = COALESCE(?, is_active) WHERE id = ?'
-  ).run(display_name, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+    'UPDATE dj_accounts SET display_name = COALESCE(?, display_name), is_active = COALESCE(?, is_active), role = COALESCE(?, role) WHERE id = ?'
+  ).run(display_name, is_active !== undefined ? (is_active ? 1 : 0) : null, role, req.params.id);
 
   const account = db.prepare('SELECT * FROM dj_accounts WHERE id = ?').get(req.params.id);
   if (!account) return res.status(404).json({ error: 'Account not found' });

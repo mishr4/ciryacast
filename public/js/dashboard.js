@@ -1325,12 +1325,19 @@ async function refreshDJs() {
 
   el.innerHTML = `<table class="media-table">
     <thead><tr>
-      <th>DJ</th><th>Username</th><th>Stream Key</th><th>Status</th><th>Last Live</th><th style="width:150px">Actions</th>
+      <th>DJ</th><th>Username</th><th>Type</th><th>Stream Key</th><th>Status</th><th>Last Live</th><th style="width:150px">Actions</th>
     </tr></thead>
     <tbody>${accounts.map(a => `
       <tr>
         <td class="title-cell">${esc(a.display_name || a.username)}</td>
         <td class="dim" style="font-family:monospace;font-size:12px">${esc(a.username)}</td>
+        <td>
+          <span onclick="setDJRole('${a.id}','${a.role === 'guest' ? 'studio' : 'guest'}')"
+            title="Priority ${a.role === 'guest' ? '1 — a co-host that takes over above the Studio feed' : '2 — your main encoder'}. Click to switch."
+            style="cursor:pointer;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;${a.role === 'guest'
+              ? 'background:rgba(139,92,246,.16);color:#a78bfa'
+              : 'background:rgba(76,141,255,.16);color:#4C8DFF'}">${a.role === 'guest' ? 'Guest · P1' : 'Studio · P2'}</span>
+        </td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
             <code style="font-size:11px;background:#f5f5f5;padding:3px 8px;border-radius:6px;user-select:all">${esc(a.stream_key)}</code>
@@ -1418,6 +1425,14 @@ async function regenDJKey(id) {
 
 async function toggleDJ(id, active) {
   await api(`/dj-accounts/${id}`, { method: 'PUT', body: JSON.stringify({ is_active: !!active }) });
+  refreshDJs();
+}
+
+// Flip a DJ between Studio (Priority 2) and Guest (Priority 1). A guest source
+// takes over above a live studio feed and hands back when it disconnects.
+async function setDJRole(id, role) {
+  await api(`/dj-accounts/${id}`, { method: 'PUT', body: JSON.stringify({ role }) });
+  showToast(role === 'guest' ? 'Set to Guest DJ (Priority 1)' : 'Set to Studio (Priority 2)');
   refreshDJs();
 }
 

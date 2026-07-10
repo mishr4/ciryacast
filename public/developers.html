@@ -77,25 +77,45 @@
     <p class="muted-note">Also available: <code>/api/nowplaying</code> (all public stations) and <code>/api/nowplaying/:station</code> (with request queue + recently played).</p>
   </div>
 
-  <h2>Embed widget</h2>
+  <h2>Embeddable player</h2>
   <div class="card">
-    <p>A compact, auto-updating "now playing" card. Paste this anywhere:</p>
+    <p>A compact, auto-updating "now playing" card that opens the full player when clicked. Paste this anywhere:</p>
     <pre>&lt;iframe src="https://cast.tmc.gg/embed/one"
   width="380" height="88" frameborder="0"&gt;&lt;/iframe&gt;</pre>
-    <p class="muted-note">Themes: add <code>?theme=dark</code> or <code>?theme=transparent</code>. Clicking the widget opens the full player.</p>
+    <p class="muted-note">Themes: add <code>?theme=dark</code> or <code>?theme=transparent</code>.</p>
     <div class="embed-demo">
       <iframe src="/embed/one" title="Now playing"></iframe>
     </div>
   </div>
 
-  <h2>Audio stream</h2>
+  <h2>Embeddable widgets</h2>
+  <div class="card">
+    <p>Four self-updating widgets. One line — no iframe to size, the loader injects it for you:</p>
+    <pre>&lt;script src="https://cast.tmc.gg/widget.js"
+  data-station="one" data-type="nowplaying" data-theme="dark"&gt;&lt;/script&gt;</pre>
+    <p class="muted-note"><code>data-type</code>: <span class="pill">nowplaying</span> <span class="pill">listeners</span> <span class="pill">history</span> <span class="pill">status</span> · <code>data-theme</code>: <span class="pill">dark</span> <span class="pill">light</span> <span class="pill">transparent</span> · optional <code>data-width</code> / <code>data-height</code>.</p>
+    <p class="muted-note" style="margin-top:8px">Prefer a plain iframe? Each widget is also reachable directly at <code>/widget/:type/:station</code>.</p>
+    <div class="embed-demo" style="display:grid;gap:12px;grid-template-columns:1fr 1fr">
+      <iframe src="/widget/nowplaying/one?theme=dark" title="Now playing" style="height:80px"></iframe>
+      <iframe src="/widget/listeners/one?theme=dark" title="Listeners" style="height:82px"></iframe>
+      <iframe src="/widget/status/one?theme=dark" title="Stream status" style="height:68px"></iframe>
+      <iframe src="/widget/history/one?theme=dark" title="Recent history" style="height:236px"></iframe>
+    </div>
+  </div>
+
+  <h2>Audio stream &amp; directories</h2>
   <div class="card">
     <div><span class="method">GET</span><span class="path">/listen/<span class="pill">:station</span>/radio.mp3</span></div>
-    <p style="margin-top:10px">A standard MP3 stream — drop it into any <code>&lt;audio&gt;</code> tag, VLC, or media player.</p>
+    <p style="margin-top:10px">A standard Icecast-style MP3 stream — drop it into any <code>&lt;audio&gt;</code> tag, VLC, foobar2000 or a hardware player.</p>
     <pre>&lt;audio src="https://cast.tmc.gg/listen/one/radio.mp3" controls&gt;&lt;/audio&gt;</pre>
+    <p class="muted-note" style="margin-top:14px">Submitting to a directory (TuneIn, Radio Garden, a car stereo)? Use a playlist file instead:</p>
+    <pre>https://cast.tmc.gg/listen/one/radio.m3u   <span style="color:#6b7280"># M3U — VLC, most players</span>
+https://cast.tmc.gg/listen/one/radio.pls   <span style="color:#6b7280"># PLS — TuneIn &amp; directories</span></pre>
   </div>
 
   <p style="margin-top:40px" class="muted-note">TMCast · <a class="inline" href="https://tmc.gg" target="_blank">The Mavion Corporation</a></p>
 </div>
+
+<script src="/seehed-support.js" defer></script>
 </body>
 </html>

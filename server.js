@@ -60,8 +60,43 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 // Supports: PUT, POST, and SOURCE (legacy Icecast)
 // Auth: Basic auth — username "source", password = stream key
 // ════════════════════════════════════════════════════
+// liveSources.get(stationId) → the CURRENTLY ACTIVE live session. Displaced
+// sessions (e.g. a studio feed a guest took over) hang off `.under` as a stack,
+// muted, waiting to resume. api.js reads `.dj`/`.req` off the active session for
+// the live-status + kick endpoints, so those keep working unchanged.
 const liveSources = new Map();
 app.set('liveSources', liveSources);
+
+// Station-level live bookkeeping that must survive across a takeover/handback,
+// so only the FIRST source pauses AutoDJ / starts the recording and only the
+// LAST source to leave resumes AutoDJ / stops it.
+const preLiveAutoDJ = new Map();   // stationId → was AutoDJ running before live began
+const liveAutoRec = new Map();     // stationId → auto-recording id for this live period
+
+// ── Five-layer priority: which live source wins ──
+// Priority 1 = Guest DJ (a co-host that takes over on top), Priority 2 = Studio
+// (your main encoder). Lower number wins. A source can only take over one of
+// STRICTLY lower priority (a guest over a studio); it can never displace an
+// equal-or-higher one (no studio-over-guest, no second guest).
+function djPriority(dj) { return dj && dj.role === 'guest' ? 1 : 2; }
+
+// Decide whether an authenticated DJ may go live right now.
+//   { ok:true }              → free slot, start normally
+//   { ok:true, takeover:true } → higher-priority takeover of the active source
+//   { ok:false }             → blocked (409)
+function canGoLive(stationId, dj) {
+  const active = liveSources.get(stationId);
+  if (!active) return { ok: true };
+  if (djPriority(dj) < active.priority) return { ok: true, takeover: true };
+  return { ok: false };
+}
+
+function setLiveNowPlaying(stationId, label) {
+  streamEngine.setNowPlaying(stationId, {
+    title: 'Live Broadcast', artist: label,
+    album: '', duration: 0, media_id: null, artwork_url: '',
+  });
+}
 
 function authenticateDJByHeader(authHeader, stationId) {
   if (!authHeader || !authHeader.startsWith('Basic ')) return null;
@@ -120,53 +155,102 @@ async function lookupLiveArtwork(stationId, artist, title) {
   return art;
 }
 
-// Take a station live for an authenticated DJ. Returns a cleanup function.
-// `conn` must have .destroy() — an http req or a raw socket — so the
-// dashboard "kick DJ" action works for both source paths.
+// Take a station live for an authenticated DJ. Returns { push, cleanup }:
+//  - push(chunk): forward this source's audio ONLY while it's the active
+//    (highest-priority) session. A displaced source's audio is dropped, so it
+//    "waits underneath" silently until it becomes active again.
+//  - cleanup(): end this session; hand back to whatever is underneath, or go
+//    fully off-air and resume AutoDJ if this was the last source.
+// `conn` must have .destroy() — an http req or a raw socket — so the dashboard
+// "kick DJ" action works for both source paths.
 function startLiveSession(stationId, station, dj, conn) {
-  console.log(`  🎙 LIVE: ${dj.display_name || dj.username} → "${station.name}"`);
+  const label = dj.display_name || dj.username;
+  const priority = djPriority(dj);
+  const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  const existing = liveSources.get(stationId);
+  const session = { req: conn, dj, label, priority, key, under: existing || null };
 
-  const wasRunning = autoDJ.isRunning(stationId);
-  if (wasRunning) autoDJ.stop(stationId);
+  if (dj.id) db.prepare("UPDATE dj_accounts SET last_connected = datetime('now') WHERE id = ?").run(dj.id);
 
-  streamEngine.setLive(stationId, true);
-  db.prepare("UPDATE dj_accounts SET last_connected = datetime('now') WHERE id = ?").run(dj.id);
+  if (existing) {
+    // Higher-priority takeover (guest over studio). The existing session waits
+    // underneath, muted; AutoDJ is already stopped and the recording keeps
+    // rolling — one continuous capture of the whole live period.
+    console.log(`  🎙 TAKEOVER: ${label} (P${priority}) over ${existing.label} (P${existing.priority}) → "${station.name}"`);
+    liveSources.set(stationId, session);
+    setLiveNowPlaying(stationId, label);
+    broadcast('live_start', { stationId, dj: label, guest: priority === 1 });
+  } else {
+    // First / only live source — pause AutoDJ, go live, start the recording.
+    console.log(`  🎙 LIVE: ${label} → "${station.name}"`);
+    const wasRunning = autoDJ.isRunning(stationId);
+    if (wasRunning) autoDJ.stop(stationId);
+    preLiveAutoDJ.set(stationId, wasRunning);
+    streamEngine.setLive(stationId, true);
+    liveSources.set(stationId, session);
+    setLiveNowPlaying(stationId, label);
+    broadcast('live_start', { stationId, dj: label });
 
-  streamEngine.setNowPlaying(stationId, {
-    title: 'Live Broadcast',
-    artist: dj.display_name || dj.username,
-    album: '', duration: 0, media_id: null, artwork_url: '',
-  });
-
-  broadcast('live_start', { stationId, dj: dj.display_name || dj.username });
-  liveSources.set(stationId, { req: conn, dj, wasRunning });
-
-  // Auto-record every live broadcast (skipped if a manual recording is
-  // already running — that one keeps going and wins)
-  let autoRec = null;
-  if (!streamEngine.isRecording(stationId)) {
-    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    autoRec = streamEngine.startRecording(stationId, `Live — ${dj.display_name || dj.username} (${stamp} UTC)`);
+    if (!streamEngine.isRecording(stationId)) {
+      const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const rec = streamEngine.startRecording(stationId, `Live — ${label} (${stamp} UTC)`);
+      if (rec) liveAutoRec.set(stationId, rec.id);
+    }
   }
 
-  return function cleanup() {
-    if (!liveSources.has(stationId)) return; // already cleaned up
-    console.log(`  🎙 OFF: ${dj.display_name || dj.username} ← "${station.name}"`);
+  const push = (chunk) => {
+    const active = liveSources.get(stationId);
+    if (active && active.key === key) streamEngine.pushAudio(stationId, chunk);
+    // else: a higher-priority source is live — this one is muted underneath
+  };
+
+  return { push, cleanup: () => cleanupLiveSession(stationId, session, station) };
+}
+
+// End one live session, wherever it sits in the priority stack.
+function cleanupLiveSession(stationId, session, station) {
+  const active = liveSources.get(stationId);
+  if (!active) return; // station already fully off-air
+
+  if (active.key === session.key) {
+    if (session.under) {
+      // Hand back to the session waiting underneath (studio resumes after a guest).
+      const next = session.under;
+      console.log(`  🎙 HANDBACK: ${session.label} → ${next.label} on "${station.name}"`);
+      liveSources.set(stationId, next);
+      setLiveNowPlaying(stationId, next.label);
+      broadcast('live_start', { stationId, dj: next.label, handback: true });
+      return;
+    }
+    // Nobody underneath → the station goes off-air.
+    console.log(`  🎙 OFF: ${session.label} ← "${station.name}"`);
     liveSources.delete(stationId);
     streamEngine.setLive(stationId, false);
     broadcast('live_end', { stationId });
 
-    // Stop the auto-recording, but never a manual one started mid-show
+    // Stop the live-period auto-recording (never a manual one started mid-show).
+    const recId = liveAutoRec.get(stationId);
     const current = streamEngine.isRecording(stationId);
-    if (autoRec && current && current.id === autoRec.id) {
-      streamEngine.stopRecording(stationId);
-    }
+    if (recId && current && current.id === recId) streamEngine.stopRecording(stationId);
+    liveAutoRec.delete(stationId);
 
+    const wasRunning = preLiveAutoDJ.get(stationId);
+    preLiveAutoDJ.delete(stationId);
     if (wasRunning) {
       console.log(`  ▶ AutoDJ resuming: "${station.name}"`);
       autoDJ.start(stationId);
     }
-  };
+    return;
+  }
+
+  // Session is underneath the active one (e.g. the studio dropped while a guest
+  // is still live) — splice it out of the waiting chain, no audible change.
+  let cur = active;
+  while (cur.under && cur.under.key !== session.key) cur = cur.under;
+  if (cur.under && cur.under.key === session.key) {
+    console.log(`  🎙 UNDERNEATH LEFT: ${session.label} (behind ${active.label}) on "${station.name}"`);
+    cur.under = session.under;
+  }
 }
 
 function handleLiveSource(req, res, stationId) {
@@ -184,22 +268,20 @@ function handleLiveSource(req, res, stationId) {
     return;
   }
 
-  if (liveSources.has(stationId) || streamEngine.isLive(stationId)) {
+  if (!canGoLive(stationId, dj).ok) {
     res.writeHead(409);
     res.end('Another DJ is already live');
     return;
   }
 
-  const cleanup = startLiveSession(stationId, station, dj, req);
+  const { push, cleanup } = startLiveSession(stationId, station, dj, req);
 
   // Icecast clients wait for the 200 before streaming — flush it now
   res.writeHead(200, { 'Connection': 'keep-alive' });
   res.flushHeaders();
 
-  // Relay audio
-  req.on('data', (chunk) => {
-    streamEngine.pushAudio(stationId, chunk);
-  });
+  // Relay audio (muted automatically while a higher-priority source is live)
+  req.on('data', push);
 
   const endSession = () => {
     cleanup();
@@ -258,7 +340,7 @@ function handleIcecastSocket(socket) {
 
   socket.on('data', (chunk) => {
     if (headersDone) {
-      if (session) streamEngine.pushAudio(session.stationId, chunk);
+      if (session) session.push(chunk);
       return;
     }
 
@@ -307,7 +389,7 @@ function handleIcecastSocket(socket) {
       return;
     }
 
-    if (liveSources.has(stationId) || streamEngine.isLive(stationId)) {
+    if (!canGoLive(stationId, dj).ok) {
       socket.end('HTTP/1.0 409 Conflict\r\nConnection: Close\r\n\r\n');
       return;
     }
@@ -318,10 +400,10 @@ function handleIcecastSocket(socket) {
     }
     socket.write('HTTP/1.0 200 OK\r\nServer: TMCast/1.0\r\nAllow: GET, SOURCE\r\nCache-Control: no-cache\r\n\r\n');
 
-    const cleanup = startLiveSession(stationId, station, dj, socket);
-    session = { stationId, cleanup };
+    const { push, cleanup } = startLiveSession(stationId, station, dj, socket);
+    session = { stationId, cleanup, push };
 
-    if (earlyAudio.length) streamEngine.pushAudio(stationId, earlyAudio);
+    if (earlyAudio.length) push(earlyAudio);
   }
 
   function handleMetadataUpdate(rawPath, headers) {
@@ -453,6 +535,10 @@ function isPublicApiRoute(method, p) {
   return false; // all other PUT/PATCH/DELETE are protected
 }
 
+// ── Seehed CustomerSupport (public: AI chat + email escalation) — mounted BEFORE the
+//    admin auth gate so /api/seehed and /api/support are reachable by listeners. ──
+app.use('/api', require('./src/seehed'));
+
 app.use('/api', (req, res, next) => {
   if (!ADMIN_API_KEY) return next();                  // auth disabled
   if (isPublicApiRoute(req.method, req.path)) return next();
@@ -517,6 +603,47 @@ app.get('/listen/:stationId/radio.mp3', (req, res) => {
 
   streamEngine.addListener(station.id, res, skipBuffer);
   req.on('close', () => streamEngine.removeListener(station.id, res));
+});
+
+// ── Direct stream playlists (M3U / PLS) ──
+// Point VLC, car stereos, TuneIn, Radio Garden and any directory that accepts
+// a playlist file at the raw Icecast MP3 stream. Generated from the request
+// host so they work on any deployment/domain without config.
+function streamMp3Url(req, station) {
+  const slug = station.slug || station.id;
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  return `${proto}://${req.get('host')}/listen/${slug}/radio.mp3`;
+}
+
+app.get('/listen/:stationId/radio.m3u', (req, res) => {
+  const station = resolveStation(req.params.stationId);
+  if (!station) return res.status(404).send('Station not found');
+  const url = streamMp3Url(req, station);
+  // Extended M3U so players show the station name in their playlist UI
+  const body = `#EXTM3U\n#EXTINF:-1,${(station.name || 'TMCast').replace(/[\r\n]+/g, ' ')}\n${url}\n`;
+  res.set('Content-Type', 'audio/x-mpegurl');
+  res.set('Content-Disposition', `inline; filename="${station.slug || station.id}.m3u"`);
+  res.set('Access-Control-Allow-Origin', '*');
+  res.send(body);
+});
+
+app.get('/listen/:stationId/radio.pls', (req, res) => {
+  const station = resolveStation(req.params.stationId);
+  if (!station) return res.status(404).send('Station not found');
+  const url = streamMp3Url(req, station);
+  const body = [
+    '[playlist]',
+    'NumberOfEntries=1',
+    `File1=${url}`,
+    `Title1=${(station.name || 'TMCast').replace(/[\r\n]+/g, ' ')}`,
+    'Length1=-1',
+    'Version=2',
+    '',
+  ].join('\n');
+  res.set('Content-Type', 'audio/x-scpls');
+  res.set('Content-Disposition', `inline; filename="${station.slug || station.id}.pls"`);
+  res.set('Access-Control-Allow-Origin', '*');
+  res.send(body);
 });
 
 // ── Now Playing API (public — no auth) ──
@@ -751,6 +878,20 @@ app.get('/embed/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'embed.html'));
 });
 
+// ── Embeddable widgets (now-playing, listeners, history, status) ──
+// One page renders all four types by :type. Framed anywhere; the one-line
+// /widget.js loader injects the matching iframe. Unknown types fall back to
+// the now-playing widget rather than 404 so a typo still shows something.
+const WIDGET_TYPES = new Set(['nowplaying', 'listeners', 'history', 'status']);
+app.get('/widget/:type/:stationId', (req, res) => {
+  if (!WIDGET_TYPES.has(String(req.params.type).toLowerCase())) {
+    return res.redirect(`/widget/nowplaying/${encodeURIComponent(req.params.stationId)}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+  }
+  res.set('X-Frame-Options', 'ALLOWALL');
+  res.set('Content-Security-Policy', 'frame-ancestors *');
+  res.sendFile(path.join(__dirname, 'public', 'widget.html'));
+});
+
 // ── Developer / API docs ──
 app.get('/developers', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'developers.html'));
@@ -850,7 +991,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     const micDj = { id: null, username, display_name: username };
-    const endLiveSession = startLiveSession(stationId, station, micDj, {
+    const { push: pushMic, cleanup: endLiveSession } = startLiveSession(stationId, station, micDj, {
       destroy: () => { try { ws.close(); } catch {} },
     });
 
@@ -863,7 +1004,7 @@ wss.on('connection', (ws, req) => {
       if (chunk.length > 0) {
         if (liveBytesOut === 0) console.log(`  🎤 Live audio flowing: ${stationId}`);
         liveBytesOut += chunk.length;
-        streamEngine.pushLiveAudio(stationId, chunk);
+        pushMic(chunk);
       }
     });
 

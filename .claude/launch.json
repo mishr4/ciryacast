@@ -5,7 +5,7 @@
       "name": "tmcast",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server.js"],
-      "port": 8466
+      "port": 8420
     }
   ]
 }
