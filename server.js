@@ -696,6 +696,10 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
   const relays = app.get('streamRelays');
   const relay = relays && relays.get(station.id);
 
+  // Current scheduled programme (e.g. "K-Pop Hour"), so the player can show
+  // "ON NOW · K-Pop Hour" above the track. Independent of what's playing.
+  const show = autoDJ.activeShow(station.id);
+
   res.json({
     station: {
       id: station.id,
@@ -709,6 +713,7 @@ app.get('/api/nowplaying/:stationId', (req, res) => {
     listeners: { current: streamEngine.getListenerCount(station.id) },
     live: streamEngine.isLive(station.id),
     simulcast: relay ? { partner: relay.partner || null } : null,
+    programme: show ? { title: show.title, description: show.description || '' } : null,
     listen_url: `/listen/${station.slug || station.id}/radio.mp3`,
     request_queue: pendingRequests,
     song_history: history,

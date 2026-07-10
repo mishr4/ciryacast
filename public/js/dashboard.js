@@ -867,6 +867,113 @@ async function addSearchedSong(i) {
   }
 }
 
+// ════════════════════════════════════
+// ADD TO PLAYLIST — a prompted picker straight from the media library. Tap a
+// song's playlist button, tick the playlists it belongs to (live add/remove),
+// or spin up a new playlist on the spot. Beats hunting through the Playlists
+// tab for every track.
+// ════════════════════════════════════
+let _pickerMediaId = null;
+
+function ensurePlaylistPicker() {
+  if (document.getElementById('pl-picker-overlay')) return;
+  const el = document.createElement('div');
+  el.id = 'pl-picker-overlay';
+  el.style.cssText = 'position:fixed;inset:0;z-index:1001;display:none;align-items:flex-start;justify-content:center;background:rgba(10,10,12,.55);backdrop-filter:blur(4px);padding:8vh 16px 16px';
+  el.innerHTML = `
+    <div style="width:100%;max-width:440px;background:#fff;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column;max-height:80vh">
+      <div style="display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid rgba(0,0,0,.07)">
+        <div style="flex:1;min-width:0">
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#111">Add to playlist</div>
+          <div id="pl-picker-sub" style="font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+        </div>
+        <button onclick="closePlaylistPicker()" style="width:36px;height:36px;border:none;border-radius:10px;background:#f2f2f4;color:#666;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+      </div>
+      <div id="pl-picker-list" style="padding:10px 12px;overflow-y:auto"></div>
+      <div style="padding:12px 16px;border-top:1px solid rgba(0,0,0,.07)">
+        <button class="btn btn-ghost btn-sm" onclick="createPlaylistAndAdd()" style="width:100%">＋ New playlist…</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) closePlaylistPicker(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && el.style.display === 'flex') closePlaylistPicker();
+  });
+}
+
+async function openPlaylistPicker(mediaId) {
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) { toast('Pick a station first', 'error'); return; }
+  _pickerMediaId = mediaId;
+  ensurePlaylistPicker();
+  const el = document.getElementById('pl-picker-overlay');
+  el.style.display = 'flex';
+  const song = (allMedia || []).find(m => m.id === mediaId);
+  document.getElementById('pl-picker-sub').textContent = song ? `${song.title || song.original_name}${song.artist ? ' — ' + song.artist : ''}` : '';
+  document.getElementById('pl-picker-list').innerHTML = '<div style="text-align:center;color:#999;padding:24px">Loading…</div>';
+  await renderPlaylistPicker();
+}
+function closePlaylistPicker() { const el = document.getElementById('pl-picker-overlay'); if (el) el.style.display = 'none'; }
+
+async function renderPlaylistPicker() {
+  const sid = currentStationId;
+  const [pls, member] = await Promise.all([
+    api(`/stations/${sid}/playlists`),
+    api(`/media/${_pickerMediaId}/playlists`),
+  ]);
+  const memberSet = new Set(member || []);
+  const box = document.getElementById('pl-picker-list');
+  if (!box) return;
+  if (!pls || !pls.length) {
+    box.innerHTML = '<div style="text-align:center;color:#999;padding:24px 12px">No playlists yet — create one below.</div>';
+    return;
+  }
+  box.innerHTML = pls.map(p => {
+    const on = memberSet.has(p.id);
+    const meta = (p.type && p.type !== 'music') ? p.type : `weight ${p.weight || 1}`;
+    return `
+      <button class="pl-pick-row" data-id="${p.id}" data-on="${on ? 1 : 0}" onclick="togglePlaylistMember('${p.id}')"
+        style="width:100%;display:flex;align-items:center;gap:12px;padding:11px 12px;margin-bottom:2px;border:none;background:${on ? 'rgba(76,141,255,.08)' : 'transparent'};border-radius:12px;cursor:pointer;text-align:left">
+        <span class="pl-check" style="width:22px;height:22px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;${on ? 'background:#4C8DFF;color:#fff' : 'background:#eee;color:transparent'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" style="width:13px;height:13px"><polyline points="20 6 9 17 4 12"/></svg>
+        </span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:14px;font-weight:600;color:#111">${esc(p.name)}</span>
+          <span style="display:block;font-size:11px;color:#999">${esc(meta)} · ${p.item_count || 0} track${(p.item_count || 0) !== 1 ? 's' : ''}</span>
+        </span>
+      </button>`;
+  }).join('');
+}
+
+async function togglePlaylistMember(plId) {
+  const row = document.querySelector(`.pl-pick-row[data-id="${plId}"]`);
+  const on = row && row.dataset.on === '1';
+  try {
+    if (on) {
+      await api(`/playlists/${plId}/items/${_pickerMediaId}`, { method: 'DELETE' });
+      toast('Removed from playlist', 'info');
+    } else {
+      await api(`/playlists/${plId}/items`, { method: 'POST', body: JSON.stringify({ media_ids: [_pickerMediaId] }) });
+      toast('Added to playlist', 'success');
+    }
+    await renderPlaylistPicker();
+  } catch { toast('Could not update playlist', 'error'); }
+}
+
+async function createPlaylistAndAdd() {
+  const name = prompt('New playlist name:');
+  if (!name || !name.trim()) return;
+  const sid = currentStationId;
+  const pl = await api(`/stations/${sid}/playlists`, { method: 'POST', body: JSON.stringify({ name: name.trim() }) });
+  if (pl && pl.id) {
+    await api(`/playlists/${pl.id}/items`, { method: 'POST', body: JSON.stringify({ media_ids: [_pickerMediaId] }) });
+    toast(`Created “${pl.name}” and added the song`, 'success');
+    await renderPlaylistPicker();
+  } else {
+    toast('Could not create playlist', 'error');
+  }
+}
+
 function renderMediaTable(media) {
   document.getElementById('media-count').textContent = `${media.length} files`;
   if (media.length === 0) {
@@ -911,6 +1018,9 @@ function renderMediaTable(media) {
                 </button>
                 <button class="btn btn-ghost btn-sm" onclick="addToQueue('${m.id}')" title="Add to Queue">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="openPlaylistPicker('${m.id}')" title="Add to playlist">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><line x1="3" y1="6" x2="14" y2="6"/><line x1="3" y1="12" x2="14" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><line x1="18" y1="10" x2="18" y2="18"/><line x1="14" y1="14" x2="22" y2="14"/></svg>
                 </button>
                 <button class="btn btn-ghost btn-sm" onclick="speedUpMedia('${m.id}')" title="Make a sped-up version">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>

@@ -785,6 +785,14 @@ router.delete('/playlists/:id/items/:mediaId', (req, res) => {
   res.json({ ok: true, removed: r.changes });
 });
 
+// Which playlists is a given track in? Powers the media library's
+// "Add to playlist" picker (shows a check next to playlists it already belongs to).
+router.get('/media/:id/playlists', (req, res) => {
+  const db = req.app.get('db');
+  const rows = db.prepare('SELECT playlist_id FROM playlist_items WHERE media_id = ?').all(req.params.id);
+  res.json(rows.map(r => r.playlist_id));
+});
+
 // Update media folder/genre
 router.patch('/media/:id/meta', (req, res) => {
   const db = req.app.get('db');

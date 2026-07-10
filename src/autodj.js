@@ -84,6 +84,13 @@ class AutoDJ {
 
   isRunning(id) { return this.sessions.has(id); }
 
+  /** The scheduled show active on this station right now, or null. Public so the
+   *  now-playing API can surface the current programme (e.g. "K-Pop Hour") on
+   *  the player, independent of whether AutoDJ is the one running. */
+  activeShow(stationId) {
+    try { return this._getActiveScheduledShow(stationId); } catch { return null; }
+  }
+
   playNow(stationId, mediaId) {
     const s = this.sessions.get(stationId);
     if (!s) return false;

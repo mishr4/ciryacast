@@ -143,6 +143,8 @@
   .badge-live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
   @keyframes livePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.72; } }
   .badge-req { color: var(--accent); background: var(--accent-soft); }
+  .badge-show { color: #0a0a0b; background: var(--accent); }
+  .badge-show::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #0a0a0b; opacity: .55; }
   .badge-listeners { color: var(--ink-2); background: rgba(255,255,255,0.05); border: 1px solid var(--line-2); }
   .badge-listeners .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px rgba(52,211,153,0.6); animation: pulse 2s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
@@ -338,6 +340,7 @@
     </div>
 
     <div class="badges">
+      <span class="badge badge-show hidden" id="programme-badge"></span>
       <span class="badge badge-live hidden" id="live-badge">Live</span>
       <span class="badge badge-req hidden" id="request-badge">Listener Request</span>
       <span class="badge badge-listeners"><span class="dot"></span><span id="listener-count">0</span> listening</span>
@@ -673,6 +676,15 @@
 
     currentTrack = np ? { title: np.title, artist: np.artist } : null;
     updateDownloadBtn(np, data.live);
+
+    // Current scheduled programme (e.g. "K-Pop Hour") — shown even between tracks.
+    const showBadge = document.getElementById('programme-badge');
+    if (data.programme && data.programme.title) {
+      showBadge.textContent = 'On now · ' + data.programme.title;
+      showBadge.classList.remove('hidden');
+    } else {
+      showBadge.classList.add('hidden');
+    }
 
     if (np) {
       const newMediaId = np.media_id || null;
