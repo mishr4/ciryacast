@@ -138,6 +138,75 @@ async function normalizeAudio(filePath) {
   }
 }
 
+// ── Server-side song fetch from the DDL service ──
+// The player's Download button links a browser straight to the DDL endpoint
+// (the browser passes Cloudflare). For "Search & Add" we pull the file
+// server-side. The DDL host sits behind a Cloudflare challenge, so a plain
+// datacenter fetch can be blocked (403) unless the server's IP is allow-listed
+// or a bypass credential is supplied — hence the env hooks below.
+const DDL_BASE = process.env.DDL_BASE || 'https://ddl.synkradio.co.uk/listen';
+const DDL_UA = process.env.DDL_USER_AGENT ||
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+const DDL_MAX_BYTES = 80 * 1024 * 1024; // hard cap on a single download
+
+// Identify audio by magic bytes — robust against a Cloudflare/HTML response
+// that arrives with a misleading content-type.
+function sniffAudio(buf) {
+  if (!buf || buf.length < 1024) return null;
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return { ext: 'mp3', mime: 'audio/mpeg' };  // ID3
+  if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) return { ext: 'mp3', mime: 'audio/mpeg' };            // MPEG frame
+  if (buf[0] === 0x66 && buf[1] === 0x4C && buf[2] === 0x61 && buf[3] === 0x43) return { ext: 'flac', mime: 'audio/flac' }; // fLaC
+  if (buf[0] === 0x4F && buf[1] === 0x67 && buf[2] === 0x67 && buf[3] === 0x53) return { ext: 'ogg', mime: 'audio/ogg' };   // OggS
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return { ext: 'wav', mime: 'audio/wav' };   // RIFF/WAV
+  return null;
+}
+
+// Fetch a track from the DDL service. Returns
+//   { ok:true, buffer, ext, mime }              on success
+//   { ok:false, reason, status }                on failure (reason: blocked|not_audio|too_big|http)
+async function fetchFromDDL(artist, title) {
+  const url = `${DDL_BASE}?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`;
+  const headers = {
+    'User-Agent': DDL_UA,
+    'Accept': 'audio/*,application/octet-stream,*/*;q=0.8',
+    'Referer': process.env.DDL_REFERER || 'https://synkradio.co.uk/',
+  };
+  // Optional Cloudflare-bypass credentials, set on the production host.
+  if (process.env.DDL_COOKIE) headers['Cookie'] = process.env.DDL_COOKIE;
+  if (process.env.DDL_AUTH_HEADER) {
+    const i = process.env.DDL_AUTH_HEADER.indexOf(':');
+    if (i > 0) headers[process.env.DDL_AUTH_HEADER.slice(0, i).trim()] = process.env.DDL_AUTH_HEADER.slice(i + 1).trim();
+  }
+
+  const resp = await fetch(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(90000) });
+  const clen = Number(resp.headers.get('content-length') || 0);
+  if (clen && clen > DDL_MAX_BYTES) return { ok: false, reason: 'too_big', status: resp.status };
+
+  const buf = Buffer.from(await resp.arrayBuffer());
+  if (buf.length > DDL_MAX_BYTES) return { ok: false, reason: 'too_big', status: resp.status };
+
+  const kind = sniffAudio(buf);
+  if (!resp.ok || !kind) {
+    // Cloudflare challenge pages / error pages are HTML.
+    const head = buf.slice(0, 200).toString('latin1').toLowerCase();
+    const blocked = head.includes('<!doctype') || head.includes('<html') || head.includes('cloudflare') || resp.status === 403;
+    return { ok: false, reason: blocked ? 'blocked' : (resp.ok ? 'not_audio' : 'http'), status: resp.status };
+  }
+  return { ok: true, buffer: buf, ext: kind.ext, mime: kind.mime };
+}
+
+// Best-effort artwork enrichment from Deezer (metadata only). Fire-and-forget.
+async function enrichArtworkFromDeezer(db, mediaId, artist, title) {
+  try {
+    const q = encodeURIComponent(`${artist} ${title}`.trim());
+    const r = await fetch(`https://api.deezer.com/search?q=${q}&limit=1`, { signal: AbortSignal.timeout(8000) });
+    const data = await r.json();
+    const t = data.data?.[0];
+    const art = t?.album?.cover_big || t?.album?.cover_medium || '';
+    if (art) db.prepare('UPDATE media SET artwork_url = ? WHERE id = ? AND (artwork_url IS NULL OR artwork_url = "")').run(art, mediaId);
+  } catch {}
+}
+
 // ── Password hashing (scrypt, no external deps) ──
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -962,6 +1031,105 @@ router.get('/search', async (req, res) => {
     console.log('  ⚠ Search error:', e.message);
     res.json([]);
   }
+});
+
+// ════════════════════════════════════
+// SEARCH & ADD — pull a searched track into the library via the DDL service
+// (admin/staff only: protected by the API-key gate when ADMIN_API_KEY is set).
+// Downloads the file, tags it from its own metadata (falling back to the
+// search result), loudness-normalizes, and drops it into the default playlist
+// — so it's instantly playable by AutoDJ.
+// ════════════════════════════════════
+router.post('/stations/:id/add-song', async (req, res) => {
+  const db = req.app.get('db');
+  const stationId = resolveStationId(db, req.params.id);
+  if (!stationId) return res.status(404).json({ error: 'Station not found' });
+
+  let { artist, title, album, artwork_url, deezer_id } = req.body || {};
+  artist = String(artist || '').trim();
+  title = String(title || '').trim();
+  if (!artist || !title) return res.status(400).json({ error: 'artist and title are required' });
+
+  // Already in the library? Don't download it twice.
+  const dupe = db.prepare(
+    'SELECT id FROM media WHERE station_id = ? AND LOWER(title) = LOWER(?) AND LOWER(artist) = LOWER(?)'
+  ).get(stationId, title, artist);
+  if (dupe) return res.status(409).json({ error: 'That track is already in the library', media_id: dupe.id });
+
+  if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+  // 1) Download from the DDL service
+  let dl;
+  try {
+    dl = await fetchFromDDL(artist, title);
+  } catch (e) {
+    console.log(`  ⚠ Add-song fetch failed: ${e.message}`);
+    return res.status(504).json({ error: `The download service didn't respond in time. Try again.` });
+  }
+  if (!dl.ok) {
+    console.log(`  ⚠ Add-song blocked: ${artist} — ${title} (${dl.reason}/${dl.status})`);
+    const map = {
+      blocked: "The download service blocked the server (Cloudflare challenge). Allow-list this server's IP at the DDL host, or set DDL_COOKIE / DDL_AUTH_HEADER.",
+      not_audio: 'The download service didn\'t return an audio file for that track.',
+      too_big: 'That file is too large to import.',
+      http: `The download service returned an error (${dl.status}).`,
+    };
+    return res.status(502).json({ error: map[dl.reason] || 'Download failed', reason: dl.reason });
+  }
+
+  // 2) Save it
+  const id = uuid();
+  const filename = `${id}.${dl.ext}`;
+  const filePath = path.join(MEDIA_DIR, filename);
+  try {
+    fs.writeFileSync(filePath, dl.buffer);
+  } catch (e) {
+    return res.status(500).json({ error: `Could not save the file: ${e.message}` });
+  }
+
+  // 3) Tag it — prefer the file's own metadata, fall back to the search result
+  let fTitle = title, fArtist = artist, fAlbum = album || '', duration = 0;
+  const mm = await getMetadataParser();
+  if (mm) {
+    try {
+      const meta = await mm.parseFile(filePath);
+      if (meta.common.title) fTitle = meta.common.title;
+      if (meta.common.artist) fArtist = meta.common.artist;
+      if (meta.common.album) fAlbum = meta.common.album;
+      if (meta.format.duration) duration = Math.round(meta.format.duration);
+    } catch (e) {
+      console.log(`  ⚠ Add-song metadata parse: ${e.message}`);
+    }
+  }
+  ({ title: fTitle, artist: fArtist } = cleanTrackMeta(fTitle, fArtist));
+
+  // 4) Loudness pre-normalize (baked in at import; no-ops if ffmpeg is absent)
+  await normalizeAudio(filePath);
+  const size = fs.statSync(filePath).size;
+
+  // 5) Insert + auto-add to the default playlist
+  try {
+    db.prepare(`
+      INSERT INTO media (id, station_id, filename, original_name, title, artist, album, duration, size, mime_type, artwork_url, tm_track_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, stationId, filename, `${fArtist} - ${fTitle}.${dl.ext}`, fTitle, fArtist, fAlbum, duration, size, dl.mime, artwork_url || '', deezer_id || '');
+
+    const pl = db.prepare('SELECT id FROM playlists WHERE station_id = ? AND is_default = 1').get(stationId);
+    if (pl) {
+      const mo = db.prepare('SELECT MAX(sort_order) m FROM playlist_items WHERE playlist_id = ?').get(pl.id)?.m || 0;
+      db.prepare('INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)').run(uuid(), pl.id, id, mo + 1);
+    }
+  } catch (e) {
+    try { fs.unlinkSync(filePath); } catch {}
+    return res.status(500).json({ error: `Could not save the track: ${e.message}` });
+  }
+
+  // 6) Fill in cover art if the search result didn't carry one
+  if (!artwork_url) enrichArtworkFromDeezer(db, id, fArtist, fTitle).catch(() => {});
+
+  req.app.get('broadcast')('media_uploaded', { stationId, count: 1 });
+  console.log(`  ⬇ Added via DDL: ${fArtist} — ${fTitle} (${(size / 1024 / 1024).toFixed(1)}MB)`);
+  res.status(201).json({ ok: true, media_id: id, title: fTitle, artist: fArtist, album: fAlbum, duration, artwork_url: artwork_url || '' });
 });
 
 // ════════════════════════════════════

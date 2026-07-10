@@ -721,6 +721,7 @@ async function refreshMedia() {
   const nameEl = document.getElementById('media-station-name');
   if (nameEl) nameEl.textContent = stName ? `— ${stName.name}` : '';
 
+  ensureAddSongButton();
   allMedia = await api(`/stations/${currentStationId}/media`) || [];
   renderMediaTable(allMedia);
 }
@@ -735,6 +736,135 @@ function filterMedia(q) {
     (m.original_name || '').toLowerCase().includes(lower)
   );
   renderMediaTable(filtered);
+}
+
+// ════════════════════════════════════
+// SEARCH & ADD SONGS — search a catalogue, click Add, and the server pulls the
+// track via the DDL service, tags it, and drops it into the library, ready to
+// play. The button is injected into the Media Library header (keeps index.html
+// untouched); the overlay is built on first use.
+// ════════════════════════════════════
+let _songSearchTimer = null;
+
+function ensureAddSongButton() {
+  const countBadge = document.getElementById('media-count');
+  if (!countBadge || document.getElementById('btn-search-add')) return;
+  const btn = document.createElement('button');
+  btn.id = 'btn-search-add';
+  btn.className = 'btn btn-primary btn-sm';
+  btn.title = 'Search and add songs to the library';
+  btn.style.cssText = 'display:inline-flex;align-items:center;gap:6px';
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg> Search & Add';
+  btn.onclick = openSongSearch;
+  countBadge.parentNode.insertBefore(btn, countBadge);
+}
+
+function ensureSongSearchOverlay() {
+  if (document.getElementById('song-search-overlay')) return;
+  const el = document.createElement('div');
+  el.id = 'song-search-overlay';
+  el.style.cssText = 'position:fixed;inset:0;z-index:1000;display:none;align-items:flex-start;justify-content:center;background:rgba(10,10,12,.55);backdrop-filter:blur(4px);padding:6vh 16px 16px';
+  el.innerHTML = `
+    <div style="width:100%;max-width:560px;background:#fff;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column;max-height:84vh">
+      <div style="display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid rgba(0,0,0,.07)">
+        <div style="flex:1">
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:600;color:#111">Search &amp; Add Songs</div>
+          <div style="font-size:12px;color:#888">Find a track, click Add — it downloads, tags, and lands in the library.</div>
+        </div>
+        <button onclick="closeSongSearch()" style="width:36px;height:36px;border:none;border-radius:10px;background:#f2f2f4;color:#666;font-size:20px;cursor:pointer;line-height:1">&times;</button>
+      </div>
+      <div style="padding:16px 20px 8px">
+        <input id="song-search-input" type="text" autocomplete="off" placeholder="Search by song or artist…"
+          style="width:100%;padding:12px 14px;border:1.5px solid rgba(0,0,0,.12);border-radius:12px;font-size:15px;outline:none">
+      </div>
+      <div id="song-search-results" style="padding:8px 20px 20px;overflow-y:auto"></div>
+    </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) closeSongSearch(); });
+  const input = el.querySelector('#song-search-input');
+  input.addEventListener('input', () => {
+    clearTimeout(_songSearchTimer);
+    const q = input.value.trim();
+    if (q.length < 2) { document.getElementById('song-search-results').innerHTML = songSearchHint('Type at least 2 characters'); return; }
+    document.getElementById('song-search-results').innerHTML = songSearchHint('Searching…');
+    _songSearchTimer = setTimeout(() => doSongSearch(q), 350);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && el.style.display === 'flex') closeSongSearch();
+  });
+}
+
+function songSearchHint(text) {
+  return `<div style="text-align:center;color:#999;font-size:14px;padding:28px 10px">${esc(text)}</div>`;
+}
+
+function openSongSearch() {
+  ensureSongSearchOverlay();
+  const el = document.getElementById('song-search-overlay');
+  el.style.display = 'flex';
+  document.getElementById('song-search-results').innerHTML = songSearchHint('Start typing to search');
+  const input = document.getElementById('song-search-input');
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+function closeSongSearch() {
+  const el = document.getElementById('song-search-overlay');
+  if (el) el.style.display = 'none';
+}
+
+async function doSongSearch(q) {
+  let results = [];
+  try { results = await api(`/search?q=${encodeURIComponent(q)}`) || []; } catch { results = []; }
+  const box = document.getElementById('song-search-results');
+  if (!box) return;
+  if (!results.length) { box.innerHTML = songSearchHint('No matches found'); return; }
+  box.innerHTML = results.map((t, i) => {
+    window._songResults = window._songResults || {};
+    window._songResults[i] = t;
+    const note = '<svg viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2" style="width:20px;height:20px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+    return `
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(0,0,0,.05)">
+        <div style="width:46px;height:46px;border-radius:9px;background:#eee;flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden">
+          ${t.album_art ? `<img src="${esc(t.album_art)}" alt="" style="width:100%;height:100%;object-fit:cover" onerror="this.remove()">` : note}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.title)}</div>
+          <div style="font-size:12px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.artist)}${t.album_name ? ' · ' + esc(t.album_name) : ''}</div>
+        </div>
+        <button id="add-song-${i}" class="btn btn-primary btn-sm" onclick="addSearchedSong(${i})" style="flex-shrink:0">＋ Add</button>
+      </div>`;
+  }).join('');
+}
+
+async function addSearchedSong(i) {
+  const t = (window._songResults || {})[i];
+  const btn = document.getElementById(`add-song-${i}`);
+  if (!t) return;
+  const sid = currentStationId || stations?.[0]?.id;
+  if (!sid) { toast('Pick a station first', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; btn.style.opacity = '.7'; }
+  try {
+    const res = await fetch(`/api/stations/${sid}/add-song`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ artist: t.artist, title: t.title, album: t.album_name || '', artwork_url: t.album_art || '', deezer_id: t.deezer_id || '' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      if (btn) { btn.textContent = '✓ Added'; btn.style.background = '#22a06b'; btn.style.opacity = '1'; }
+      toast(`Added: ${data.artist} — ${data.title}`, 'success');
+      refreshMedia();
+    } else if (res.status === 409) {
+      if (btn) { btn.textContent = 'In library'; btn.style.opacity = '.6'; }
+      toast(data.error || 'Already in the library', 'info');
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = '＋ Add'; btn.style.opacity = '1'; }
+      toast(data.error || 'Could not add that track', 'error');
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = '＋ Add'; btn.style.opacity = '1'; }
+    toast('Add failed — network error', 'error');
+  }
 }
 
 function renderMediaTable(media) {
