@@ -245,7 +245,7 @@ $("#login-form").onsubmit = async event => {
         $("#setup-password").required = true;
         $("#setup-password-confirm").required = true;
         $("#login-submit").textContent = "Create password";
-        $("#login-note").textContent = `Secure ${result.email} with a password of at least 12 characters.`;
+        $("#login-note").textContent = `Secure ${result.email} with a password of at least 10 characters.`;
         $("#setup-password").focus();
         return;
       }

@@ -94,7 +94,7 @@ app.post("/api/auth/setup-password", (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(req.session.passwordSetupUserId);
   if (!user || user.password_hash) return res.status(403).json({ error: "Password setup is not available." });
   const password = String(req.body.password || "");
-  if (password.length < 12) return res.status(400).json({ error: "Use at least 12 characters." });
+  if (password.length < 10) return res.status(400).json({ error: "Use at least 10 characters." });
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(bcrypt.hashSync(password, 12), user.id);
   req.session.userId = user.id;
   delete req.session.passwordSetupUserId;
