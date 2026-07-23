@@ -225,6 +225,8 @@ try { db.exec('ALTER TABLE playlists ADD COLUMN is_enabled INTEGER DEFAULT 1'); 
 try { db.exec('ALTER TABLE media ADD COLUMN folder TEXT DEFAULT ""'); } catch {}
 // genre tag for individual tracks
 try { db.exec('ALTER TABLE media ADD COLUMN genre TEXT DEFAULT ""'); } catch {}
+try { db.exec('ALTER TABLE media_folders ADD COLUMN jingle_mode TEXT DEFAULT "off"'); } catch {}
+try { db.exec('ALTER TABLE media_folders ADD COLUMN playlist_id TEXT DEFAULT ""'); } catch {}
 
 // ── On-air processing (Spectra air-chain) ──
 // Full ProcessorSettings JSON per station (its own top-level `enabled` gates the chain).

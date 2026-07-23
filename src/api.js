@@ -30,6 +30,45 @@ function isEmailBanned(db, email) {
 }
 
 const BAN_MESSAGE = 'You have been banned from TMCast and Mavion services.';
+const JINGLE_INTERVALS = { light: 6, standard: 3, frequent: 1 };
+
+function syncFolderJinglePlaylist(db, stationId, folderName) {
+  const folder = db.prepare(
+    'SELECT * FROM media_folders WHERE station_id = ? AND name = ?'
+  ).get(stationId, folderName);
+  if (!folder) return;
+
+  let playlistId = folder.playlist_id || '';
+  if (folder.jingle_mode === 'off') {
+    if (playlistId) db.prepare('UPDATE playlists SET is_enabled = 0 WHERE id = ?').run(playlistId);
+    return;
+  }
+
+  const every = JINGLE_INTERVALS[folder.jingle_mode] || 3;
+  if (!playlistId || !db.prepare('SELECT id FROM playlists WHERE id = ?').get(playlistId)) {
+    playlistId = uuid();
+    db.prepare(`
+      INSERT INTO playlists (id, station_id, name, weight, type, schedule_rule, play_every_n, play_mode, is_enabled)
+      VALUES (?, ?, ?, 1, 'jingles', 'every_N_songs', ?, 'shuffle', 1)
+    `).run(playlistId, stationId, `Jingles - ${folder.name}`, every);
+    db.prepare('UPDATE media_folders SET playlist_id = ? WHERE id = ?').run(playlistId, folder.id);
+  } else {
+    db.prepare(`
+      UPDATE playlists SET name = ?, type = 'jingles', schedule_rule = 'every_N_songs',
+        play_every_n = ?, play_mode = 'shuffle', is_enabled = 1
+      WHERE id = ?
+    `).run(`Jingles - ${folder.name}`, every, playlistId);
+  }
+
+  db.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(playlistId);
+  const media = db.prepare(
+    'SELECT id FROM media WHERE station_id = ? AND folder = ? ORDER BY uploaded_at'
+  ).all(stationId, folder.name);
+  const insert = db.prepare(
+    'INSERT INTO playlist_items (id, playlist_id, media_id, sort_order) VALUES (?, ?, ?, ?)'
+  );
+  media.forEach((item, index) => insert.run(uuid(), playlistId, item.id, index));
+}
 
 // ── Track metadata cleanup ──
 // YouTube-sourced files carry junk tags: artist = a channel name like
@@ -797,6 +836,7 @@ router.get('/media/:id/playlists', (req, res) => {
 router.patch('/media/:id/meta', (req, res) => {
   const db = req.app.get('db');
   const { folder, genre, title, artist, album } = req.body;
+  const before = db.prepare('SELECT station_id, folder FROM media WHERE id = ?').get(req.params.id);
 
   db.prepare(`
     UPDATE media SET
@@ -810,29 +850,49 @@ router.patch('/media/:id/meta', (req, res) => {
 
   const media = db.prepare('SELECT * FROM media WHERE id = ?').get(req.params.id);
   if (!media) return res.status(404).json({ error: 'Media not found' });
+  if (before?.folder) syncFolderJinglePlaylist(db, before.station_id, before.folder);
+  if (media.folder && media.folder !== before?.folder) {
+    syncFolderJinglePlaylist(db, media.station_id, media.folder);
+  }
   res.json(media);
 });
 
 // List unique folders for a station
 router.get('/stations/:id/folders', (req, res) => {
   const db = req.app.get('db');
-  const folders = db.prepare(`
+  const names = db.prepare(`
     SELECT name FROM media_folders WHERE station_id = ?
     UNION
     SELECT folder AS name FROM media WHERE station_id = ? AND folder != ''
     ORDER BY name
   `).all(req.params.id, req.params.id).map(r => r.name);
+  const folders = names.map(name => {
+    const row = db.prepare(
+      'SELECT id, jingle_mode, playlist_id FROM media_folders WHERE station_id = ? AND name = ?'
+    ).get(req.params.id, name);
+    const count = db.prepare(
+      'SELECT COUNT(*) AS count FROM media WHERE station_id = ? AND folder = ?'
+    ).get(req.params.id, name).count;
+    return { name, count, jingle_mode: row?.jingle_mode || 'off' };
+  });
   res.json(folders);
 });
 
 router.post('/stations/:id/folders', (req, res) => {
   const db = req.app.get('db');
   const name = String(req.body?.name || '').trim().slice(0, 80);
+  const jingleMode = String(req.body?.jingle_mode || 'off');
   if (!name) return res.status(400).json({ error: 'Folder name required' });
+  if (jingleMode !== 'off' && !JINGLE_INTERVALS[jingleMode]) {
+    return res.status(400).json({ error: 'Invalid jingle mode' });
+  }
   try {
     const id = uuid();
-    db.prepare('INSERT INTO media_folders (id, station_id, name) VALUES (?, ?, ?)').run(id, req.params.id, name);
-    res.status(201).json({ id, name });
+    db.prepare(
+      'INSERT INTO media_folders (id, station_id, name, jingle_mode) VALUES (?, ?, ?, ?)'
+    ).run(id, req.params.id, name, jingleMode);
+    syncFolderJinglePlaylist(db, req.params.id, name);
+    res.status(201).json({ id, name, jingle_mode: jingleMode });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That folder already exists' });
     throw e;
@@ -843,22 +903,28 @@ router.patch('/stations/:stationId/folders/:name', (req, res) => {
   const db = req.app.get('db');
   const oldName = decodeURIComponent(req.params.name);
   const newName = String(req.body?.name || '').trim().slice(0, 80);
+  const jingleMode = String(req.body?.jingle_mode || 'off');
   if (!newName) return res.status(400).json({ error: 'Folder name required' });
+  if (jingleMode !== 'off' && !JINGLE_INTERVALS[jingleMode]) {
+    return res.status(400).json({ error: 'Invalid jingle mode' });
+  }
   try {
     const rename = db.transaction(() => {
       const existing = db.prepare('SELECT id FROM media_folders WHERE station_id = ? AND name = ?')
         .get(req.params.stationId, oldName);
       if (existing) {
-        db.prepare('UPDATE media_folders SET name = ? WHERE id = ?').run(newName, existing.id);
+        db.prepare('UPDATE media_folders SET name = ?, jingle_mode = ? WHERE id = ?')
+          .run(newName, jingleMode, existing.id);
       } else {
-        db.prepare('INSERT INTO media_folders (id, station_id, name) VALUES (?, ?, ?)')
-          .run(uuid(), req.params.stationId, newName);
+        db.prepare('INSERT INTO media_folders (id, station_id, name, jingle_mode) VALUES (?, ?, ?, ?)')
+          .run(uuid(), req.params.stationId, newName, jingleMode);
       }
       db.prepare('UPDATE media SET folder = ? WHERE station_id = ? AND folder = ?')
         .run(newName, req.params.stationId, oldName);
     });
     rename();
-    res.json({ ok: true, name: newName });
+    syncFolderJinglePlaylist(db, req.params.stationId, newName);
+    res.json({ ok: true, name: newName, jingle_mode: jingleMode });
   } catch (e) {
     if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That folder already exists' });
     throw e;
@@ -869,8 +935,15 @@ router.delete('/stations/:stationId/folders/:name', (req, res) => {
   const db = req.app.get('db');
   const name = decodeURIComponent(req.params.name);
   const remove = db.transaction(() => {
+    const folder = db.prepare(
+      'SELECT playlist_id FROM media_folders WHERE station_id = ? AND name = ?'
+    ).get(req.params.stationId, name);
     db.prepare("UPDATE media SET folder = '' WHERE station_id = ? AND folder = ?").run(req.params.stationId, name);
     db.prepare('DELETE FROM media_folders WHERE station_id = ? AND name = ?').run(req.params.stationId, name);
+    if (folder?.playlist_id) {
+      db.prepare('DELETE FROM playlist_items WHERE playlist_id = ?').run(folder.playlist_id);
+      db.prepare('DELETE FROM playlists WHERE id = ?').run(folder.playlist_id);
+    }
   });
   remove();
   res.json({ ok: true });
@@ -884,11 +957,16 @@ router.post('/stations/:id/media/move', (req, res) => {
     return res.status(400).json({ error: 'media_ids array and folder required' });
   }
   const stmt = db.prepare('UPDATE media SET folder = ? WHERE id = ? AND station_id = ?');
+  const oldFolders = new Set();
   let updated = 0;
   for (const id of media_ids) {
+    const current = db.prepare('SELECT folder FROM media WHERE id = ? AND station_id = ?').get(id, req.params.id);
+    if (current?.folder) oldFolders.add(current.folder);
     const r = stmt.run(folder, id, req.params.id);
     updated += r.changes;
   }
+  if (folder) oldFolders.add(folder);
+  for (const name of oldFolders) syncFolderJinglePlaylist(db, req.params.id, name);
   res.json({ ok: true, updated });
 });
 

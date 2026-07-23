@@ -728,25 +728,27 @@ async function refreshMedia() {
 }
 
 let activeMediaFolder = '';
+let mediaFolders = [];
 const selectedMediaIds = new Set();
 async function renderFolders() {
-  const folders = await api(`/stations/${currentStationId}/folders`) || [];
+  mediaFolders = await api(`/stations/${currentStationId}/folders`) || [];
   const el = document.getElementById('folder-list');
   if (!el) return;
   const options = document.getElementById('media-folder-options');
-  if (options) options.innerHTML = folders.map(name => `<option value="${esc(name)}"></option>`).join('');
+  if (options) options.innerHTML = mediaFolders.map(folder => `<option value="${esc(folder.name)}"></option>`).join('');
   el.innerHTML = [
     `<button class="folder-chip ${activeMediaFolder === '' ? 'active' : ''}" onclick="selectMediaFolder('')">All media</button>`,
-    ...folders.map(name => {
-      const count = allMedia.filter(item => item.folder === name).length;
-      return `<button class="folder-chip ${activeMediaFolder === name ? 'active' : ''}" onclick="selectMediaFolder('${esc(name)}')">${esc(name)} <span>${count}</span></button>`;
+    ...mediaFolders.map(folder => {
+      const mode = folder.jingle_mode !== 'off'
+        ? `<span class="folder-mode">${esc(folder.jingle_mode)}</span>`
+        : '';
+      return `<button class="folder-chip ${activeMediaFolder === folder.name ? 'active' : ''}" onclick="selectMediaFolder('${esc(folder.name)}')">${esc(folder.name)} <span>${folder.count}</span>${mode}</button>`;
     })
   ].join('');
   document.getElementById('bulk-folder-select').innerHTML =
     '<option value="">Move to folder...</option><option value="__unfiled">Unfiled</option>' +
-    folders.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
-  document.getElementById('rename-folder-btn').hidden = !activeMediaFolder;
-  document.getElementById('delete-folder-btn').hidden = !activeMediaFolder;
+    mediaFolders.map(folder => `<option value="${esc(folder.name)}">${esc(folder.name)}</option>`).join('');
+  document.getElementById('folder-settings-btn').hidden = !activeMediaFolder;
 }
 function selectMediaFolder(name) {
   activeMediaFolder = name;
@@ -754,38 +756,56 @@ function selectMediaFolder(name) {
   renderFolders();
   renderMediaTable(name ? allMedia.filter(item => item.folder === name) : allMedia);
 }
-async function createMediaFolder() {
-  const name = prompt('Folder name (for example, Jingles or Station IDs):');
-  if (!name?.trim() || !currentStationId) return;
-  const res = await api(`/stations/${currentStationId}/folders`, {
-    method: 'POST',
-    body: JSON.stringify({ name: name.trim() }),
-  });
-  if (res?.name) {
-    activeMediaFolder = res.name;
-    await renderFolders();
-    showToast(`Folder created: ${res.name}`);
-  } else {
-    showToast(res?.error || 'Could not create folder', 'error');
-  }
+function openFolderModal(name = '') {
+  const folder = mediaFolders.find(item => item.name === name);
+  document.getElementById('folder-original-name').value = folder?.name || '';
+  document.getElementById('folder-name').value = folder?.name || '';
+  document.getElementById('folder-jingle-mode').value = folder?.jingle_mode || 'off';
+  document.getElementById('folder-modal-title').textContent = folder ? 'Folder Settings' : 'New Folder';
+  document.getElementById('folder-save-action').textContent = folder ? 'Save changes' : 'Create folder';
+  const deleteAction = document.getElementById('folder-delete-action');
+  deleteAction.hidden = !folder;
+  deleteAction.dataset.confirm = '';
+  deleteAction.textContent = 'Delete folder';
+  showModal('modal-folder');
+  setTimeout(() => document.getElementById('folder-name').focus(), 50);
 }
-async function renameMediaFolder() {
-  if (!activeMediaFolder) return;
-  const name = prompt('Rename folder:', activeMediaFolder);
-  if (!name?.trim() || name.trim() === activeMediaFolder) return;
-  const res = await api(`/stations/${currentStationId}/folders/${encodeURIComponent(activeMediaFolder)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ name: name.trim() }),
-  });
-  if (!res?.ok) return showToast(res?.error || 'Could not rename folder', 'error');
+async function saveMediaFolder() {
+  const originalName = document.getElementById('folder-original-name').value;
+  const name = document.getElementById('folder-name').value.trim();
+  const jingle_mode = document.getElementById('folder-jingle-mode').value;
+  if (!name || !currentStationId) return showToast('Folder name required', 'error');
+  const res = originalName
+    ? await api(`/stations/${currentStationId}/folders/${encodeURIComponent(originalName)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, jingle_mode }),
+      })
+    : await api(`/stations/${currentStationId}/folders`, {
+        method: 'POST',
+        body: JSON.stringify({ name, jingle_mode }),
+      });
+  if (!res?.name) return showToast(res?.error || 'Could not save folder', 'error');
   activeMediaFolder = res.name;
+  closeModal('modal-folder');
   await refreshMedia();
-  showToast(`Folder renamed to ${res.name}`);
+  showToast(originalName ? 'Folder settings saved' : `Folder created: ${res.name}`);
 }
 async function deleteMediaFolder() {
-  if (!activeMediaFolder || !confirm(`Delete "${activeMediaFolder}"? Tracks will stay in the library as unfiled.`)) return;
-  const res = await api(`/stations/${currentStationId}/folders/${encodeURIComponent(activeMediaFolder)}`, { method: 'DELETE' });
+  const name = document.getElementById('folder-original-name').value;
+  if (!name) return;
+  const action = document.getElementById('folder-delete-action');
+  if (action.dataset.confirm !== 'yes') {
+    action.dataset.confirm = 'yes';
+    action.textContent = 'Click again to confirm';
+    setTimeout(() => {
+      action.dataset.confirm = '';
+      action.textContent = 'Delete folder';
+    }, 3500);
+    return;
+  }
+  const res = await api(`/stations/${currentStationId}/folders/${encodeURIComponent(name)}`, { method: 'DELETE' });
   if (!res?.ok) return showToast(res?.error || 'Could not delete folder', 'error');
+  closeModal('modal-folder');
   activeMediaFolder = '';
   await refreshMedia();
   showToast('Folder deleted; tracks moved to Unfiled');
@@ -828,16 +848,6 @@ async function deleteSelectedMedia() {
   await refreshMedia();
   showToast(`${deleted} track${deleted === 1 ? '' : 's'} deleted`);
 }
-async function applyJingleMode(mode) {
-  if (!mode || !currentStationId) return;
-  const result = await api(`/stations/${currentStationId}/jingle-preset`, {
-    method: 'POST',
-    body: JSON.stringify({ mode }),
-  });
-  if (result?.id) showToast(`Jingles set to ${mode} mode`);
-  else showToast(result?.error || 'Could not configure jingles', 'error');
-}
-
 function filterMedia(q) {
   if (!q) return renderMediaTable(allMedia);
   const lower = q.toLowerCase();

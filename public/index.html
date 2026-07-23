@@ -178,18 +178,8 @@
       <div id="upload-status" style="display:none"></div>
       <div class="library-tools">
         <div id="folder-list" class="folder-list"></div>
-        <button class="btn btn-ghost btn-sm" onclick="createMediaFolder()">+ New folder</button>
-        <button class="btn btn-ghost btn-sm" id="rename-folder-btn" onclick="renameMediaFolder()" hidden>Rename</button>
-        <button class="btn btn-ghost btn-sm" id="delete-folder-btn" onclick="deleteMediaFolder()" hidden>Delete</button>
-        <div class="jingle-quick">
-          <span>Jingle mode</span>
-          <select id="jingle-mode" class="select-input" onchange="applyJingleMode(this.value)">
-            <option value="">Choose...</option>
-            <option value="light">Light - every 6 songs</option>
-            <option value="standard">Standard - every 3 songs</option>
-            <option value="frequent">Frequent - every song</option>
-          </select>
-        </div>
+        <button class="btn btn-ghost btn-sm" onclick="openFolderModal()">+ New folder</button>
+        <button class="btn btn-ghost btn-sm" id="folder-settings-btn" onclick="openFolderModal(activeMediaFolder)" hidden>Folder settings</button>
       </div>
       <div class="bulk-media-bar" id="bulk-media-bar">
         <label><input type="checkbox" id="select-all-media" onchange="toggleSelectAllMedia(this.checked)"> Select all</label>
@@ -1011,6 +1001,36 @@
       <button class="btn btn-ghost" onclick="closeModal('modal-azuracast-import')">Cancel</button>
       <button class="btn btn-ghost" id="btn-azura-test" onclick="testAzuraCastConnection()">Test connection</button>
       <button class="btn btn-primary" id="btn-azura-import" onclick="startAzuraCastImport()">Transfer MP3s</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-folder">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="folder-modal-title">New Folder</h3>
+      <button class="modal-close" onclick="closeModal('modal-folder')">&times;</button>
+    </div>
+    <input type="hidden" id="folder-original-name">
+    <div class="form-group">
+      <label>Folder name</label>
+      <input type="text" id="folder-name" placeholder="Jingles, Station IDs, Promos...">
+    </div>
+    <div class="form-group">
+      <label>Jingle mode</label>
+      <select id="folder-jingle-mode">
+        <option value="off">Normal folder - no automatic jingles</option>
+        <option value="light">Light - play one after every 6 songs</option>
+        <option value="standard">Standard - play one after every 3 songs</option>
+        <option value="frequent">Frequent - play one after every song</option>
+      </select>
+      <p class="field-help">Every audio file in this folder joins its automatic jingle rotation.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="folder-delete-action" onclick="deleteMediaFolder()" hidden>Delete folder</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-ghost" onclick="closeModal('modal-folder')">Cancel</button>
+      <button class="btn btn-primary" id="folder-save-action" onclick="saveMediaFolder()">Create folder</button>
     </div>
   </div>
 </div>
