@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TMCPlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Sans:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <header class="viewer-nav">
+    <a class="viewer-brand" href="./"><span>PLAY</span>TMCPlay</a>
+    <nav><a class="active" href="#home">Home</a><a href="#live">Live</a><a href="#ondemand">On demand</a></nav>
+    <a class="control-link" href="control"><span data-lucide="user-round"></span><span>Partner sign in</span></a>
+  </header>
+  <main id="home">
+    <section class="viewer-hero" id="viewer-hero">
+      <div class="hero-art"></div>
+      <div class="hero-shade"></div>
+      <div class="hero-content">
+        <span class="live-pill" id="hero-status">TMCPlay</span>
+        <h1 id="hero-title">Television from our network</h1>
+        <p id="hero-copy">Watch channels live and catch up with programs whenever you want.</p>
+        <div class="hero-actions"><button class="watch-button" id="hero-watch"><span data-lucide="play"></span>Watch now</button><a class="info-button" href="#ondemand"><span data-lucide="grid-2x2"></span>Browse programs</a></div>
+      </div>
+    </section>
+    <section class="content-band" id="live">
+      <div class="section-heading"><div><p>ON NOW</p><h2>Live channels</h2></div><span id="live-count"></span></div>
+      <div class="live-grid" id="live-grid"></div>
+    </section>
+    <section class="content-band alt" id="ondemand">
+      <div class="section-heading"><div><p>WATCH ANYTIME</p><h2>Latest on demand</h2></div></div>
+      <div class="program-grid" id="program-grid"></div>
+    </section>
+  </main>
+  <div class="viewer-modal hidden" id="player-modal">
+    <div class="player-dialog">
+      <button class="close-player" id="close-player" aria-label="Close player"><span data-lucide="x"></span></button>
+      <div id="player-shell"></div>
+      <div class="player-copy"><span class="live-pill" id="player-badge">PLAYING</span><h2 id="player-title"></h2><p id="player-description"></p></div>
+    </div>
+  </div>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="viewer.js"></script>
+</body>
+</html>

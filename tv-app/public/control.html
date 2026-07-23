@@ -1,0 +1,203 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TMCast TV Control Room</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Sans:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-name">TMCast</span><span class="brand-edition">CONTROL</span></div>
+      <nav>
+        <button class="nav-item active" data-view="overview"><span data-lucide="layout-dashboard"></span>Overview</button>
+        <button class="nav-item" data-view="library"><span data-lucide="library"></span>Media library</button>
+        <button class="nav-item" data-view="schedule"><span data-lucide="calendar-days"></span>Schedule</button>
+        <button class="nav-item" data-view="override"><span data-lucide="radio-tower"></span>Live override</button>
+        <button class="nav-item" data-view="ondemand"><span data-lucide="clapperboard"></span>On demand</button>
+        <button class="nav-item owner-only" data-view="partners"><span data-lucide="building-2"></span>Partners</button>
+        <button class="nav-item" data-view="settings"><span data-lucide="settings-2"></span>Output settings</button>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="signal-dot"></span>
+        <div><strong>Automation server</strong><small id="server-status">Checking...</small></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="channel-picker">
+          <label for="channel-select">Channel</label>
+          <select id="channel-select"></select>
+          <button class="icon-button" id="add-channel" title="Add channel"><span data-lucide="plus"></span></button>
+        </div>
+        <button class="help-button" id="open-help"><span data-lucide="circle-help"></span><span>Help & tutorial</span></button>
+      </header>
+
+      <div class="content">
+        <section class="view active" id="view-overview">
+          <div class="page-heading">
+            <div><p class="eyebrow">CONTROL ROOM</p><h1 id="channel-title">TMCast One</h1></div>
+            <div class="output-actions">
+              <button class="button secondary" id="stop-output"><span data-lucide="square"></span>Stop output</button>
+              <button class="button primary" id="start-output"><span data-lucide="play"></span>Start output</button>
+            </div>
+          </div>
+          <div class="status-strip">
+            <div><span class="status-label">Output</span><strong id="output-state">Loading</strong></div>
+            <div><span class="status-label">Now playing</span><strong id="now-playing">Off air</strong></div>
+            <div><span class="status-label">Next program</span><strong id="next-program">Nothing scheduled</strong></div>
+            <div><span class="status-label">Media</span><strong id="asset-count">0 items</strong></div>
+          </div>
+          <div class="overview-grid">
+            <section class="panel on-air-panel">
+              <div class="panel-heading"><div><p class="eyebrow">PROGRAM MONITOR</p><h2>On air</h2></div><span class="live-badge" id="live-badge">OFF AIR</span></div>
+              <div class="monitor">
+                <div class="monitor-bars"></div>
+                <div class="monitor-center"><span data-lucide="tv"></span><strong id="monitor-title">No active source</strong><small id="monitor-detail">Schedule a video or set a fallback</small></div>
+              </div>
+              <div class="source-line"><span>Source</span><strong id="source-type">Automation</strong></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><div><p class="eyebrow">COMING UP</p><h2>Today's rundown</h2></div><button class="text-button" data-go="schedule">Open schedule</button></div>
+              <div id="rundown" class="rundown empty-state">No programs scheduled yet.</div>
+            </section>
+          </div>
+          <section class="quick-actions">
+            <button data-go="library"><span data-lucide="upload"></span><strong>Upload videos</strong><small>Add programs, promos and idents</small></button>
+            <button data-go="schedule"><span data-lucide="calendar-plus"></span><strong>Schedule a program</strong><small>Set an exact broadcast window</small></button>
+            <button data-go="override"><span data-lucide="radio"></span><strong>Take over live</strong><small>Play a video or YouTube Live link</small></button>
+          </section>
+        </section>
+
+        <section class="view" id="view-library">
+          <div class="page-heading"><div><p class="eyebrow">CONTENT</p><h1>Media library</h1><p>Everything available to schedule or play immediately.</p></div><button class="button primary" id="upload-trigger"><span data-lucide="upload"></span>Upload media</button></div>
+          <input id="file-input" type="file" multiple accept="video/*,audio/*" hidden>
+          <div class="filter-bar">
+            <div class="segmented" id="kind-filter"><button class="active" data-kind="all">All</button><button data-kind="program">Programs</button><button data-kind="promo">Promos</button><button data-kind="ad">Ads</button><button data-kind="ident">Idents</button></div>
+            <label class="search"><span data-lucide="search"></span><input id="asset-search" placeholder="Search media"></label>
+          </div>
+          <div id="drop-zone" class="drop-zone"><span data-lucide="cloud-upload"></span><strong>Drop video or audio files here</strong><small>Files are stored on the playout server</small></div>
+          <div id="asset-list" class="data-list"></div>
+        </section>
+
+        <section class="view" id="view-schedule">
+          <div class="page-heading"><div><p class="eyebrow">AUTOMATION</p><h1>Schedule</h1><p>Build a precise linear rundown for this channel.</p></div><button class="button primary" id="new-event"><span data-lucide="calendar-plus"></span>Add program</button></div>
+          <div class="date-banner"><button class="icon-button" id="previous-day"><span data-lucide="chevron-left"></span></button><strong id="schedule-day"></strong><button class="icon-button" id="next-day"><span data-lucide="chevron-right"></span></button><button class="text-button" id="today-button">Today</button></div>
+          <div id="schedule-list" class="timeline"></div>
+        </section>
+
+        <section class="view" id="view-override">
+          <div class="page-heading"><div><p class="eyebrow">MASTER CONTROL</p><h1>Live override</h1><p>Interrupt automation instantly and return when ready.</p></div></div>
+          <div class="override-warning"><span data-lucide="triangle-alert"></span><div><strong>Overrides take priority over the schedule</strong><p>The selected source stays on air until you stop the override.</p></div></div>
+          <div id="active-override" class="active-override hidden"></div>
+          <div class="override-grid">
+            <section class="panel option-panel">
+              <span class="option-icon"><span data-lucide="film"></span></span><h2>Play uploaded video</h2><p>Take a library item directly to air.</p>
+              <label>Video<select id="override-asset"></select></label>
+              <button class="button primary full" id="start-asset-override"><span data-lucide="play"></span>Play video now</button>
+            </section>
+            <section class="panel option-panel">
+              <span class="option-icon coral"><span data-lucide="youtube"></span></span><h2>Relay YouTube Live</h2><p>Use a public or unlisted live broadcast as the source.</p>
+              <label>YouTube Live URL<input id="youtube-url" type="url" placeholder="https://youtube.com/watch?v=..."></label>
+              <label>On-air label<input id="youtube-label" placeholder="Live special"></label>
+              <button class="button danger full" id="start-youtube-override"><span data-lucide="radio"></span>Take YouTube live</button>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings">
+          <div class="page-heading"><div><p class="eyebrow">DELIVERY</p><h1>Output settings</h1><p>Connect this channel to YouTube's RTMP ingest.</p></div></div>
+          <div class="settings-layout">
+            <section class="panel form-panel">
+              <h2>YouTube output</h2>
+              <label>RTMP server<input id="rtmp-url"></label>
+              <label>YouTube stream key<input id="youtube-stream-key" type="password" autocomplete="off" placeholder="Paste a new stream key"><small id="stream-key-status">No stream key saved.</small></label>
+              <label>Public YouTube watch URL<input id="public-live-url" type="url" placeholder="https://youtube.com/watch?v=..."><small>Viewers use this URL when they select the live channel.</small></label>
+              <label>Channel artwork URL<input id="channel-artwork-url" type="url" placeholder="https://.../channel-image.jpg"></label>
+              <label>Top-right watermark URL<input id="channel-watermark-url" type="url" placeholder="https://.../channel-logo.png"><small>Use a transparent PNG or WebP.</small></label>
+              <div class="two-column"><label>Ident YouTube URL<input id="channel-ident-url" type="url" placeholder="https://youtube.com/watch?v=..."></label><label>Ident length<input id="channel-ident-duration" type="number" min="1" max="30" value="6"><small>Seconds before the program begins.</small></label></div>
+              <label>Fallback video<select id="fallback-asset"></select><small>Loops whenever nothing else is scheduled.</small></label>
+              <div class="auto-tv-setting"><label class="toggle-line"><input id="auto-tv-enabled" type="checkbox"><span>Auto TV</span></label><p>Automatically rotates uploaded programs when nothing is scheduled. No playlist required.</p><label>Rotation slot<select id="auto-tv-slot"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="120">2 hours</option></select></label></div>
+              <div class="credential-actions"><button class="button primary" id="save-settings"><span data-lucide="save"></span>Save securely</button><button class="button secondary" id="remove-stream-key">Remove key</button></div>
+            </section>
+            <section class="panel checks-panel"><h2>Readiness check</h2><div id="readiness"></div></section>
+          </div>
+        </section>
+
+        <section class="view" id="view-ondemand">
+          <div class="page-heading"><div><p class="eyebrow">STREAMING LIBRARY</p><h1>On demand</h1><p>Publish YouTube-hosted programs without using TMCast bandwidth.</p></div><div class="output-actions"><a class="button secondary" id="open-catalog" target="_blank"><span data-lucide="external-link"></span>View catalog</a><button class="button primary" id="add-youtube-program"><span data-lucide="youtube"></span>Add YouTube program</button></div></div>
+          <div id="ondemand-list" class="data-list"></div>
+        </section>
+
+        <section class="view" id="view-partners">
+          <div class="page-heading"><div><p class="eyebrow">DISTRIBUTION</p><h1>Partner accounts</h1><p>Give each company its own private workspace, channel, and catalog.</p></div><button class="button primary" id="new-partner"><span data-lucide="building-2"></span>Add partner</button></div>
+          <div id="partner-list" class="data-list"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="event-modal">
+    <form class="modal" id="event-form"><div class="modal-heading"><div><p class="eyebrow">NEW EVENT</p><h2>Schedule a program</h2></div><button type="button" class="icon-button close-modal"><span data-lucide="x"></span></button></div>
+      <label>Video<select id="event-asset" required></select></label>
+      <label>Title<input id="event-title" required placeholder="Program title"></label>
+      <div class="two-column"><label>Starts<input id="event-start" type="datetime-local" required></label><label>Ends<input id="event-end" type="datetime-local" required></label></div>
+      <div class="modal-actions"><button type="button" class="button secondary close-modal">Cancel</button><button class="button primary">Add to schedule</button></div>
+    </form>
+  </div>
+  <div class="modal-backdrop hidden" id="channel-modal">
+    <form class="modal compact" id="channel-form"><div class="modal-heading"><div><p class="eyebrow">NEW CHANNEL</p><h2>Create a channel</h2></div><button type="button" class="icon-button close-channel"><span data-lucide="x"></span></button></div>
+      <label>Channel name<input id="new-channel-name" required placeholder="TMCast Sports"></label>
+      <label class="owner-only" id="channel-company-field">Company<select id="new-channel-company"></select></label>
+      <div class="modal-actions"><button type="button" class="button secondary close-channel">Cancel</button><button class="button primary">Create channel</button></div>
+    </form>
+  </div>
+  <div class="modal-backdrop hidden" id="help-modal">
+    <div class="modal help-modal"><div class="modal-heading"><div><p class="eyebrow">QUICK START</p><h2>Put your first channel on air</h2></div><button class="icon-button close-help"><span data-lucide="x"></span></button></div>
+      <ol class="tutorial">
+        <li><span>1</span><div><strong>Upload media</strong><p>Add a video in Media library. Use MP4 with H.264 video and AAC audio for the smoothest playout.</p></div></li>
+        <li><span>2</span><div><strong>Build the schedule</strong><p>Pick a video and give it a start and end time, or choose a fallback video in Output settings.</p></div></li>
+        <li><span>3</span><div><strong>Connect YouTube</strong><p>Paste the channel's stream key in Output settings. TMCast encrypts it and never displays it again.</p></div></li>
+        <li><span>4</span><div><strong>Start output</strong><p>Return to Overview and start output. Live override can take over at any moment.</p></div></li>
+      </ol>
+      <a class="button primary full" href="YOUTUBE-SETUP.md" target="_blank">Open YouTube setup guide</a>
+    </div>
+  </div>
+  <div class="modal-backdrop hidden" id="partner-modal">
+    <form class="modal" id="partner-form"><div class="modal-heading"><div><p class="eyebrow">NEW PARTNER</p><h2>Create company workspace</h2></div><button type="button" class="icon-button close-partner"><span data-lucide="x"></span></button></div>
+      <div class="two-column"><label>Company<input id="partner-company" required></label><label>Contact name<input id="partner-contact" required></label></div>
+      <label>Owner email<input id="partner-email" type="email" required></label>
+      <label>Temporary password<input id="partner-password" type="password" minlength="10" required><small>The partner can use this to sign in immediately.</small></label>
+      <div class="modal-actions"><button type="button" class="button secondary close-partner">Cancel</button><button class="button primary">Create workspace</button></div>
+    </form>
+  </div>
+  <div class="modal-backdrop hidden" id="youtube-program-modal">
+    <form class="modal" id="youtube-program-form"><div class="modal-heading"><div><p class="eyebrow">TMCPLAY</p><h2>Add an on-demand program</h2></div><button type="button" class="icon-button close-youtube-program"><span data-lucide="x"></span></button></div>
+      <label>YouTube video URL<input id="program-youtube-url" type="url" required placeholder="https://youtube.com/watch?v=..."></label>
+      <label>Program title<input id="program-youtube-title" required></label>
+      <label>Description<input id="program-youtube-description"></label>
+      <label>Custom poster URL<input id="program-youtube-poster" type="url" placeholder="Optional; YouTube thumbnail is used automatically"></label>
+      <div class="modal-actions"><button type="button" class="button secondary close-youtube-program">Cancel</button><button class="button primary">Publish to TMCPlay</button></div>
+    </form>
+  </div>
+  <div class="login-screen" id="login-screen">
+    <form class="login-panel" id="login-form">
+      <div class="brand"><span class="brand-mark">TV</span><span>TMCast</span></div>
+      <p class="eyebrow">PARTNER CONTROL ROOM</p><h1>Sign in</h1><p>Manage your channels, schedule, and streaming catalog.</p>
+      <div id="login-fields"><label>Email<input id="login-email" type="email" autocomplete="email" required value="alexnmishra@gmail.com"></label>
+      <label>Password<input id="login-password" type="password" autocomplete="current-password"></label></div>
+      <div id="setup-fields" class="hidden"><label>Create password<input id="setup-password" type="password" autocomplete="new-password" minlength="12"></label><label>Confirm password<input id="setup-password-confirm" type="password" autocomplete="new-password" minlength="12"></label></div>
+      <button class="button primary full" id="login-submit">Continue</button>
+      <small class="login-note" id="login-note">The starting administrator will be asked to create a password.</small>
+    </form>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="vendor/lucide.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

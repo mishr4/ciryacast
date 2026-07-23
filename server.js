@@ -494,6 +494,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '10mb' }));
+app.use('/tv', require('./tv-app/src/server'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/media', express.static(mediaDir));
 

@@ -1,4 +1,7 @@
 node_modules/
+tv-app/data/*.db*
+tv-app/media/*
+!tv-app/media/.gitkeep
 data/*.db
 data/*.db-wal
 data/*.db-shm

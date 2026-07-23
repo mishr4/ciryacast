@@ -1,11 +1,8 @@
-# ffmpeg = audio loudness normalization + voice-track conversion
-# gcc/gnumake = native build fallback for better-sqlite3
-# (Rust/python/spotdl removed — no more server-side song downloading)
 [phases.setup]
-nixPkgs = ["nodejs_22", "gcc", "gnumake", "ffmpeg"]
+nixPkgs = ["nodejs_22", "ffmpeg", "yt-dlp", "python3", "gcc", "gnumake"]
 
 [phases.install]
 cmds = ["npm ci"]
 
 [start]
-cmd = "node server.js"
+cmd = "npm start"
