@@ -139,6 +139,25 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_station_members_station ON station_members(station_id);
   CREATE INDEX IF NOT EXISTS idx_station_members_user ON station_members(user_id);
 
+  CREATE TABLE IF NOT EXISTS station_assignments (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    UNIQUE(user_id, station_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS media_folders (
+    id TEXT PRIMARY KEY,
+    station_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    UNIQUE(station_id, name)
+  );
+
   -- Banned staff emails — blocked from the dashboard / TMCast
   CREATE TABLE IF NOT EXISTS banned_emails (
     email TEXT PRIMARY KEY,
@@ -181,6 +200,7 @@ try { db.exec('ALTER TABLE stations ADD COLUMN owner_id TEXT DEFAULT ""'); } cat
 try { db.exec('ALTER TABLE stations ADD COLUMN is_hidden INTEGER DEFAULT 0'); } catch {}
 // is_super_admin: users with a staff email OR manually marked as super admin
 try { db.exec('ALTER TABLE users ADD COLUMN is_super_admin INTEGER DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE users ADD COLUMN role TEXT DEFAULT "manager"'); } catch {}
 
 // ── Playlist types & scheduling ──
 // type: 'music' (default rotation), 'jingles', 'ads', 'sweepers', 'stingers', 'intros', 'outros'

@@ -871,11 +871,11 @@ app.get('/overlay/:stationId', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'overlay.html'));
 });
 
-// ── Spectra Control Surface — the on-air audio processor GUI ──
-app.get('/processor', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'processor.html'));
+app.get(['/processor', '/processor.html'], (req, res) => {
+  res.status(404).json({ error: 'TMG Spectra is temporarily unavailable' });
 });
 
+// ── Spectra Control Surface — the on-air audio processor GUI ──
 // ── Embeddable "now playing" widget (for other sites via <iframe>) ──
 app.get('/embed/:stationId', (req, res) => {
   res.set('X-Frame-Options', 'ALLOWALL');
@@ -1109,18 +1109,5 @@ server.listen(PORT, () => {
 
   // Resume pre-processing — bake any still-missing tracks for stations that have it on.
   // (Processed copies persist on the volume, so this is a cheap no-op when already done.)
-  try {
-    const preprocess = require('./src/preprocess');
-    const withProc = db.prepare("SELECT id, name, processing FROM stations WHERE processing IS NOT NULL AND processing != ''").all();
-    withProc.forEach(s => {
-      try {
-        const settings = JSON.parse(s.processing);
-        if (settings && settings.enabled) {
-          const media = db.prepare("SELECT filename FROM media WHERE station_id = ? AND filename IS NOT NULL AND filename != ''").all(s.id);
-          preprocess.processLibrary(s.id, settings, media, broadcast).catch(() => {});
-          console.log(`  🎛 Resuming pre-processing: "${s.name}" (${media.length} tracks)`);
-        }
-      } catch {}
-    });
-  } catch {}
+  db.prepare("UPDATE stations SET processing = '' WHERE processing IS NOT NULL AND processing != ''").run();
 });

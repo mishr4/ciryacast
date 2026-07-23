@@ -96,6 +96,10 @@
       <h2 id="view-title">Dashboard</h2>
     </div>
     <div class="topbar-actions">
+      <button class="btn btn-ghost" id="btn-help" onclick="startTutorial()" title="Open guided tutorial">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 1 1 4.1 1.9c-1 .7-1.6 1.2-1.6 2.6"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Help
+      </button>
       <button class="btn btn-primary" id="btn-new-station" onclick="showNewStationModal()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         New Station
@@ -172,15 +176,37 @@
         <p class="upload-hint">MP3, OGG, FLAC, WAV, M4A — up to 100MB each</p>
       </div>
       <div id="upload-status" style="display:none"></div>
+      <div class="library-tools">
+        <div id="folder-list" class="folder-list"></div>
+        <button class="btn btn-ghost btn-sm" onclick="createMediaFolder()">+ New folder</button>
+        <button class="btn btn-ghost btn-sm" id="rename-folder-btn" onclick="renameMediaFolder()" hidden>Rename</button>
+        <button class="btn btn-ghost btn-sm" id="delete-folder-btn" onclick="deleteMediaFolder()" hidden>Delete</button>
+        <div class="jingle-quick">
+          <span>Jingle mode</span>
+          <select id="jingle-mode" class="select-input" onchange="applyJingleMode(this.value)">
+            <option value="">Choose...</option>
+            <option value="light">Light - every 6 songs</option>
+            <option value="standard">Standard - every 3 songs</option>
+            <option value="frequent">Frequent - every song</option>
+          </select>
+        </div>
+      </div>
+      <div class="bulk-media-bar" id="bulk-media-bar">
+        <label><input type="checkbox" id="select-all-media" onchange="toggleSelectAllMedia(this.checked)"> Select all</label>
+        <span id="selected-media-count">0 selected</span>
+        <select id="bulk-folder-select" class="select-input"><option value="">Move to folder...</option></select>
+        <button class="btn btn-primary btn-sm" onclick="moveSelectedMedia()">Move</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSelectedMedia()">Delete selected</button>
+      </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-title">Media Library</div>
           <div style="display:flex;align-items:center;gap:10px">
             <input type="text" id="media-search" placeholder="Search media..." style="padding:7px 14px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;background:var(--glass);outline:none;width:180px" oninput="filterMedia(this.value)">
-            <button class="btn btn-ghost btn-sm" onclick="showModal('modal-azuracast-import')" title="Import from AzuraCast">
+            <button class="btn btn-ghost btn-sm" onclick="showModal('modal-azuracast-import')" title="Transfer MP3s from AzuraCast">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Import
+              AzuraCast Transfer
             </button>
             <button class="btn btn-primary btn-sm" onclick="enrichAllMedia()" title="Enrich metadata from TypicalMedia">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
@@ -531,6 +557,11 @@
         <div class="form-group">
           <label>Album</label>
           <input type="text" id="edit-media-album" placeholder="Album (optional)">
+        </div>
+        <div class="form-group">
+          <label>Folder</label>
+          <input type="text" id="edit-media-folder" list="media-folder-options" placeholder="Music, Jingles, Station IDs...">
+          <datalist id="media-folder-options"></datalist>
         </div>
       </div>
     </div>
@@ -959,10 +990,10 @@
 <div class="modal-overlay" id="modal-azuracast-import">
   <div class="modal">
     <div class="modal-header">
-      <h3>Import from AzuraCast</h3>
+      <h3>Transfer MP3s from AzuraCast</h3>
       <button class="modal-close" onclick="closeModal('modal-azuracast-import')">&times;</button>
     </div>
-    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Pull media files and playlists from an AzuraCast station into TMCast. Duplicates are automatically skipped.</p>
+    <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Copy MP3 files, metadata, and playlists from an AzuraCast station into TMCast. Existing tracks are skipped, so the transfer is safe to run again.</p>
     <div class="form-group">
       <label>AzuraCast URL</label>
       <input type="url" id="input-azura-url" placeholder="https://your-azuracast.example.com">
@@ -978,7 +1009,8 @@
     <div id="azura-import-status" style="display:none;margin-bottom:12px"></div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-azuracast-import')">Cancel</button>
-      <button class="btn btn-primary" id="btn-azura-import" onclick="startAzuraCastImport()">Start Import</button>
+      <button class="btn btn-ghost" id="btn-azura-test" onclick="testAzuraCastConnection()">Test connection</button>
+      <button class="btn btn-primary" id="btn-azura-import" onclick="startAzuraCastImport()">Transfer MP3s</button>
     </div>
   </div>
 </div>
@@ -996,11 +1028,18 @@
     </div>
     <div class="form-group">
       <label>Password</label>
-      <input type="text" id="input-user-password" placeholder="Temporary password">
+      <div style="display:flex;gap:8px">
+        <input type="text" id="input-user-password" placeholder="Temporary password" style="flex:1">
+        <button class="btn btn-ghost" type="button" onclick="generateInvitePassword()">Generate</button>
+      </div>
     </div>
     <div class="form-group">
       <label>Display Name</label>
       <input type="text" id="input-user-name" placeholder="John Smith">
+    </div>
+    <div class="form-group">
+      <label>Role</label>
+      <select id="input-user-role"><option value="manager">Manager</option><option value="admin">Admin</option><option value="dj">DJ</option></select>
     </div>
     <div class="form-group">
       <label>Assign Stations</label>
@@ -1009,6 +1048,44 @@
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('modal-new-user')">Cancel</button>
       <button class="btn btn-primary" onclick="createUser()">Create & Invite</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-edit-user">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Assign Stations</h3>
+      <button class="modal-close" onclick="closeModal('modal-edit-user')">&times;</button>
+    </div>
+    <input type="hidden" id="edit-user-id">
+    <p id="edit-user-label" class="modal-note"></p>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Role</label>
+        <select id="edit-user-role"><option value="manager">Manager</option><option value="admin">Admin</option><option value="dj">DJ</option></select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="edit-user-active"><option value="1">Active</option><option value="0">Suspended</option></select>
+      </div>
+    </div>
+    <div id="edit-user-stations" class="station-check-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('modal-edit-user')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveUserStations()">Save assignments</button>
+    </div>
+  </div>
+</div>
+
+<div class="tutorial-backdrop" id="tutorial-backdrop" hidden>
+  <div class="tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+    <div class="tutorial-progress" id="tutorial-progress"></div>
+    <h3 id="tutorial-title"></h3>
+    <p id="tutorial-copy"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeTutorial()">Close</button>
+      <button class="btn btn-primary" id="tutorial-next" onclick="nextTutorialStep()">Next</button>
     </div>
   </div>
 </div>
@@ -1098,5 +1175,7 @@
 </div>
 
 <script src="/js/dashboard.js?v=21"></script>
+
+<script src="/seehed-support.js" defer></script>
 </body>
 </html>

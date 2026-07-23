@@ -723,7 +723,119 @@ async function refreshMedia() {
 
   ensureAddSongButton();
   allMedia = await api(`/stations/${currentStationId}/media`) || [];
+  await renderFolders();
   renderMediaTable(allMedia);
+}
+
+let activeMediaFolder = '';
+const selectedMediaIds = new Set();
+async function renderFolders() {
+  const folders = await api(`/stations/${currentStationId}/folders`) || [];
+  const el = document.getElementById('folder-list');
+  if (!el) return;
+  const options = document.getElementById('media-folder-options');
+  if (options) options.innerHTML = folders.map(name => `<option value="${esc(name)}"></option>`).join('');
+  el.innerHTML = [
+    `<button class="folder-chip ${activeMediaFolder === '' ? 'active' : ''}" onclick="selectMediaFolder('')">All media</button>`,
+    ...folders.map(name => {
+      const count = allMedia.filter(item => item.folder === name).length;
+      return `<button class="folder-chip ${activeMediaFolder === name ? 'active' : ''}" onclick="selectMediaFolder('${esc(name)}')">${esc(name)} <span>${count}</span></button>`;
+    })
+  ].join('');
+  document.getElementById('bulk-folder-select').innerHTML =
+    '<option value="">Move to folder...</option><option value="__unfiled">Unfiled</option>' +
+    folders.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
+  document.getElementById('rename-folder-btn').hidden = !activeMediaFolder;
+  document.getElementById('delete-folder-btn').hidden = !activeMediaFolder;
+}
+function selectMediaFolder(name) {
+  activeMediaFolder = name;
+  selectedMediaIds.clear();
+  renderFolders();
+  renderMediaTable(name ? allMedia.filter(item => item.folder === name) : allMedia);
+}
+async function createMediaFolder() {
+  const name = prompt('Folder name (for example, Jingles or Station IDs):');
+  if (!name?.trim() || !currentStationId) return;
+  const res = await api(`/stations/${currentStationId}/folders`, {
+    method: 'POST',
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  if (res?.name) {
+    activeMediaFolder = res.name;
+    await renderFolders();
+    showToast(`Folder created: ${res.name}`);
+  } else {
+    showToast(res?.error || 'Could not create folder', 'error');
+  }
+}
+async function renameMediaFolder() {
+  if (!activeMediaFolder) return;
+  const name = prompt('Rename folder:', activeMediaFolder);
+  if (!name?.trim() || name.trim() === activeMediaFolder) return;
+  const res = await api(`/stations/${currentStationId}/folders/${encodeURIComponent(activeMediaFolder)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name: name.trim() }),
+  });
+  if (!res?.ok) return showToast(res?.error || 'Could not rename folder', 'error');
+  activeMediaFolder = res.name;
+  await refreshMedia();
+  showToast(`Folder renamed to ${res.name}`);
+}
+async function deleteMediaFolder() {
+  if (!activeMediaFolder || !confirm(`Delete "${activeMediaFolder}"? Tracks will stay in the library as unfiled.`)) return;
+  const res = await api(`/stations/${currentStationId}/folders/${encodeURIComponent(activeMediaFolder)}`, { method: 'DELETE' });
+  if (!res?.ok) return showToast(res?.error || 'Could not delete folder', 'error');
+  activeMediaFolder = '';
+  await refreshMedia();
+  showToast('Folder deleted; tracks moved to Unfiled');
+}
+function updateBulkMediaBar() {
+  document.getElementById('selected-media-count').textContent = `${selectedMediaIds.size} selected`;
+  const visible = activeMediaFolder ? allMedia.filter(item => item.folder === activeMediaFolder) : allMedia;
+  const selectAll = document.getElementById('select-all-media');
+  selectAll.checked = visible.length > 0 && visible.every(item => selectedMediaIds.has(item.id));
+  selectAll.indeterminate = selectedMediaIds.size > 0 && !selectAll.checked;
+}
+function toggleMediaSelection(id, checked) {
+  if (checked) selectedMediaIds.add(id); else selectedMediaIds.delete(id);
+  updateBulkMediaBar();
+}
+function toggleSelectAllMedia(checked) {
+  const visible = activeMediaFolder ? allMedia.filter(item => item.folder === activeMediaFolder) : allMedia;
+  for (const item of visible) checked ? selectedMediaIds.add(item.id) : selectedMediaIds.delete(item.id);
+  renderMediaTable(visible);
+}
+async function moveSelectedMedia() {
+  const rawFolder = document.getElementById('bulk-folder-select').value;
+  if (!selectedMediaIds.size || !rawFolder) return showToast('Select tracks and a destination folder', 'error');
+  const folder = rawFolder === '__unfiled' ? '' : rawFolder;
+  const res = await api(`/stations/${currentStationId}/media/move`, {
+    method: 'POST',
+    body: JSON.stringify({ media_ids: [...selectedMediaIds], folder }),
+  });
+  if (!res?.ok) return showToast(res?.error || 'Could not move tracks', 'error');
+  selectedMediaIds.clear();
+  await refreshMedia();
+  showToast(`${res.updated} track${res.updated === 1 ? '' : 's'} moved`);
+}
+async function deleteSelectedMedia() {
+  if (!selectedMediaIds.size || !confirm(`Delete ${selectedMediaIds.size} selected track(s)? This cannot be undone.`)) return;
+  const ids = [...selectedMediaIds];
+  const results = await Promise.all(ids.map(id => api(`/media/${id}`, { method: 'DELETE' })));
+  const deleted = results.filter(result => result?.ok).length;
+  selectedMediaIds.clear();
+  await refreshMedia();
+  showToast(`${deleted} track${deleted === 1 ? '' : 's'} deleted`);
+}
+async function applyJingleMode(mode) {
+  if (!mode || !currentStationId) return;
+  const result = await api(`/stations/${currentStationId}/jingle-preset`, {
+    method: 'POST',
+    body: JSON.stringify({ mode }),
+  });
+  if (result?.id) showToast(`Jingles set to ${mode} mode`);
+  else showToast(result?.error || 'Could not configure jingles', 'error');
 }
 
 function filterMedia(q) {
@@ -987,10 +1099,11 @@ function renderMediaTable(media) {
   document.getElementById('media-table-wrap').innerHTML = `
     <table class="media-table">
       <thead><tr>
-        <th style="width:40px"></th>
+        <th style="width:64px"></th>
         <th>Title</th>
         <th>Artist</th>
         <th>Album</th>
+        <th>Folder</th>
         <th>Duration</th>
         <th>Size</th>
         <th style="width:140px">Actions</th>
@@ -998,17 +1111,19 @@ function renderMediaTable(media) {
       <tbody>
         ${media.map(m => `
           <tr>
-            <td style="padding:8px">
+            <td style="padding:8px"><div style="display:flex;align-items:center;gap:8px">
+              <input class="media-check" type="checkbox" aria-label="Select ${esc(m.title || m.original_name)}" ${selectedMediaIds.has(m.id) ? 'checked' : ''} onchange="toggleMediaSelection('${m.id}',this.checked)">
               ${m.artwork_url
                 ? `<img src="${esc(m.artwork_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover;display:block">`
                 : `<div style="width:36px;height:36px;border-radius:8px;background:#ecebf2;display:flex;align-items:center;justify-content:center">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#9b97b3" stroke-width="2" style="width:16px;height:16px"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
                   </div>`
               }
-            </td>
+            </div></td>
             <td class="title-cell">${esc(m.title || m.original_name)}</td>
             <td class="dim">${esc(m.artist)}</td>
             <td class="dim">${esc(m.album)}</td>
+            <td class="dim">${esc(m.folder || 'Unfiled')}</td>
             <td class="dim">${formatDuration(m.duration)}</td>
             <td class="dim">${formatBytes(m.size)}</td>
             <td>
@@ -1038,6 +1153,7 @@ function renderMediaTable(media) {
       </tbody>
     </table>
   `;
+  updateBulkMediaBar();
 }
 
 async function playNow(mediaId) {
@@ -1135,6 +1251,7 @@ function editMediaMeta(id) {
   document.getElementById('edit-media-title').value = m.title || '';
   document.getElementById('edit-media-artist').value = m.artist === 'Unknown' ? '' : (m.artist || '');
   document.getElementById('edit-media-album').value = m.album || '';
+  document.getElementById('edit-media-folder').value = m.folder || '';
   const prev = document.getElementById('edit-media-art');
   prev.src = m.artwork_url || '';
   prev.style.display = m.artwork_url ? 'block' : 'none';
@@ -1146,10 +1263,11 @@ async function saveMediaMeta() {
   const title = document.getElementById('edit-media-title').value.trim();
   const artist = document.getElementById('edit-media-artist').value.trim();
   const album = document.getElementById('edit-media-album').value.trim();
+  const folder = document.getElementById('edit-media-folder').value.trim();
   if (!title) return showToast('Title is required', 'error');
   await api(`/media/${id}/meta`, {
     method: 'PATCH',
-    body: JSON.stringify({ title, artist: artist || 'Unknown', album }),
+    body: JSON.stringify({ title, artist: artist || 'Unknown', album, folder }),
   });
   closeModal('modal-edit-media');
   showToast('Metadata updated');
@@ -1217,6 +1335,7 @@ async function handleFiles(files) {
   for (let i = 0; i < fileArr.length; i += BATCH_SIZE) batches.push(fileArr.slice(i, i + BATCH_SIZE));
 
   let uploaded = 0, failed = 0;
+  const uploadedIds = [];
   showUploadStatus(`Uploading 0 / ${totalFiles} files...`, 'info');
 
   for (let b = 0; b < batches.length; b++) {
@@ -1227,7 +1346,11 @@ async function handleFiles(files) {
 
     try {
       const res = await fetch(`/api/stations/${currentStationId}/media`, { method: 'POST', headers: authHeaders(), body: form });
-      if (res.ok) { uploaded += (await res.json()).length; }
+      if (res.ok) {
+        const items = await res.json();
+        uploaded += items.length;
+        uploadedIds.push(...items.map(item => item.id));
+      }
       else { failed += batch.length; }
     } catch { failed += batch.length; }
   }
@@ -1236,6 +1359,13 @@ async function handleFiles(files) {
   uploadArea.style.opacity = '1';
   uploadArea.style.pointerEvents = 'auto';
   fileInput.value = '';
+
+  if (activeMediaFolder && uploadedIds.length) {
+    await api(`/stations/${currentStationId}/media/move`, {
+      method: 'POST',
+      body: JSON.stringify({ media_ids: uploadedIds, folder: activeMediaFolder }),
+    });
+  }
 
   if (failed === 0) showUploadStatus(`Successfully uploaded ${uploaded} file${uploaded !== 1 ? 's' : ''}!`, 'success');
   else if (uploaded > 0) showUploadStatus(`Uploaded ${uploaded}, ${failed} failed.`, 'error');
@@ -1754,13 +1884,41 @@ async function checkRecordingStates() {
 // ════════════════════════════════════
 // AZURACAST IMPORT
 // ════════════════════════════════════
+function getAzuraTransferForm() {
+  return {
+    azuraUrl: document.getElementById('input-azura-url').value.trim(),
+    apiKey: document.getElementById('input-azura-apikey').value.trim(),
+    azuraStation: document.getElementById('input-azura-station').value.trim(),
+  };
+}
+
+async function testAzuraCastConnection() {
+  const sid = currentStationId || stations?.[0]?.id;
+  const { azuraUrl, apiKey, azuraStation } = getAzuraTransferForm();
+  if (!sid || !azuraUrl || !apiKey || !azuraStation) return showToast('Fill in the AzuraCast connection fields', 'error');
+  const statusEl = document.getElementById('azura-import-status');
+  const btn = document.getElementById('btn-azura-test');
+  btn.disabled = true;
+  btn.textContent = 'Testing...';
+  statusEl.style.display = 'block';
+  const result = await api(`/stations/${sid}/import/azuracast/probe`, {
+    method: 'POST',
+    body: JSON.stringify({ azuracast_url: azuraUrl, api_key: apiKey, azura_station_id: azuraStation }),
+  });
+  const count = Number(result?.files_count);
+  const ok = Number.isFinite(count) || result?.files_list_status === 200;
+  statusEl.innerHTML = ok
+    ? `<div class="transfer-status success">Connected. ${Number.isFinite(count) ? `${count} audio files are ready to transfer.` : 'The media library is ready to transfer.'}</div>`
+    : `<div class="transfer-status error">Could not read the media library. Check the URL, station ID, and API key.</div>`;
+  btn.disabled = false;
+  btn.textContent = 'Test connection';
+}
+
 async function startAzuraCastImport() {
   const sid = currentStationId || stations?.[0]?.id;
   if (!sid) return showToast('Select a station first', 'error');
 
-  const azuraUrl = document.getElementById('input-azura-url').value.trim();
-  const apiKey = document.getElementById('input-azura-apikey').value.trim();
-  const azuraStation = document.getElementById('input-azura-station').value.trim();
+  const { azuraUrl, apiKey, azuraStation } = getAzuraTransferForm();
 
   if (!azuraUrl || !apiKey || !azuraStation) {
     return showToast('Fill in all fields', 'error');
@@ -1771,7 +1929,7 @@ async function startAzuraCastImport() {
   statusEl.style.display = 'block';
   statusEl.innerHTML = '<div style="padding:12px;border-radius:12px;background:#f0eaff;color:#7C4DFF;font-size:13px;font-weight:600">Importing... this may take a while for large libraries.</div>';
   btn.disabled = true;
-  btn.textContent = 'Importing...';
+  btn.textContent = 'Transferring...';
 
   try {
     const res = await fetch(`/api/stations/${sid}/import/azuracast`, {
@@ -1787,7 +1945,7 @@ async function startAzuraCastImport() {
 
     if (res.ok) {
       statusEl.innerHTML = `<div style="padding:12px;border-radius:12px;background:#e8f5e9;color:#2e7d32;font-size:13px;font-weight:600">
-        Done! ${data.media_imported} imported, ${data.media_skipped} skipped, ${data.media_failed} failed, ${data.playlists_imported} playlists.
+        Transfer complete: ${data.media_imported} MP3s copied, ${data.media_skipped} duplicates skipped, ${data.media_failed} failed, ${data.playlists_imported} playlists added.
       </div>`;
       refreshMedia();
       refreshDashboard();
@@ -1799,7 +1957,7 @@ async function startAzuraCastImport() {
   }
 
   btn.disabled = false;
-  btn.textContent = 'Start Import';
+  btn.textContent = 'Transfer MP3s';
 }
 
 // ════════════════════════════════════
@@ -1838,8 +1996,8 @@ async function refreshUsers() {
       <tr>
         <td class="title-cell">${esc(u.display_name || u.email)}</td>
         <td class="dim" style="font-size:12px">${esc(u.email)}</td>
-        <td><span class="badge ${u.role === 'admin' ? 'badge-purple' : 'badge-green'}">${u.role}</span></td>
-        <td class="dim" style="font-size:12px">${esc(u.assigned_stations || 'None')}</td>
+        <td><span class="badge ${u.is_active ? (u.role === 'admin' ? 'badge-purple' : 'badge-green') : 'badge-red'}">${u.is_active ? u.role : 'suspended'}</span></td>
+        <td class="dim" style="font-size:12px"><button class="assignment-link" onclick="editUserStations('${u.id}')">${esc(u.assigned_stations || 'Assign stations')}</button></td>
         <td class="dim">${u.last_login ? timeAgo(u.last_login) : 'Never'}</td>
         <td>
           <div style="display:flex;gap:4px">
@@ -1860,13 +2018,14 @@ async function createUser() {
   const email = document.getElementById('input-user-email').value.trim();
   const password = document.getElementById('input-user-password').value;
   const displayName = document.getElementById('input-user-name').value.trim();
+  const role = document.getElementById('input-user-role').value;
   if (!email || !password) return showToast('Email and password required', 'error');
 
   const stationIds = Array.from(document.querySelectorAll('.user-station-cb:checked')).map(cb => cb.value);
 
   const res = await api('/users', {
     method: 'POST',
-    body: JSON.stringify({ email, password, display_name: displayName, station_ids: stationIds }),
+    body: JSON.stringify({ email, password, display_name: displayName, role, station_ids: stationIds }),
   });
 
   if (res?.id) {
@@ -1874,11 +2033,85 @@ async function createUser() {
     document.getElementById('input-user-email').value = '';
     document.getElementById('input-user-password').value = '';
     document.getElementById('input-user-name').value = '';
-    showToast(`User created: ${email}`);
+    const stationNames = stations.filter(station => stationIds.includes(station.id)).map(station => station.name).join(', ') || 'No stations yet';
+    const invite = `TMCast access\nEmail: ${email}\nTemporary password: ${password}\nStations: ${stationNames}\nSign in: ${location.origin}/login`;
+    try {
+      await navigator.clipboard.writeText(invite);
+      showToast(`User created; invite details copied`);
+    } catch {
+      showToast(`User created: ${email}`);
+    }
     refreshUsers();
   } else {
     showToast(res?.error || 'Failed to create user', 'error');
   }
+}
+
+function generateInvitePassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(14));
+  document.getElementById('input-user-password').value =
+    Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('');
+}
+
+async function editUserStations(userId) {
+  const users = await api('/users') || [];
+  const user = users.find(item => item.id === userId);
+  if (!user) return;
+  const assigned = new Set(String(user.station_ids || '').split(',').filter(Boolean));
+  document.getElementById('edit-user-id').value = user.id;
+  document.getElementById('edit-user-label').textContent = user.display_name || user.email;
+  document.getElementById('edit-user-role').value = user.role || 'manager';
+  document.getElementById('edit-user-active').value = user.is_active ? '1' : '0';
+  document.getElementById('edit-user-stations').innerHTML = stations.map(station =>
+    `<label><input type="checkbox" value="${station.id}" ${assigned.has(station.id) ? 'checked' : ''}> <span>${esc(station.name)}</span></label>`
+  ).join('') || '<p>No stations have been created yet.</p>';
+  showModal('modal-edit-user');
+}
+
+async function saveUserStations() {
+  const id = document.getElementById('edit-user-id').value;
+  const station_ids = Array.from(document.querySelectorAll('#edit-user-stations input:checked'))
+    .map(input => input.value);
+  const role = document.getElementById('edit-user-role').value;
+  const is_active = document.getElementById('edit-user-active').value === '1';
+  const res = await api(`/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ station_ids, role, is_active }),
+  });
+  if (!res?.id) return showToast(res?.error || 'Could not save assignments', 'error');
+  closeModal('modal-edit-user');
+  showToast('Station access updated');
+  refreshUsers();
+}
+
+const tutorialSteps = [
+  ['Welcome to TMCast', 'This quick tour shows the shortest path from a new account to a station that is ready to broadcast.'],
+  ['Assign the station', 'Open Users, invite the person, then click their Stations cell whenever you need to change access.'],
+  ['Organize audio', 'Open Media and create folders for music, jingles, station IDs, promos, or any structure your team uses.'],
+  ['Choose a jingle mode', 'Light, Standard, and Frequent presets configure the jingle rotation for you. Add audio to the Station Jingles playlist when ready.'],
+  ['You are ready', 'Upload music, start AutoDJ from the station page, and return to Help any time to replay this tour.']
+];
+let tutorialStep = 0;
+function startTutorial() {
+  tutorialStep = 0;
+  document.getElementById('tutorial-backdrop').hidden = false;
+  renderTutorialStep();
+}
+function renderTutorialStep() {
+  const [title, copy] = tutorialSteps[tutorialStep];
+  document.getElementById('tutorial-title').textContent = title;
+  document.getElementById('tutorial-copy').textContent = copy;
+  document.getElementById('tutorial-progress').style.setProperty('--progress', `${((tutorialStep + 1) / tutorialSteps.length) * 100}%`);
+  document.getElementById('tutorial-next').textContent = tutorialStep === tutorialSteps.length - 1 ? 'Done' : 'Next';
+}
+function nextTutorialStep() {
+  tutorialStep += 1;
+  if (tutorialStep >= tutorialSteps.length) return closeTutorial();
+  renderTutorialStep();
+}
+function closeTutorial() {
+  document.getElementById('tutorial-backdrop').hidden = true;
 }
 
 async function resetUserPassword(id, email) {

@@ -207,5 +207,7 @@
   ws.onmessage = () => { clearTimeout(wsLoadTimer); wsLoadTimer = setTimeout(load, 750); };
   ws.onclose = () => setTimeout(() => location.reload(), 5000);
 </script>
+
+<script src="/seehed-support.js" defer></script>
 </body>
 </html>

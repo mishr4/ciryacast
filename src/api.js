@@ -816,10 +816,64 @@ router.patch('/media/:id/meta', (req, res) => {
 // List unique folders for a station
 router.get('/stations/:id/folders', (req, res) => {
   const db = req.app.get('db');
-  const folders = db.prepare(
-    "SELECT DISTINCT folder FROM media WHERE station_id = ? AND folder != '' ORDER BY folder"
-  ).all(req.params.id).map(r => r.folder);
+  const folders = db.prepare(`
+    SELECT name FROM media_folders WHERE station_id = ?
+    UNION
+    SELECT folder AS name FROM media WHERE station_id = ? AND folder != ''
+    ORDER BY name
+  `).all(req.params.id, req.params.id).map(r => r.name);
   res.json(folders);
+});
+
+router.post('/stations/:id/folders', (req, res) => {
+  const db = req.app.get('db');
+  const name = String(req.body?.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Folder name required' });
+  try {
+    const id = uuid();
+    db.prepare('INSERT INTO media_folders (id, station_id, name) VALUES (?, ?, ?)').run(id, req.params.id, name);
+    res.status(201).json({ id, name });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That folder already exists' });
+    throw e;
+  }
+});
+
+router.patch('/stations/:stationId/folders/:name', (req, res) => {
+  const db = req.app.get('db');
+  const oldName = decodeURIComponent(req.params.name);
+  const newName = String(req.body?.name || '').trim().slice(0, 80);
+  if (!newName) return res.status(400).json({ error: 'Folder name required' });
+  try {
+    const rename = db.transaction(() => {
+      const existing = db.prepare('SELECT id FROM media_folders WHERE station_id = ? AND name = ?')
+        .get(req.params.stationId, oldName);
+      if (existing) {
+        db.prepare('UPDATE media_folders SET name = ? WHERE id = ?').run(newName, existing.id);
+      } else {
+        db.prepare('INSERT INTO media_folders (id, station_id, name) VALUES (?, ?, ?)')
+          .run(uuid(), req.params.stationId, newName);
+      }
+      db.prepare('UPDATE media SET folder = ? WHERE station_id = ? AND folder = ?')
+        .run(newName, req.params.stationId, oldName);
+    });
+    rename();
+    res.json({ ok: true, name: newName });
+  } catch (e) {
+    if (e.message.includes('UNIQUE')) return res.status(409).json({ error: 'That folder already exists' });
+    throw e;
+  }
+});
+
+router.delete('/stations/:stationId/folders/:name', (req, res) => {
+  const db = req.app.get('db');
+  const name = decodeURIComponent(req.params.name);
+  const remove = db.transaction(() => {
+    db.prepare("UPDATE media SET folder = '' WHERE station_id = ? AND folder = ?").run(req.params.stationId, name);
+    db.prepare('DELETE FROM media_folders WHERE station_id = ? AND name = ?').run(req.params.stationId, name);
+  });
+  remove();
+  res.json({ ok: true });
 });
 
 // Batch move media to a folder
@@ -1655,10 +1709,11 @@ router.post('/users', (req, res) => {
 
   const id = uuid();
   const hash = hashPassword(password);
+  const safeRole = ['manager', 'admin', 'dj'].includes(role) ? role : 'manager';
 
   db.prepare(
     'INSERT INTO users (id, email, password_hash, display_name, role) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, email.toLowerCase().trim(), hash, display_name || '', role || 'manager');
+  ).run(id, email.toLowerCase().trim(), hash, display_name || '', safeRole);
 
   // Assign stations
   if (station_ids && Array.isArray(station_ids)) {
@@ -1675,7 +1730,9 @@ router.post('/users', (req, res) => {
 // Update user (change password, display name, role, active status)
 router.put('/users/:id', (req, res) => {
   const db = req.app.get('db');
-  const { display_name, role, is_active, password } = req.body;
+  const { display_name, role, is_active, password, station_ids } = req.body;
+  const safeRole = role === undefined ? null : (['manager', 'admin', 'dj'].includes(role) ? role : null);
+  if (role !== undefined && !safeRole) return res.status(400).json({ error: 'Invalid role' });
 
   if (password) {
     if (password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
@@ -1689,11 +1746,41 @@ router.put('/users/:id', (req, res) => {
       role = COALESCE(?, role),
       is_active = COALESCE(?, is_active)
     WHERE id = ?
-  `).run(display_name, role, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+  `).run(display_name, safeRole, is_active !== undefined ? (is_active ? 1 : 0) : null, req.params.id);
+
+  if (Array.isArray(station_ids)) {
+    const replaceAssignments = db.transaction(() => {
+      db.prepare('DELETE FROM station_assignments WHERE user_id = ?').run(req.params.id);
+      const insert = db.prepare('INSERT INTO station_assignments (id, user_id, station_id) VALUES (?, ?, ?)');
+      for (const stationId of [...new Set(station_ids)]) insert.run(uuid(), req.params.id, stationId);
+    });
+    replaceAssignments();
+  }
 
   const user = db.prepare('SELECT id, email, display_name, role, is_active, created_at, last_login FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json(user);
+});
+
+router.post('/stations/:id/jingle-preset', (req, res) => {
+  const db = req.app.get('db');
+  const mode = ['light', 'standard', 'frequent'].includes(req.body?.mode) ? req.body.mode : 'standard';
+  const every = { light: 6, standard: 3, frequent: 1 }[mode];
+  let playlist = db.prepare(
+    "SELECT * FROM playlists WHERE station_id = ? AND type = 'jingles' ORDER BY created_at LIMIT 1"
+  ).get(req.params.id);
+  if (playlist) {
+    db.prepare("UPDATE playlists SET schedule_rule = 'every_N_songs', play_every_n = ?, play_mode = 'shuffle', is_enabled = 1 WHERE id = ?")
+      .run(every, playlist.id);
+  } else {
+    const id = uuid();
+    db.prepare(`
+      INSERT INTO playlists (id, station_id, name, weight, type, schedule_rule, play_every_n, play_mode, is_enabled)
+      VALUES (?, ?, 'Station Jingles', 1, 'jingles', 'every_N_songs', ?, 'shuffle', 1)
+    `).run(id, req.params.id, every);
+    playlist = db.prepare('SELECT * FROM playlists WHERE id = ?').get(id);
+  }
+  res.json({ ...playlist, mode, play_every_n: every });
 });
 
 // Delete user
@@ -1938,6 +2025,13 @@ router.get('/stations/:id/stream-relay', (req, res) => {
 // Its own top-level `enabled` gates the live ffmpeg air-chain (decode → filter → encode).
 
 const preprocess = require('./preprocess');
+const spectraUnavailable = (req, res) => res.status(410).json({
+  error: 'TMG Spectra is temporarily unavailable',
+  code: 'SPECTRA_REMOVED',
+});
+router.get('/stations/:id/processing', spectraUnavailable);
+router.get('/stations/:id/processing/progress', spectraUnavailable);
+router.put('/stations/:id/processing', spectraUnavailable);
 
 router.get('/stations/:id/processing', (req, res) => {
   const db = req.app.get('db');

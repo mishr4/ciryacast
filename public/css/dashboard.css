@@ -972,3 +972,24 @@ body {
 @media (prefers-reduced-motion: reduce) {
   #idle-screen.show, .idle-card, .idle-glow, .idle-eq span { animation: none !important; }
 }
+.library-tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:16px 0;padding:12px 0;border-bottom:1px solid var(--border)}
+.library-tools [hidden]{display:none!important}
+.folder-list{display:flex;gap:6px;flex-wrap:wrap}
+.folder-chip{border:1px solid var(--border);background:var(--glass);color:var(--text-secondary);padding:7px 10px;border-radius:6px;cursor:pointer;font:inherit;font-size:12px}
+.folder-chip.active{background:#151519;color:#fff;border-color:#151519}
+.jingle-quick{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600}
+.bulk-media-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;padding:10px 12px;background:var(--glass);border:1px solid var(--border);border-radius:6px;font-size:12px}
+.bulk-media-bar label{display:flex;align-items:center;gap:6px;font-weight:600}.bulk-media-bar .select-input{margin-left:auto}
+.media-check{width:16px;height:16px;accent-color:#4c8dff}
+.transfer-status{padding:12px;border-radius:6px;font-size:13px;font-weight:600}
+.transfer-status.success{background:#e8f5e9;color:#2e7d32}.transfer-status.error{background:#fce4ec;color:#c62828}
+.station-check-list{display:grid;gap:8px;margin:14px 0}
+.station-check-list label{display:flex;align-items:center;gap:9px;padding:10px;border:1px solid var(--border);border-radius:6px;cursor:pointer}
+.assignment-link{border:0;background:none;padding:0;color:inherit;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.modal-note{font-size:13px;color:var(--text-secondary)}
+.tutorial-backdrop{position:fixed;inset:0;z-index:12000;background:rgba(0,0,0,.58);display:grid;place-items:center;padding:20px}
+.tutorial-backdrop[hidden]{display:none}
+.tutorial-card{width:min(440px,100%);background:#fff;color:#17171b;border-radius:8px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+.tutorial-card h3{font-size:20px;margin:12px 0 8px}.tutorial-card p{color:#666;line-height:1.55;margin:0 0 20px}
+.tutorial-progress{height:4px;background:#ececf0;border-radius:2px;overflow:hidden}.tutorial-progress:before{content:"";display:block;height:100%;width:var(--progress,20%);background:#4c8dff;transition:width .2s}
+@media(max-width:700px){.jingle-quick{margin-left:0;width:100%}.jingle-quick .select-input{flex:1}}
