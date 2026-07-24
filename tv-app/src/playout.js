@@ -173,29 +173,50 @@ class PlayoutManager {
       return;
     }
 
-    let resolved = "";
-    session.resolver = spawn("yt-dlp", ["--no-playlist", "--no-warnings", "-f", "best[ext=mp4]/best", "-g", source.url], {
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    session.resolver.stdout.on("data", chunk => { resolved += String(chunk); });
-    session.resolver.stderr.on("data", record);
-    session.resolver.on("error", error => {
-      session.starting = false;
-      session.lastError = `YouTube resolver failed: ${error.message}`;
-      session.retryAt = Date.now() + 30000;
-    });
-    session.resolver.on("exit", code => {
-      if (this.sessions.get(channel.id) !== session) return;
-      const directUrl = resolved.split(/\r?\n/).find(Boolean);
-      if (code || !directUrl) {
-        session.starting = false;
-        session.lastError = `YouTube resolver exited with code ${code}. ${session.logs.at(-1) || ""}`.trim();
-        session.retryAt = Date.now() + 30000;
-        return;
+    const projectRoot = path.resolve(root, "..");
+    const attempts = [
+      { name: "embedded", args: ["--extractor-args", "youtube:player_client=web_embedded"] },
+      { name: "HLS", args: ["--extractor-args", "youtube:player_client=web_safari"] },
+      {
+        name: "PO token",
+        args: [
+          "--plugin-dirs", path.join(projectRoot, ".bgutil-ytdlp-pot-provider.zip"),
+          "--extractor-args", "youtube:player_client=mweb",
+          "--extractor-args", `youtubepot-bgutilscript:server_home=${path.join(projectRoot, ".bgutil-provider", "server")}`
+        ]
       }
-      const seek = Math.max(0, Math.floor(Number(source.startSeconds) || 0));
-      startFfmpeg(["-re", ...(seek ? ["-ss", String(seek)] : []), "-i", directUrl]);
-    });
+    ];
+    const resolveAttempt = index => {
+      if (this.sessions.get(channel.id) !== session) return;
+      const attempt = attempts[index];
+      let resolved = "";
+      session.logs = [...session.logs, `Trying YouTube ${attempt.name} resolver...`].slice(-8);
+      session.resolver = spawn("yt-dlp", [
+        "--no-playlist", "--no-warnings", "-f", "best[ext=mp4]/best", "-g",
+        ...attempt.args, source.url
+      ], { stdio: ["ignore", "pipe", "pipe"] });
+      session.resolver.stdout.on("data", chunk => { resolved += String(chunk); });
+      session.resolver.stderr.on("data", record);
+      session.resolver.on("error", error => {
+        session.starting = false;
+        session.lastError = `YouTube resolver failed: ${error.message}`;
+        session.retryAt = Date.now() + 30000;
+      });
+      session.resolver.on("exit", code => {
+        if (this.sessions.get(channel.id) !== session) return;
+        const directUrl = resolved.split(/\r?\n/).find(Boolean);
+        if ((code || !directUrl) && index < attempts.length - 1) return resolveAttempt(index + 1);
+        if (code || !directUrl) {
+          session.starting = false;
+          session.lastError = `All YouTube resolvers failed. ${session.logs.at(-1) || ""}`.trim();
+          session.retryAt = Date.now() + 30000;
+          return;
+        }
+        const seek = Math.max(0, Math.floor(Number(source.startSeconds) || 0));
+        startFfmpeg(["-re", ...(seek ? ["-ss", String(seek)] : []), "-i", directUrl]);
+      });
+    };
+    resolveAttempt(0);
   }
 
   reconcile() {
