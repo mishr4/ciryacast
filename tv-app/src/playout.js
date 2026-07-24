@@ -55,15 +55,32 @@ class PlayoutManager {
     const channel = db.prepare("SELECT auto_tv_enabled, auto_tv_slot_minutes FROM channels WHERE id = ?").get(channelId);
     if (channel?.auto_tv_enabled) {
       const youtubePrograms = db.prepare(`
-        SELECT id, title, youtube_url FROM youtube_programs
+        SELECT id, title, youtube_url, duration_seconds FROM youtube_programs
         WHERE channel_id = ? AND kind IN ('program', 'promo', 'ident')
         ORDER BY id
       `).all(channelId);
       if (youtubePrograms.length) {
-        const slotMinutes = Math.max(5, Number(channel.auto_tv_slot_minutes) || 30);
-        const slot = Math.floor(Date.now() / (slotMinutes * 60 * 1000));
-        const program = youtubePrograms[slot % youtubePrograms.length];
-        return { key: `auto-tv:${slot}:${program.id}`, type: "youtube", label: program.title, url: program.youtube_url, autoTv: true };
+        const fallbackSeconds = Math.max(60, (Number(channel.auto_tv_slot_minutes) || 5) * 60);
+        const durations = youtubePrograms.map(program => Math.max(10, Number(program.duration_seconds) || fallbackSeconds));
+        const cycleSeconds = durations.reduce((sum, duration) => sum + duration, 0);
+        const clock = Math.floor(Date.now() / 1000);
+        const cycle = Math.floor(clock / cycleSeconds);
+        let position = clock % cycleSeconds;
+        let index = 0;
+        while (index < durations.length - 1 && position >= durations[index]) {
+          position -= durations[index];
+          index++;
+        }
+        const program = youtubePrograms[index];
+        return {
+          key: `auto-tv:${cycle}:${program.id}`,
+          type: "youtube",
+          label: program.title,
+          url: program.youtube_url,
+          startSeconds: position,
+          durationSeconds: durations[index],
+          autoTv: true
+        };
       }
     }
 

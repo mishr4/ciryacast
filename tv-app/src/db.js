@@ -122,6 +122,7 @@ addColumn("channels", "youtube_channel_url TEXT NOT NULL DEFAULT ''");
 addColumn("channels", "youtube_last_synced_at TEXT");
 addColumn("youtube_programs", "kind TEXT NOT NULL DEFAULT 'program'");
 addColumn("youtube_programs", "on_demand INTEGER NOT NULL DEFAULT 1");
+addColumn("youtube_programs", "duration_seconds INTEGER");
 addColumn("assets", "on_demand INTEGER NOT NULL DEFAULT 0");
 addColumn("assets", "description TEXT NOT NULL DEFAULT ''");
 addColumn("assets", "poster_url TEXT NOT NULL DEFAULT ''");

@@ -17,6 +17,45 @@ const mediaDir = process.env.RAILWAY_VOLUME_MOUNT_PATH
   : path.join(root, "media");
 fs.mkdirSync(mediaDir, { recursive: true });
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS web_sessions (
+    sid TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL,
+    data TEXT NOT NULL
+  )
+`);
+db.prepare("DELETE FROM web_sessions WHERE expires_at <= ?").run(Date.now());
+
+class SQLiteSessionStore extends session.Store {
+  get(sid, callback) {
+    try {
+      const row = db.prepare("SELECT data FROM web_sessions WHERE sid = ? AND expires_at > ?").get(sid, Date.now());
+      callback(null, row ? JSON.parse(row.data) : null);
+    } catch (error) { callback(error); }
+  }
+  set(sid, value, callback = () => {}) {
+    try {
+      const expiresAt = value.cookie?.expires ? new Date(value.cookie.expires).getTime() : Date.now() + 7 * 86400000;
+      db.prepare(`
+        INSERT INTO web_sessions (sid, expires_at, data) VALUES (?, ?, ?)
+        ON CONFLICT(sid) DO UPDATE SET expires_at = excluded.expires_at, data = excluded.data
+      `).run(sid, expiresAt, JSON.stringify(value));
+      callback();
+    } catch (error) { callback(error); }
+  }
+  destroy(sid, callback = () => {}) {
+    try { db.prepare("DELETE FROM web_sessions WHERE sid = ?").run(sid); callback(); }
+    catch (error) { callback(error); }
+  }
+  touch(sid, value, callback = () => {}) {
+    try {
+      const expiresAt = value.cookie?.expires ? new Date(value.cookie.expires).getTime() : Date.now() + 7 * 86400000;
+      db.prepare("UPDATE web_sessions SET expires_at = ? WHERE sid = ?").run(expiresAt, sid);
+      callback();
+    } catch (error) { callback(error); }
+  }
+}
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: mediaDir,
@@ -36,7 +75,8 @@ const brandingUpload = multer({
 
 app.use(express.json());
 app.use(session({
-  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+  secret: process.env.SESSION_SECRET || process.env.CREDENTIALS_ENCRYPTION_KEY || "tmcast-local-session-only",
+  store: new SQLiteSessionStore(),
   resave: false,
   saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 7 * 24 * 60 * 60 * 1000 }
@@ -118,6 +158,12 @@ function youtubeChannelLookup(value) {
   throw new Error("Use a youtube.com/@handle URL or youtube.com/channel/UC... URL.");
 }
 
+function isoDurationSeconds(value) {
+  const match = String(value || "").match(/^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!match) return null;
+  return (Number(match[1]) || 0) * 86400 + (Number(match[2]) || 0) * 3600 + (Number(match[3]) || 0) * 60 + (Number(match[4]) || 0);
+}
+
 async function syncYoutubeChannel(channelId, input) {
   const lookup = youtubeChannelLookup(input);
   const channelResult = await youtubeApi("channels", { part: "snippet,contentDetails", ...lookup });
@@ -151,22 +197,32 @@ async function syncYoutubeChannel(channelId, input) {
     pageToken = page.nextPageToken || "";
   } while (pageToken);
 
+  const durations = new Map();
+  for (let index = 0; index < videos.length; index += 50) {
+    const ids = videos.slice(index, index + 50).map(video => new URL(video.youtubeUrl).searchParams.get("v")).filter(Boolean);
+    if (!ids.length) continue;
+    const details = await youtubeApi("videos", { part: "contentDetails", id: ids.join(",") });
+    for (const video of details.items || []) durations.set(video.id, isoDurationSeconds(video.contentDetails?.duration));
+  }
+
   const find = db.prepare("SELECT id FROM youtube_programs WHERE channel_id = ? AND youtube_url = ?");
   const insert = db.prepare(`
-    INSERT INTO youtube_programs (channel_id, title, description, youtube_url, poster_url, published_at, kind, on_demand)
-    VALUES (?, ?, ?, ?, ?, ?, 'program', 1)
+    INSERT INTO youtube_programs (channel_id, title, description, youtube_url, poster_url, published_at, kind, on_demand, duration_seconds)
+    VALUES (?, ?, ?, ?, ?, ?, 'program', 1, ?)
   `);
-  const update = db.prepare("UPDATE youtube_programs SET title = ?, description = ?, poster_url = ?, published_at = ? WHERE id = ?");
+  const update = db.prepare("UPDATE youtube_programs SET title = ?, description = ?, poster_url = ?, published_at = ?, duration_seconds = ? WHERE id = ?");
   let added = 0;
   let updated = 0;
   db.transaction(() => {
     for (const video of videos) {
       const existing = find.get(channelId, video.youtubeUrl);
+      const videoId = new URL(video.youtubeUrl).searchParams.get("v");
+      const duration = durations.get(videoId) || null;
       if (existing) {
-        update.run(video.title, video.description, video.posterUrl, video.publishedAt, existing.id);
+        update.run(video.title, video.description, video.posterUrl, video.publishedAt, duration, existing.id);
         updated++;
       } else {
-        insert.run(channelId, video.title, video.description, video.youtubeUrl, video.posterUrl, video.publishedAt);
+        insert.run(channelId, video.title, video.description, video.youtubeUrl, video.posterUrl, video.publishedAt, duration);
         added++;
       }
     }
@@ -180,6 +236,12 @@ async function syncYoutubeChannel(channelId, input) {
   })();
   return { channelTitle: source.snippet?.title || "YouTube channel", total: videos.length, added, updated };
 }
+
+setTimeout(() => {
+  for (const channel of db.prepare("SELECT id, youtube_channel_url FROM channels WHERE youtube_channel_url != ''").all()) {
+    syncYoutubeChannel(channel.id, channel.youtube_channel_url).catch(error => console.error(`YouTube sync failed for channel ${channel.id}: ${error.message}`));
+  }
+}, 5000);
 
 app.post("/api/auth/login", (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE email = ? AND active = 1").get(String(req.body.email || "").trim().toLowerCase());
@@ -247,6 +309,7 @@ app.get("/api/viewer/:organization", (req, res) => {
     return {
       ...channel,
       playback_url: playbackUrl,
+      playback_start_seconds: automatedUrl ? Math.floor(Number(source.startSeconds) || 0) : 0,
       playback_mode: automatedUrl ? (source.autoTv ? "auto_tv" : "automation") : playbackUrl ? "youtube_live" : "off_air",
       is_live: Boolean(playbackUrl),
       now_playing: source.label

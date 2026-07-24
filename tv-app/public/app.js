@@ -9,6 +9,14 @@ async function api(url, options = {}) {
   const response = await fetch(`${BASE_PATH}${url}`, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
+    if (response.status === 401 && !url.startsWith("/api/auth/")) {
+      state.user = null;
+      $("#login-password").value = "";
+      $("#login-note").textContent = "Your session expired. Sign in again to continue.";
+      $("#login-screen").classList.remove("hidden");
+      $("#login-password").focus();
+      throw new Error("Your session expired. Sign in again.");
+    }
     throw new Error(body.error || `Request failed (${response.status})`);
   }
   return response.status === 204 ? null : response.json();
@@ -326,6 +334,8 @@ async function bootstrap() {
 bootstrap();
 setInterval(async () => {
   if (!state.channel) return;
-  state.status = await api(`/api/channels/${state.channel.id}/status`);
-  render();
+  try {
+    state.status = await api(`/api/channels/${state.channel.id}/status`);
+    render();
+  } catch {}
 }, 10000);

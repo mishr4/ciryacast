@@ -3,11 +3,12 @@ const BASE_PATH = location.pathname.startsWith("/tv") ? "/tv" : "";
 const $ = selector => document.querySelector(selector);
 const escapeHtml = value => String(value || "").replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
 
-function youtubeEmbed(url) {
+function youtubeEmbed(url, startSeconds = 0) {
   try {
     const parsed = new URL(url);
     const id = parsed.hostname.includes("youtu.be") ? parsed.pathname.slice(1) : parsed.searchParams.get("v");
-    return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1` : "";
+    const start = Math.max(0, Math.floor(Number(startSeconds) || 0));
+    return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1${start ? `&start=${start}` : ""}` : "";
   } catch { return ""; }
 }
 function synopsis(value, fallback = "") {
@@ -19,7 +20,7 @@ function synopsis(value, fallback = "") {
 }
 function openPlayer(item, live = false) {
   clearTimeout(openPlayer.identTimer);
-  const source = live ? youtubeEmbed(item.playback_url) : item.playback_type === "youtube" ? youtubeEmbed(item.youtube_url) : `${BASE_PATH}${item.playback_url}`;
+  const source = live ? youtubeEmbed(item.playback_url, item.playback_start_seconds) : item.playback_type === "youtube" ? youtubeEmbed(item.youtube_url) : `${BASE_PATH}${item.playback_url}`;
   const title = live ? item.name : item.title;
   const finalMedia = () => {
     const youtubeMedia = live || item.playback_type === "youtube";
