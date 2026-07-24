@@ -3,6 +3,7 @@ const BASE_PATH = location.pathname.startsWith("/tv") ? "/tv" : "";
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]));
+let refreshVersion = 0;
 
 async function api(url, options = {}) {
   const response = await fetch(`${BASE_PATH}${url}`, options);
@@ -27,8 +28,10 @@ function go(view) {
 }
 
 async function refresh() {
+  const version = ++refreshVersion;
   if (state.user?.role === "platform_admin" && !state.organizations.length) {
     state.organizations = await api("/api/organizations");
+    if (version !== refreshVersion) return;
   }
   if (!state.activeOrganizationId) state.activeOrganizationId = state.user.organization_id;
   $("#company-picker").classList.toggle("hidden", state.user.role !== "platform_admin");
@@ -36,7 +39,10 @@ async function refresh() {
     $("#company-select").innerHTML = state.organizations.map(org => `<option value="${org.id}">${escapeHtml(org.name)}</option>`).join("");
     $("#company-select").value = String(state.activeOrganizationId);
   }
-  state.channels = await api(`/api/channels?organization_id=${state.activeOrganizationId}`);
+  const organizationId = state.activeOrganizationId;
+  const channels = await api(`/api/channels?organization_id=${organizationId}`);
+  if (version !== refreshVersion || organizationId !== state.activeOrganizationId) return;
+  state.channels = channels;
   if (!state.channels.length) {
     state.channel = null;
     $("#channel-select").innerHTML = "";
@@ -46,11 +52,13 @@ async function refresh() {
   state.channel = state.channels.find(c => c.id === previous) || state.channels[0];
   $("#channel-select").innerHTML = state.channels.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#channel-select").value = state.channel.id;
-  [state.youtubePrograms, state.schedule, state.status] = await Promise.all([
+  const details = await Promise.all([
     api(`/api/channels/${state.channel.id}/youtube-programs`),
     api(`/api/channels/${state.channel.id}/schedule`),
     api(`/api/channels/${state.channel.id}/status`)
   ]);
+  if (version !== refreshVersion || organizationId !== state.activeOrganizationId) return;
+  [state.youtubePrograms, state.schedule, state.status] = details;
   render();
 }
 function renderEmptyCompany() {
@@ -158,9 +166,10 @@ function renderSettings() {
   $("#stream-key-status").textContent = state.channel.stream_key_configured ? "A stream key is encrypted and saved for this channel." : "No stream key saved.";
   $("#remove-stream-key").disabled = !state.channel.stream_key_configured;
   const checks = [
+    [state.youtubePrograms.length > 0 && Boolean(state.channel.auto_tv_enabled), "TMCPlay Auto TV", state.channel.auto_tv_enabled ? `${state.youtubePrograms.length} YouTube item(s) available without a stream key` : "Enable Auto TV to run the TMCPlay channel"],
     [state.status.ffmpegAvailable, "FFmpeg", state.status.ffmpegAvailable ? "Encoder is installed" : "Install FFmpeg on the server"],
     [state.status.ytDlpAvailable, "YouTube relay", state.status.ytDlpAvailable ? "yt-dlp is installed" : "Install yt-dlp to relay YouTube URLs"],
-    [state.status.streamKeyConfigured, "Stream key", state.status.streamKeyConfigured ? "Encrypted credential is saved" : "Add this channel's key above"],
+    [state.status.streamKeyConfigured, "YouTube broadcast", state.status.streamKeyConfigured ? "Stream key saved; rebroadcast is available" : "Optional: add a stream key to broadcast Auto TV to YouTube Live"],
     [state.youtubePrograms.length > 0, "YouTube library", state.youtubePrograms.length ? `${state.youtubePrograms.length} item(s) ready` : "Add at least one YouTube video"]
   ];
   $("#readiness").innerHTML = checks.map(([ok,title,detail]) => `<div class="check-row ${ok ? "ok":"bad"}"><span data-lucide="${ok ? "circle-check":"circle-x"}"></span><div><strong>${title}</strong><small>${detail}</small></div></div>`).join("");
@@ -210,8 +219,8 @@ $("#next-day").onclick = () => { state.day.setDate(state.day.getDate()+1); state
 $("#today-button").onclick = () => { state.day=new Date(); renderSchedule(); lucide.createIcons(); };
 $("#start-asset-override").onclick = async () => { const program=state.youtubePrograms.find(item=>item.id===Number($("#override-asset").value)); if (!program) return toast("Choose a video first",true); await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:program.youtube_url,label:program.title})}); toast("YouTube library override is active"); await refresh(); };
 $("#start-youtube-override").onclick = async () => { try { await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:$("#youtube-url").value,label:$("#youtube-label").value})}); toast("YouTube Live override is active"); await refresh(); } catch(error){ toast(error.message,true); } };
-$("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting output",true); else if(!result.streamKeyConfigured) toast("Open Output settings and save this channel's YouTube stream key",true); else toast("Output started"); await refresh(); };
-$("#stop-output").onclick = async () => { await api(`/api/channels/${state.channel.id}/output/stop`,{method:"POST"}); toast("Output stopped"); await refresh(); };
+$("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting the YouTube broadcast",true); else if(!result.streamKeyConfigured) toast("Open Output settings and save this channel's YouTube stream key",true); else toast("YouTube broadcast started"); await refresh(); };
+$("#stop-output").onclick = async () => { await api(`/api/channels/${state.channel.id}/output/stop`,{method:"POST"}); toast("YouTube broadcast stopped"); await refresh(); };
 $("#upload-branding").onclick = async () => {
   const artwork = $("#channel-artwork-file").files[0];
   const watermark = $("#channel-watermark-file").files[0];

@@ -44,8 +44,8 @@
           <div class="page-heading">
             <div><p class="eyebrow">CONTROL ROOM</p><h1 id="channel-title">TMCast One</h1></div>
             <div class="output-actions">
-              <button class="button secondary" id="stop-output"><span data-lucide="square"></span>Stop output</button>
-              <button class="button primary" id="start-output"><span data-lucide="play"></span>Start output</button>
+              <button class="button secondary" id="stop-output"><span data-lucide="square"></span>Stop YouTube broadcast</button>
+              <button class="button primary" id="start-output"><span data-lucide="play"></span>Start YouTube broadcast</button>
             </div>
           </div>
           <div class="status-strip">
@@ -110,19 +110,17 @@
         </section>
 
         <section class="view" id="view-settings">
-          <div class="page-heading"><div><p class="eyebrow">DELIVERY</p><h1>Output settings</h1><p>Connect this channel to YouTube's RTMP ingest.</p></div></div>
+          <div class="page-heading"><div><p class="eyebrow">DELIVERY</p><h1>Output settings</h1><p>Run Auto TV on TMCPlay and optionally rebroadcast it to YouTube Live.</p></div></div>
           <div class="settings-layout">
             <section class="panel form-panel">
-              <h2>YouTube output</h2>
+              <h2>TMCPlay channel</h2>
               <div class="auto-tv-setting"><label>YouTube channel URL or @handle<input id="youtube-channel-url" placeholder="https://youtube.com/@Cirya"></label><p id="youtube-sync-status">Assign a YouTube channel to import its public videos into On Demand and Auto TV.</p><button class="button secondary" id="sync-youtube-channel"><span data-lucide="refresh-cw"></span>Assign and sync channel</button></div>
-              <label>RTMP server<input id="rtmp-url"></label>
-              <label>YouTube stream key<input id="youtube-stream-key" type="password" autocomplete="off" placeholder="Paste a new stream key"><small id="stream-key-status">No stream key saved.</small></label>
-              <label>Public YouTube watch URL<input id="public-live-url" type="url" placeholder="https://youtube.com/watch?v=..."><small>Viewers use this URL when they select the live channel.</small></label>
               <label>Channel artwork<input id="channel-artwork-url" type="url" placeholder="https://.../channel-image.jpg"><small>Paste a URL or choose an image from your computer.</small><input id="channel-artwork-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
               <label>Top-right watermark<input id="channel-watermark-url" type="url" placeholder="https://.../channel-logo.png"><small>Use a transparent PNG or WebP, or choose a file below.</small><input id="channel-watermark-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
               <button class="button secondary" id="upload-branding"><span data-lucide="image-up"></span>Upload selected images</button>
               <div class="two-column"><label>Ident YouTube URL<input id="channel-ident-url" type="url" placeholder="https://youtube.com/watch?v=..."></label><label>Ident length<input id="channel-ident-duration" type="number" min="1" max="30" value="6"><small>Seconds before the program begins.</small></label></div>
               <div class="auto-tv-setting"><label class="toggle-line"><input id="auto-tv-enabled" type="checkbox"><span>Auto TV</span></label><p>Automatically rotates YouTube-hosted programs when nothing is scheduled. No playlist required.</p><label>Rotation slot<select id="auto-tv-slot"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="120">2 hours</option></select></label></div>
+              <div class="auto-tv-setting"><h2>YouTube Live rebroadcast</h2><p>Optional. Send the same Auto TV output to your YouTube channel.</p><label>RTMP server<input id="rtmp-url"></label><label>YouTube stream key<input id="youtube-stream-key" type="password" autocomplete="off" placeholder="Paste a new stream key"><small id="stream-key-status">No stream key saved.</small></label><label>Public YouTube watch URL<input id="public-live-url" type="url" placeholder="https://youtube.com/watch?v=..."><small>The public URL for the resulting YouTube Live broadcast.</small></label></div>
               <div class="credential-actions"><button class="button primary" id="save-settings"><span data-lucide="save"></span>Save securely</button><button class="button secondary" id="remove-stream-key">Remove key</button></div>
             </section>
             <section class="panel checks-panel"><h2>Readiness check</h2><div id="readiness"></div></section>
@@ -164,7 +162,7 @@
         <li><span>1</span><div><strong>Add YouTube media</strong><p>Paste a YouTube video URL into the Media library. YouTube stores and delivers the video.</p></div></li>
         <li><span>2</span><div><strong>Build the schedule</strong><p>Pick a YouTube video and give it a start and end time, or enable Auto TV to keep the channel running.</p></div></li>
         <li><span>3</span><div><strong>Connect YouTube</strong><p>Paste the channel's stream key in Output settings. TMCast encrypts it and never displays it again.</p></div></li>
-        <li><span>4</span><div><strong>Start output</strong><p>Return to Overview and start output. Live override can take over at any moment.</p></div></li>
+        <li><span>4</span><div><strong>Start the YouTube broadcast</strong><p>Optional: return to Overview and start rebroadcasting Auto TV to YouTube Live. TMCPlay Auto TV already works without this step.</p></div></li>
       </ol>
       <a class="button primary full" href="YOUTUBE-SETUP.md" target="_blank">Open YouTube setup guide</a>
     </div>

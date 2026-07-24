@@ -7,7 +7,9 @@ The stream key sends video to an existing YouTube Live stream. Keep it secret.
 3. Choose **Stream**, create or select a stream, and copy its **Stream key**.
 4. Sign in to the TMCast TV website and select the matching channel.
 5. Open **Output settings** and paste the stream key.
-6. Click **Save securely**, select a scheduled video or enable Auto TV, and click **Start output**.
+6. Click **Save securely**, then select **Start YouTube broadcast** on the Overview page.
+
+This stream-key step is only for rebroadcasting TMCast automation to YouTube Live. TMCPlay Auto TV plays imported YouTube videos directly and does not require a stream key.
 
 The default ingest URL is `rtmp://a.rtmp.youtube.com/live2`.
 
