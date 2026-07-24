@@ -39,6 +39,13 @@ app.get("/control", (_req, res) => res.sendFile(path.join(root, "public", "contr
 app.get(/^\/watch\/[^/]+(?:\/\d+)?$/, (_req, res) => res.sendFile(path.join(root, "public", "watch.html")));
 
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.get("/api/networks", (_req, res) => {
+  res.json(db.prepare(`
+    SELECT o.name, o.slug,
+      (SELECT COUNT(*) FROM channels c WHERE c.organization_id = o.id) AS channel_count
+    FROM organizations o WHERE o.active = 1 ORDER BY o.name
+  `).all());
+});
 
 if (!db.prepare("SELECT id FROM users LIMIT 1").get()) {
   const email = String(process.env.ADMIN_EMAIL || "alexnmishra@gmail.com").toLowerCase();
