@@ -114,6 +114,7 @@
           <div class="settings-layout">
             <section class="panel form-panel">
               <h2>YouTube output</h2>
+              <div class="auto-tv-setting"><label>YouTube channel URL or @handle<input id="youtube-channel-url" placeholder="https://youtube.com/@Cirya"></label><p id="youtube-sync-status">Assign a YouTube channel to import its public videos into On Demand and Auto TV.</p><button class="button secondary" id="sync-youtube-channel"><span data-lucide="refresh-cw"></span>Assign and sync channel</button></div>
               <label>RTMP server<input id="rtmp-url"></label>
               <label>YouTube stream key<input id="youtube-stream-key" type="password" autocomplete="off" placeholder="Paste a new stream key"><small id="stream-key-status">No stream key saved.</small></label>
               <label>Public YouTube watch URL<input id="public-live-url" type="url" placeholder="https://youtube.com/watch?v=..."><small>Viewers use this URL when they select the live channel.</small></label>
@@ -151,6 +152,7 @@
   <div class="modal-backdrop hidden" id="channel-modal">
     <form class="modal compact" id="channel-form"><div class="modal-heading"><div><p class="eyebrow">NEW CHANNEL</p><h2>Create a channel</h2></div><button type="button" class="icon-button close-channel"><span data-lucide="x"></span></button></div>
       <label>Channel name<input id="new-channel-name" required placeholder="TMCast Sports"></label>
+      <label>YouTube channel URL or @handle<input id="new-channel-youtube" placeholder="https://youtube.com/@Cirya"><small>Optional. Public uploads will be imported into On Demand and Auto TV.</small></label>
       <label class="owner-only" id="channel-company-field">Company<select id="new-channel-company"></select></label>
       <div class="modal-actions"><button type="button" class="button secondary close-channel">Cancel</button><button class="button primary">Create channel</button></div>
     </form>

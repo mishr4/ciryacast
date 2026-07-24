@@ -142,6 +142,10 @@ function renderOverride() {
   if (active) $("#stop-override").onclick = async () => { await api(`/api/channels/${state.channel.id}/override`, {method:"DELETE"}); toast("Automation restored"); await refresh(); };
 }
 function renderSettings() {
+  $("#youtube-channel-url").value = state.channel.youtube_channel_url || "";
+  $("#youtube-sync-status").textContent = state.channel.youtube_last_synced_at
+    ? `Last synced ${new Date(state.channel.youtube_last_synced_at).toLocaleString()}`
+    : "Assign a YouTube channel to import its public videos into On Demand and Auto TV.";
   $("#rtmp-url").value = state.channel.rtmp_url || "";
   $("#public-live-url").value = state.channel.public_live_url || "";
   $("#channel-artwork-url").value = state.channel.artwork_url || "";
@@ -184,13 +188,13 @@ $("#channel-form").onsubmit = async event => {
   event.preventDefault();
   try {
     const organizationId = state.user.role === "platform_admin" ? Number($("#new-channel-company").value) : state.user.organization_id;
-    const created = await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId})});
+    const created = await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId,youtube_channel_url:$("#new-channel-youtube").value})});
     $("#channel-modal").classList.add("hidden");
     event.target.reset();
     state.activeOrganizationId = organizationId;
     state.channel = created;
     await refresh();
-    toast("Channel created and ready to configure");
+    toast(created.sync ? `Channel created with ${created.sync.added} YouTube videos` : created.sync_error || "Channel created and ready to configure", Boolean(created.sync_error));
   } catch (error) {
     toast(error.message, true);
   }
@@ -208,6 +212,17 @@ $("#start-asset-override").onclick = async () => { const program=state.youtubePr
 $("#start-youtube-override").onclick = async () => { try { await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:$("#youtube-url").value,label:$("#youtube-label").value})}); toast("YouTube Live override is active"); await refresh(); } catch(error){ toast(error.message,true); } };
 $("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting output",true); else if(!result.streamKeyConfigured) toast("Add the stream key environment variable first",true); else toast("Output started"); await refresh(); };
 $("#stop-output").onclick = async () => { await api(`/api/channels/${state.channel.id}/output/stop`,{method:"POST"}); toast("Output stopped"); await refresh(); };
+$("#sync-youtube-channel").onclick = async () => {
+  const button = $("#sync-youtube-channel");
+  button.disabled = true;
+  try {
+    toast("Syncing the YouTube channel...");
+    const result = await api(`/api/channels/${state.channel.id}/youtube-sync`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({youtube_channel_url:$("#youtube-channel-url").value})});
+    toast(`${result.channelTitle}: ${result.added} added, ${result.updated} updated`);
+    await refresh();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+};
 $("#save-settings").onclick = async () => {
   const streamKey = $("#youtube-stream-key").value.trim();
   try {

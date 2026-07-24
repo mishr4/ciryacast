@@ -84,6 +84,95 @@ const ownsChannel = (req, res, next) => {
   next();
 };
 
+async function youtubeApi(endpoint, params) {
+  const key = String(process.env.YOUTUBE_API_KEY || "").trim();
+  if (!key) throw new Error("YOUTUBE_API_KEY is not configured in Railway.");
+  const url = new URL(`https://www.googleapis.com/youtube/v3/${endpoint}`);
+  Object.entries({ ...params, key }).forEach(([name, value]) => url.searchParams.set(name, value));
+  const response = await fetch(url);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error?.message || "YouTube could not be reached.");
+  return body;
+}
+
+function youtubeChannelLookup(value) {
+  const raw = String(value || "").trim();
+  if (!raw) throw new Error("Enter a YouTube channel URL, @handle, or channel ID.");
+  if (/^UC[\w-]{20,}$/i.test(raw)) return { id: raw };
+  if (raw.startsWith("@")) return { forHandle: raw.slice(1) };
+  try {
+    const url = new URL(raw);
+    if (!/(^|\.)youtube\.com$/i.test(url.hostname)) throw new Error();
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts[0] === "channel" && parts[1]) return { id: parts[1] };
+    if (parts[0]?.startsWith("@")) return { forHandle: parts[0].slice(1) };
+  } catch {}
+  throw new Error("Use a youtube.com/@handle URL or youtube.com/channel/UC... URL.");
+}
+
+async function syncYoutubeChannel(channelId, input) {
+  const lookup = youtubeChannelLookup(input);
+  const channelResult = await youtubeApi("channels", { part: "snippet,contentDetails", ...lookup });
+  const source = channelResult.items?.[0];
+  if (!source) throw new Error("YouTube channel not found. Check the URL or handle.");
+  const uploads = source.contentDetails?.relatedPlaylists?.uploads;
+  if (!uploads) throw new Error("YouTube did not provide an uploads playlist for this channel.");
+
+  const videos = [];
+  let pageToken = "";
+  do {
+    const page = await youtubeApi("playlistItems", {
+      part: "snippet,contentDetails,status",
+      playlistId: uploads,
+      maxResults: "50",
+      ...(pageToken ? { pageToken } : {})
+    });
+    for (const item of page.items || []) {
+      const videoId = item.contentDetails?.videoId || item.snippet?.resourceId?.videoId;
+      const title = item.snippet?.title;
+      if (!videoId || !title || title === "Private video" || title === "Deleted video" || item.status?.privacyStatus === "private") continue;
+      const thumbnails = item.snippet?.thumbnails || {};
+      videos.push({
+        title,
+        description: item.snippet?.description || "",
+        youtubeUrl: `https://www.youtube.com/watch?v=${videoId}`,
+        posterUrl: (thumbnails.maxres || thumbnails.standard || thumbnails.high || thumbnails.medium || thumbnails.default || {}).url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        publishedAt: item.contentDetails?.videoPublishedAt || item.snippet?.publishedAt || new Date().toISOString()
+      });
+    }
+    pageToken = page.nextPageToken || "";
+  } while (pageToken);
+
+  const find = db.prepare("SELECT id FROM youtube_programs WHERE channel_id = ? AND youtube_url = ?");
+  const insert = db.prepare(`
+    INSERT INTO youtube_programs (channel_id, title, description, youtube_url, poster_url, published_at, kind, on_demand)
+    VALUES (?, ?, ?, ?, ?, ?, 'program', 1)
+  `);
+  const update = db.prepare("UPDATE youtube_programs SET title = ?, description = ?, poster_url = ?, published_at = ? WHERE id = ?");
+  let added = 0;
+  let updated = 0;
+  db.transaction(() => {
+    for (const video of videos) {
+      const existing = find.get(channelId, video.youtubeUrl);
+      if (existing) {
+        update.run(video.title, video.description, video.posterUrl, video.publishedAt, existing.id);
+        updated++;
+      } else {
+        insert.run(channelId, video.title, video.description, video.youtubeUrl, video.posterUrl, video.publishedAt);
+        added++;
+      }
+    }
+    const channelUrl = `https://www.youtube.com/channel/${source.id}`;
+    const artwork = source.snippet?.thumbnails?.high?.url || source.snippet?.thumbnails?.default?.url || "";
+    db.prepare(`
+      UPDATE channels SET youtube_channel_id = ?, youtube_channel_url = ?, youtube_last_synced_at = ?,
+        auto_tv_enabled = 1, artwork_url = CASE WHEN artwork_url = '' THEN ? ELSE artwork_url END
+      WHERE id = ?
+    `).run(source.id, channelUrl, new Date().toISOString(), artwork, channelId);
+  })();
+  return { channelTitle: source.snippet?.title || "YouTube channel", total: videos.length, added, updated };
+}
+
 app.post("/api/auth/login", (req, res) => {
   const user = db.prepare("SELECT * FROM users WHERE email = ? AND active = 1").get(String(req.body.email || "").trim().toLowerCase());
   if (!user) {
@@ -179,7 +268,7 @@ app.get("/api/channels", (_req, res) => {
 app.get("/api/organizations", requireOwner, (_req, res) => {
   res.json(db.prepare("SELECT id, name, slug, plan, active FROM organizations ORDER BY name").all());
 });
-app.post("/api/channels", (req, res) => {
+app.post("/api/channels", async (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Channel name is required." });
   const organizationId = req.user.role === "platform_admin" && req.body.organization_id
@@ -195,9 +284,24 @@ app.post("/api/channels", (req, res) => {
   while (db.prepare("SELECT id FROM channels WHERE slug = ?").get(slug)) slug = `${baseSlug}-${suffix++}`;
   try {
     const result = db.prepare("INSERT INTO channels (name, slug, description, organization_id) VALUES (?, ?, ?, ?)").run(name, slug, req.body.description || "", organizationId);
-    res.status(201).json(db.prepare("SELECT * FROM channels WHERE id = ?").get(result.lastInsertRowid));
+    let sync = null;
+    let syncError = "";
+    if (req.body.youtube_channel_url) {
+      try { sync = await syncYoutubeChannel(result.lastInsertRowid, req.body.youtube_channel_url); }
+      catch (error) { syncError = error.message; }
+    }
+    res.status(201).json({ ...db.prepare("SELECT * FROM channels WHERE id = ?").get(result.lastInsertRowid), sync, sync_error: syncError });
   } catch (error) {
     res.status(400).json({ error: error.message.includes("UNIQUE") ? "That channel slug already exists." : error.message });
+  }
+});
+app.post("/api/channels/:id/youtube-sync", ownsChannel, async (req, res) => {
+  try {
+    const source = String(req.body.youtube_channel_url || req.channel.youtube_channel_url || "").trim();
+    const sync = await syncYoutubeChannel(req.channel.id, source);
+    res.json({ ...sync, channel: db.prepare("SELECT * FROM channels WHERE id = ?").get(req.channel.id) });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 app.patch("/api/channels/:id", ownsChannel, (req, res) => {
