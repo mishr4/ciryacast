@@ -84,15 +84,31 @@ function renderEmptyCompany() {
 function render() {
   const source = state.status.source;
   $("#channel-title").textContent = state.channel.name;
-  $("#output-state").textContent = state.status.streaming ? "Live to YouTube" : state.status.starting ? "Starting YouTube broadcast" : source.autoTv ? "Auto TV ready on TMCPlay" : state.status.outputRequested ? "Broadcast stopped" : "Stopped";
+  $("#output-state").textContent = state.status.streaming
+    ? "Live to YouTube"
+    : state.status.starting
+      ? "Starting YouTube broadcast"
+      : state.status.outputRequested
+        ? state.status.lastError ? "YouTube broadcast error" : "Retrying YouTube broadcast"
+        : source.autoTv ? "YouTube broadcast stopped" : "Stopped";
   $("#now-playing").textContent = source.label;
   const future = state.schedule.find(item => new Date(item.start_at) > new Date());
   $("#next-program").textContent = future?.title || "Nothing scheduled";
   $("#asset-count").textContent = `${state.youtubePrograms.length} item${state.youtubePrograms.length === 1 ? "" : "s"}`;
-  $("#live-badge").textContent = state.status.streaming ? "LIVE" : "OFF AIR";
+  $("#live-badge").textContent = state.status.streaming ? "LIVE" : state.status.starting ? "STARTING" : state.status.outputRequested && state.status.lastError ? "ERROR" : "OFF AIR";
   $("#live-badge").classList.toggle("on", state.status.streaming);
   $("#monitor-title").textContent = source.label;
-  $("#monitor-detail").textContent = source.type === "off-air" ? "Schedule a video or enable Auto TV" : state.status.streaming ? "Sending to YouTube" : source.autoTv ? "Playing on TMCPlay without rebroadcasting" : "Ready in automation";
+  $("#monitor-detail").textContent = source.type === "off-air"
+    ? "Schedule a video or enable Auto TV"
+    : state.status.streaming
+      ? "Sending to YouTube Live"
+      : state.status.starting
+        ? "Resolving the source and connecting to YouTube"
+        : state.status.outputRequested
+          ? state.status.lastError || "Waiting to retry the YouTube connection"
+          : source.autoTv ? "Live on TMCPlay; YouTube rebroadcast is stopped" : "Ready in automation";
+  $("#start-output").disabled = Boolean(state.status.outputRequested);
+  $("#stop-output").disabled = !state.status.outputRequested;
   $("#source-type").textContent = source.type === "youtube" ? "YouTube Live relay" : source.key.startsWith("override") || source.key.includes("override") ? "Manual override" : source.key.startsWith("fallback") ? "Fallback loop" : "Automation";
   renderRundown(); renderAssets(); renderSchedule(); renderSelectors(); renderOverride(); renderSettings(); renderOnDemand();
   const activeOrganization = state.organizations.find(org => org.id === state.activeOrganizationId);
@@ -228,7 +244,7 @@ $("#next-day").onclick = () => { state.day.setDate(state.day.getDate()+1); state
 $("#today-button").onclick = () => { state.day=new Date(); renderSchedule(); lucide.createIcons(); };
 $("#start-asset-override").onclick = async () => { const program=state.youtubePrograms.find(item=>item.id===Number($("#override-asset").value)); if (!program) return toast("Choose a video first",true); await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:program.youtube_url,label:program.title})}); toast("YouTube library override is active"); await refresh(); };
 $("#start-youtube-override").onclick = async () => { try { await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:$("#youtube-url").value,label:$("#youtube-label").value})}); toast("YouTube Live override is active"); await refresh(); } catch(error){ toast(error.message,true); } };
-$("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting the YouTube broadcast",true); else if(!result.streamKeyConfigured) toast("Open Output settings and save this channel's YouTube stream key",true); else toast("YouTube broadcast started"); await refresh(); };
+$("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting the YouTube broadcast",true); else if(!result.streamKeyConfigured) toast("Open Output settings and save this channel's YouTube stream key",true); else toast("Starting the YouTube broadcast..."); await refresh(); };
 $("#stop-output").onclick = async () => { await api(`/api/channels/${state.channel.id}/output/stop`,{method:"POST"}); toast("YouTube broadcast stopped"); await refresh(); };
 $("#upload-branding").onclick = async () => {
   const artwork = $("#channel-artwork-file").files[0];
