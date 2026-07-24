@@ -33,6 +33,15 @@ class PlayoutManager {
     }
 
     const now = new Date().toISOString();
+    const youtubeScheduled = db.prepare(`
+      SELECT s.id, s.title, y.youtube_url
+      FROM youtube_schedule s JOIN youtube_programs y ON y.id = s.youtube_program_id
+      WHERE s.channel_id = ? AND s.start_at <= ? AND s.end_at > ?
+      ORDER BY s.start_at DESC LIMIT 1
+    `).get(channelId, now, now);
+    if (youtubeScheduled) {
+      return { key: `youtube-schedule:${youtubeScheduled.id}`, type: "youtube", label: youtubeScheduled.title, url: youtubeScheduled.youtube_url };
+    }
     const scheduled = db.prepare(`
       SELECT s.id, s.title, a.id AS asset_id, a.filename
       FROM schedule s JOIN assets a ON a.id = s.asset_id
@@ -45,16 +54,16 @@ class PlayoutManager {
 
     const channel = db.prepare("SELECT auto_tv_enabled, auto_tv_slot_minutes FROM channels WHERE id = ?").get(channelId);
     if (channel?.auto_tv_enabled) {
-      const assets = db.prepare(`
-        SELECT id, title, filename FROM assets
+      const youtubePrograms = db.prepare(`
+        SELECT id, title, youtube_url FROM youtube_programs
         WHERE channel_id = ? AND kind IN ('program', 'promo', 'ident')
         ORDER BY id
       `).all(channelId);
-      if (assets.length) {
+      if (youtubePrograms.length) {
         const slotMinutes = Math.max(5, Number(channel.auto_tv_slot_minutes) || 30);
         const slot = Math.floor(Date.now() / (slotMinutes * 60 * 1000));
-        const asset = assets[slot % assets.length];
-        return { key: `auto-tv:${slot}:${asset.id}`, type: "asset", label: asset.title, filename: asset.filename, autoTv: true };
+        const program = youtubePrograms[slot % youtubePrograms.length];
+        return { key: `auto-tv:${slot}:${program.id}`, type: "youtube", label: program.title, url: program.youtube_url, autoTv: true };
       }
     }
 

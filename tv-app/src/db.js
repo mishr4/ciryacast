@@ -89,6 +89,17 @@ db.exec(`
     published_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE
   );
+  CREATE TABLE IF NOT EXISTS youtube_schedule (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER NOT NULL,
+    youtube_program_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+    FOREIGN KEY(youtube_program_id) REFERENCES youtube_programs(id) ON DELETE CASCADE
+  );
 `);
 
 function addColumn(table, definition) {
@@ -106,6 +117,8 @@ addColumn("channels", "ident_youtube_url TEXT NOT NULL DEFAULT ''");
 addColumn("channels", "ident_duration_seconds INTEGER NOT NULL DEFAULT 6");
 addColumn("channels", "auto_tv_enabled INTEGER NOT NULL DEFAULT 0");
 addColumn("channels", "auto_tv_slot_minutes INTEGER NOT NULL DEFAULT 30");
+addColumn("youtube_programs", "kind TEXT NOT NULL DEFAULT 'program'");
+addColumn("youtube_programs", "on_demand INTEGER NOT NULL DEFAULT 1");
 addColumn("assets", "on_demand INTEGER NOT NULL DEFAULT 0");
 addColumn("assets", "description TEXT NOT NULL DEFAULT ''");
 addColumn("assets", "poster_url TEXT NOT NULL DEFAULT ''");

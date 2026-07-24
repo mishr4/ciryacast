@@ -158,7 +158,7 @@ app.get("/api/viewer/:organization", (req, res) => {
     SELECT y.id, y.title, y.description, y.poster_url, y.youtube_url, y.published_at,
       c.name AS channel_name, c.watermark_url, c.ident_youtube_url, c.ident_duration_seconds
     FROM youtube_programs y JOIN channels c ON c.id = y.channel_id
-    WHERE c.organization_id = ? ORDER BY y.published_at DESC
+    WHERE c.organization_id = ? AND y.on_demand = 1 ORDER BY y.published_at DESC
   `).all(organization.id).map(program => ({ ...program, playback_type: "youtube" }));
   res.json({ organization, channels, programs: [...youtubePrograms, ...programs].sort((a, b) => String(b.published_at).localeCompare(String(a.published_at))) });
 });
@@ -279,28 +279,55 @@ app.post("/api/channels/:id/youtube-programs", ownsChannel, (req, res) => {
   const title = String(req.body.title || "").trim();
   if (!title) return res.status(400).json({ error: "Program title is required." });
   const poster = String(req.body.poster_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`).trim();
-  const result = db.prepare("INSERT INTO youtube_programs (channel_id, title, description, youtube_url, poster_url) VALUES (?, ?, ?, ?, ?)")
-    .run(req.channel.id, title, String(req.body.description || "").trim(), url, poster);
+  const kind = ["program", "promo", "ad", "ident"].includes(req.body.kind) ? req.body.kind : "program";
+  const onDemand = req.body.on_demand === false ? 0 : 1;
+  const result = db.prepare("INSERT INTO youtube_programs (channel_id, title, description, youtube_url, poster_url, kind, on_demand) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(req.channel.id, title, String(req.body.description || "").trim(), url, poster, kind, onDemand);
   res.status(201).json(db.prepare("SELECT * FROM youtube_programs WHERE id = ?").get(result.lastInsertRowid));
 });
+app.patch("/api/youtube-programs/:id", (req, res) => {
+  const program = req.user.role === "platform_admin"
+    ? db.prepare("SELECT y.* FROM youtube_programs y WHERE y.id = ?").get(req.params.id)
+    : db.prepare("SELECT y.* FROM youtube_programs y JOIN channels c ON c.id = y.channel_id WHERE y.id = ? AND c.organization_id = ?").get(req.params.id, req.user.organization_id);
+  if (!program) return res.status(404).json({ error: "Program not found." });
+  db.prepare("UPDATE youtube_programs SET on_demand = ? WHERE id = ?").run(req.body.on_demand ? 1 : 0, program.id);
+  res.json(db.prepare("SELECT * FROM youtube_programs WHERE id = ?").get(program.id));
+});
 app.delete("/api/youtube-programs/:id", (req, res) => {
-  const program = db.prepare("SELECT y.id FROM youtube_programs y JOIN channels c ON c.id = y.channel_id WHERE y.id = ? AND c.organization_id = ?").get(req.params.id, req.user.organization_id);
+  const program = req.user.role === "platform_admin"
+    ? db.prepare("SELECT y.id FROM youtube_programs y WHERE y.id = ?").get(req.params.id)
+    : db.prepare("SELECT y.id FROM youtube_programs y JOIN channels c ON c.id = y.channel_id WHERE y.id = ? AND c.organization_id = ?").get(req.params.id, req.user.organization_id);
   if (!program) return res.status(404).json({ error: "Program not found." });
   db.prepare("DELETE FROM youtube_programs WHERE id = ?").run(program.id);
   res.status(204).end();
 });
 
 app.get("/api/channels/:id/schedule", ownsChannel, (req, res) => {
-  res.json(db.prepare(`
+  const local = db.prepare(`
     SELECT s.*, a.original_name, a.kind FROM schedule s
     JOIN assets a ON a.id = s.asset_id WHERE s.channel_id = ?
     ORDER BY s.start_at
-  `).all(req.params.id));
+  `).all(req.params.id).map(item => ({ ...item, schedule_type: "local", schedule_key: `local-${item.id}` }));
+  const youtube = db.prepare(`
+    SELECT s.*, y.title AS program_title, y.youtube_url, y.kind
+    FROM youtube_schedule s JOIN youtube_programs y ON y.id = s.youtube_program_id
+    WHERE s.channel_id = ? ORDER BY s.start_at
+  `).all(req.params.id).map(item => ({ ...item, original_name: "YouTube hosted", schedule_type: "youtube", schedule_key: `youtube-${item.id}` }));
+  res.json([...local, ...youtube].sort((a, b) => a.start_at.localeCompare(b.start_at)));
 });
 app.post("/api/channels/:id/schedule", ownsChannel, (req, res) => {
-  const { asset_id, title, start_at, end_at } = req.body;
-  if (!asset_id || !start_at || !end_at || new Date(end_at) <= new Date(start_at)) {
+  const { asset_id, youtube_program_id, title, start_at, end_at } = req.body;
+  if ((!asset_id && !youtube_program_id) || !start_at || !end_at || new Date(end_at) <= new Date(start_at)) {
     return res.status(400).json({ error: "Choose a video and a valid start/end time." });
+  }
+  if (youtube_program_id) {
+    const program = db.prepare("SELECT id, title FROM youtube_programs WHERE id = ? AND channel_id = ?").get(youtube_program_id, req.channel.id);
+    if (!program) return res.status(400).json({ error: "Choose a YouTube video from this channel." });
+    const result = db.prepare(`
+      INSERT INTO youtube_schedule (channel_id, youtube_program_id, title, start_at, end_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(req.params.id, program.id, title || program.title, new Date(start_at).toISOString(), new Date(end_at).toISOString());
+    return res.status(201).json(db.prepare("SELECT * FROM youtube_schedule WHERE id = ?").get(result.lastInsertRowid));
   }
   const result = db.prepare(`
     INSERT INTO schedule (channel_id, asset_id, title, start_at, end_at)
@@ -309,7 +336,17 @@ app.post("/api/channels/:id/schedule", ownsChannel, (req, res) => {
   res.status(201).json(db.prepare("SELECT * FROM schedule WHERE id = ?").get(result.lastInsertRowid));
 });
 app.delete("/api/schedule/:id", (req, res) => {
-  db.prepare("DELETE FROM schedule WHERE id = ?").run(req.params.id);
+  const [type, id] = String(req.params.id).split("-");
+  if (type === "youtube") {
+    const event = db.prepare("SELECT s.id, c.organization_id FROM youtube_schedule s JOIN channels c ON c.id = s.channel_id WHERE s.id = ?").get(id);
+    if (!event || (req.user.role !== "platform_admin" && event.organization_id !== req.user.organization_id)) return res.status(404).json({ error: "Program not found." });
+    db.prepare("DELETE FROM youtube_schedule WHERE id = ?").run(id);
+  } else {
+    const localId = type === "local" ? id : req.params.id;
+    const event = db.prepare("SELECT s.id, c.organization_id FROM schedule s JOIN channels c ON c.id = s.channel_id WHERE s.id = ?").get(localId);
+    if (!event || (req.user.role !== "platform_admin" && event.organization_id !== req.user.organization_id)) return res.status(404).json({ error: "Program not found." });
+    db.prepare("DELETE FROM schedule WHERE id = ?").run(localId);
+  }
   res.status(204).end();
 });
 

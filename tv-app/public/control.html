@@ -69,20 +69,18 @@
             </section>
           </div>
           <section class="quick-actions">
-            <button data-go="library"><span data-lucide="upload"></span><strong>Upload videos</strong><small>Add programs, promos and idents</small></button>
+            <button data-go="library"><span data-lucide="youtube"></span><strong>Add YouTube media</strong><small>Programs, promos and idents without uploads</small></button>
             <button data-go="schedule"><span data-lucide="calendar-plus"></span><strong>Schedule a program</strong><small>Set an exact broadcast window</small></button>
             <button data-go="override"><span data-lucide="radio"></span><strong>Take over live</strong><small>Play a video or YouTube Live link</small></button>
           </section>
         </section>
 
         <section class="view" id="view-library">
-          <div class="page-heading"><div><p class="eyebrow">CONTENT</p><h1>Media library</h1><p>Everything available to schedule or play immediately.</p></div><button class="button primary" id="upload-trigger"><span data-lucide="upload"></span>Upload media</button></div>
-          <input id="file-input" type="file" multiple accept="video/*,audio/*" hidden>
+          <div class="page-heading"><div><p class="eyebrow">CONTENT</p><h1>YouTube media library</h1><p>Programs remain hosted by YouTube and are organized here for TMCPlay.</p></div><button class="button primary" id="add-youtube-media"><span data-lucide="youtube"></span>Add YouTube media</button></div>
           <div class="filter-bar">
             <div class="segmented" id="kind-filter"><button class="active" data-kind="all">All</button><button data-kind="program">Programs</button><button data-kind="promo">Promos</button><button data-kind="ad">Ads</button><button data-kind="ident">Idents</button></div>
             <label class="search"><span data-lucide="search"></span><input id="asset-search" placeholder="Search media"></label>
           </div>
-          <div id="drop-zone" class="drop-zone"><span data-lucide="cloud-upload"></span><strong>Drop video or audio files here</strong><small>Files are stored on the playout server</small></div>
           <div id="asset-list" class="data-list"></div>
         </section>
 
@@ -98,7 +96,7 @@
           <div id="active-override" class="active-override hidden"></div>
           <div class="override-grid">
             <section class="panel option-panel">
-              <span class="option-icon"><span data-lucide="film"></span></span><h2>Play uploaded video</h2><p>Take a library item directly to air.</p>
+              <span class="option-icon"><span data-lucide="youtube"></span></span><h2>Play library video</h2><p>Take a YouTube-hosted library item directly to air.</p>
               <label>Video<select id="override-asset"></select></label>
               <button class="button primary full" id="start-asset-override"><span data-lucide="play"></span>Play video now</button>
             </section>
@@ -122,8 +120,7 @@
               <label>Channel artwork URL<input id="channel-artwork-url" type="url" placeholder="https://.../channel-image.jpg"></label>
               <label>Top-right watermark URL<input id="channel-watermark-url" type="url" placeholder="https://.../channel-logo.png"><small>Use a transparent PNG or WebP.</small></label>
               <div class="two-column"><label>Ident YouTube URL<input id="channel-ident-url" type="url" placeholder="https://youtube.com/watch?v=..."></label><label>Ident length<input id="channel-ident-duration" type="number" min="1" max="30" value="6"><small>Seconds before the program begins.</small></label></div>
-              <label>Fallback video<select id="fallback-asset"></select><small>Loops whenever nothing else is scheduled.</small></label>
-              <div class="auto-tv-setting"><label class="toggle-line"><input id="auto-tv-enabled" type="checkbox"><span>Auto TV</span></label><p>Automatically rotates uploaded programs when nothing is scheduled. No playlist required.</p><label>Rotation slot<select id="auto-tv-slot"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="120">2 hours</option></select></label></div>
+              <div class="auto-tv-setting"><label class="toggle-line"><input id="auto-tv-enabled" type="checkbox"><span>Auto TV</span></label><p>Automatically rotates YouTube-hosted programs when nothing is scheduled. No playlist required.</p><label>Rotation slot<select id="auto-tv-slot"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60">60 minutes</option><option value="120">2 hours</option></select></label></div>
               <div class="credential-actions"><button class="button primary" id="save-settings"><span data-lucide="save"></span>Save securely</button><button class="button secondary" id="remove-stream-key">Remove key</button></div>
             </section>
             <section class="panel checks-panel"><h2>Readiness check</h2><div id="readiness"></div></section>
@@ -161,8 +158,8 @@
   <div class="modal-backdrop hidden" id="help-modal">
     <div class="modal help-modal"><div class="modal-heading"><div><p class="eyebrow">QUICK START</p><h2>Put your first channel on air</h2></div><button class="icon-button close-help"><span data-lucide="x"></span></button></div>
       <ol class="tutorial">
-        <li><span>1</span><div><strong>Upload media</strong><p>Add a video in Media library. Use MP4 with H.264 video and AAC audio for the smoothest playout.</p></div></li>
-        <li><span>2</span><div><strong>Build the schedule</strong><p>Pick a video and give it a start and end time, or choose a fallback video in Output settings.</p></div></li>
+        <li><span>1</span><div><strong>Add YouTube media</strong><p>Paste a YouTube video URL into the Media library. YouTube stores and delivers the video.</p></div></li>
+        <li><span>2</span><div><strong>Build the schedule</strong><p>Pick a YouTube video and give it a start and end time, or enable Auto TV to keep the channel running.</p></div></li>
         <li><span>3</span><div><strong>Connect YouTube</strong><p>Paste the channel's stream key in Output settings. TMCast encrypts it and never displays it again.</p></div></li>
         <li><span>4</span><div><strong>Start output</strong><p>Return to Overview and start output. Live override can take over at any moment.</p></div></li>
       </ol>
@@ -178,12 +175,13 @@
     </form>
   </div>
   <div class="modal-backdrop hidden" id="youtube-program-modal">
-    <form class="modal" id="youtube-program-form"><div class="modal-heading"><div><p class="eyebrow">TMCPLAY</p><h2>Add an on-demand program</h2></div><button type="button" class="icon-button close-youtube-program"><span data-lucide="x"></span></button></div>
+    <form class="modal" id="youtube-program-form"><div class="modal-heading"><div><p class="eyebrow">YOUTUBE MEDIA</p><h2>Add a video</h2></div><button type="button" class="icon-button close-youtube-program"><span data-lucide="x"></span></button></div>
       <label>YouTube video URL<input id="program-youtube-url" type="url" required placeholder="https://youtube.com/watch?v=..."></label>
       <label>Program title<input id="program-youtube-title" required></label>
       <label>Description<input id="program-youtube-description"></label>
       <label>Custom poster URL<input id="program-youtube-poster" type="url" placeholder="Optional; YouTube thumbnail is used automatically"></label>
-      <div class="modal-actions"><button type="button" class="button secondary close-youtube-program">Cancel</button><button class="button primary">Publish to TMCPlay</button></div>
+      <div class="two-column"><label>Media type<select id="program-youtube-kind"><option value="program">Program</option><option value="promo">Promo</option><option value="ad">Ad</option><option value="ident">Ident</option></select></label><label class="toggle-line">Show on demand<input id="program-youtube-on-demand" type="checkbox" checked></label></div>
+      <div class="modal-actions"><button type="button" class="button secondary close-youtube-program">Cancel</button><button class="button primary">Add video</button></div>
     </form>
   </div>
   <div class="login-screen" id="login-screen">
