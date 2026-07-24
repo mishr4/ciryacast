@@ -25,6 +25,14 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 * 1024 },
   fileFilter: (_req, file, callback) => callback(null, file.mimetype.startsWith("video/") || file.mimetype.startsWith("audio/"))
 });
+const brandingUpload = multer({
+  storage: multer.diskStorage({
+    destination: mediaDir,
+    filename: (_req, file, callback) => callback(null, `branding-${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`)
+  }),
+  limits: { fileSize: 10 * 1024 * 1024, files: 2 },
+  fileFilter: (_req, file, callback) => callback(null, ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.mimetype))
+});
 
 app.use(express.json());
 app.use(session({
@@ -318,6 +326,28 @@ app.patch("/api/channels/:id", ownsChannel, (req, res) => {
     next.auto_tv_enabled ? 1 : 0, Math.max(5, Math.min(240, Number(next.auto_tv_slot_minutes) || 30)), current.id);
   const { stream_key_encrypted, ...channel } = db.prepare("SELECT * FROM channels WHERE id = ?").get(current.id);
   res.json({ ...channel, stream_key_configured: Boolean(stream_key_encrypted) });
+});
+app.post("/api/channels/:id/branding", ownsChannel, brandingUpload.fields([
+  { name: "artwork", maxCount: 1 },
+  { name: "watermark", maxCount: 1 }
+]), (req, res) => {
+  const artwork = req.files?.artwork?.[0];
+  const watermark = req.files?.watermark?.[0];
+  if (!artwork && !watermark) return res.status(400).json({ error: "Choose an artwork or watermark image." });
+
+  const current = db.prepare("SELECT artwork_url, watermark_url FROM channels WHERE id = ?").get(req.channel.id);
+  const removeOldUpload = value => {
+    const match = String(value || "").match(/^\/tv\/media\/(branding-[^/]+)$/);
+    if (match) fs.rmSync(path.join(mediaDir, match[1]), { force: true });
+  };
+  if (artwork) removeOldUpload(current.artwork_url);
+  if (watermark) removeOldUpload(current.watermark_url);
+
+  const artworkUrl = artwork ? `/tv/media/${artwork.filename}` : current.artwork_url;
+  const watermarkUrl = watermark ? `/tv/media/${watermark.filename}` : current.watermark_url;
+  db.prepare("UPDATE channels SET artwork_url = ?, watermark_url = ? WHERE id = ?")
+    .run(artworkUrl, watermarkUrl, req.channel.id);
+  res.json({ artwork_url: artworkUrl, watermark_url: watermarkUrl });
 });
 app.put("/api/channels/:id/youtube-credentials", ownsChannel, (req, res) => {
   const streamKey = String(req.body.stream_key || "").trim();

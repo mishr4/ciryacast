@@ -212,6 +212,26 @@ $("#start-asset-override").onclick = async () => { const program=state.youtubePr
 $("#start-youtube-override").onclick = async () => { try { await api(`/api/channels/${state.channel.id}/override`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"youtube",url:$("#youtube-url").value,label:$("#youtube-label").value})}); toast("YouTube Live override is active"); await refresh(); } catch(error){ toast(error.message,true); } };
 $("#start-output").onclick = async () => { const result=await api(`/api/channels/${state.channel.id}/output/start`,{method:"POST"}); if(!result.ffmpegAvailable) toast("Install FFmpeg before starting output",true); else if(!result.streamKeyConfigured) toast("Add the stream key environment variable first",true); else toast("Output started"); await refresh(); };
 $("#stop-output").onclick = async () => { await api(`/api/channels/${state.channel.id}/output/stop`,{method:"POST"}); toast("Output stopped"); await refresh(); };
+$("#upload-branding").onclick = async () => {
+  const artwork = $("#channel-artwork-file").files[0];
+  const watermark = $("#channel-watermark-file").files[0];
+  if (!artwork && !watermark) return toast("Choose an artwork or watermark image first", true);
+  const form = new FormData();
+  if (artwork) form.append("artwork", artwork);
+  if (watermark) form.append("watermark", watermark);
+  const button = $("#upload-branding");
+  button.disabled = true;
+  try {
+    const result = await api(`/api/channels/${state.channel.id}/branding`, {method:"POST",body:form});
+    $("#channel-artwork-url").value = result.artwork_url || "";
+    $("#channel-watermark-url").value = result.watermark_url || "";
+    $("#channel-artwork-file").value = "";
+    $("#channel-watermark-file").value = "";
+    toast("Branding images uploaded");
+    await refresh();
+  } catch (error) { toast(error.message, true); }
+  finally { button.disabled = false; }
+};
 $("#sync-youtube-channel").onclick = async () => {
   const button = $("#sync-youtube-channel");
   button.disabled = true;
