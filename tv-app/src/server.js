@@ -156,7 +156,11 @@ app.get("/api/viewer/:organization", (req, res) => {
 
 app.use("/api", requireAuth);
 app.get("/api/channels", (_req, res) => {
-  const channels = db.prepare("SELECT * FROM channels WHERE organization_id = ? ORDER BY id").all(_req.user.organization_id);
+  const requestedOrganization = Number(_req.query.organization_id);
+  const organizationId = _req.user.role === "platform_admin" && requestedOrganization
+    ? requestedOrganization
+    : _req.user.organization_id;
+  const channels = db.prepare("SELECT * FROM channels WHERE organization_id = ? ORDER BY id").all(organizationId);
   res.json(channels.map(({ stream_key_encrypted, ...channel }) => ({
     ...channel,
     stream_key_configured: Boolean(stream_key_encrypted),

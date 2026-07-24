@@ -64,7 +64,8 @@ function render(data) {
   lucide.createIcons();
 }
 async function loadViewer() {
-  const response = await fetch(`${BASE_PATH}/api/viewer/tmc-media`);
+  const network = new URLSearchParams(location.search).get("network") || "tmc-media";
+  const response = await fetch(`${BASE_PATH}/api/viewer/${encodeURIComponent(network)}`);
   if (!response.ok) throw new Error("The viewer is temporarily unavailable.");
   render(await response.json());
 }

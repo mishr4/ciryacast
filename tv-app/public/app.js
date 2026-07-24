@@ -1,4 +1,4 @@
-﻿const state = { user: null, channels: [], channel: null, assets: [], youtubePrograms: [], organizations: [], schedule: [], status: null, day: new Date(), filter: "all", search: "" };
+﻿const state = { user: null, activeOrganizationId: null, channels: [], channel: null, assets: [], youtubePrograms: [], organizations: [], schedule: [], status: null, day: new Date(), filter: "all", search: "" };
 const BASE_PATH = location.pathname.startsWith("/tv") ? "/tv" : "";
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -34,7 +34,18 @@ async function refresh() {
   if (state.user?.role === "platform_admin" && !state.organizations.length) {
     state.organizations = await api("/api/organizations");
   }
-  state.channels = await api("/api/channels");
+  if (!state.activeOrganizationId) state.activeOrganizationId = state.user.organization_id;
+  $("#company-picker").classList.toggle("hidden", state.user.role !== "platform_admin");
+  if (state.user.role === "platform_admin") {
+    $("#company-select").innerHTML = state.organizations.map(org => `<option value="${org.id}">${escapeHtml(org.name)}</option>`).join("");
+    $("#company-select").value = String(state.activeOrganizationId);
+  }
+  state.channels = await api(`/api/channels?organization_id=${state.activeOrganizationId}`);
+  if (!state.channels.length) {
+    state.channel = null;
+    $("#channel-select").innerHTML = "";
+    return renderEmptyCompany();
+  }
   const previous = state.channel?.id;
   state.channel = state.channels.find(c => c.id === previous) || state.channels[0];
   $("#channel-select").innerHTML = state.channels.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
@@ -46,6 +57,18 @@ async function refresh() {
     api(`/api/channels/${state.channel.id}/status`)
   ]);
   render();
+}
+function renderEmptyCompany() {
+  $("#channel-title").textContent = "No channels yet";
+  $("#output-state").textContent = "Not configured";
+  $("#now-playing").textContent = "Off air";
+  $("#next-program").textContent = "Nothing scheduled";
+  $("#asset-count").textContent = "0 items";
+  $("#monitor-title").textContent = "Create this company's first channel";
+  $("#monitor-detail").textContent = "Use the plus button in the top bar";
+  $("#server-status").textContent = "No channels";
+  $$(".owner-only").forEach(node => node.classList.toggle("hidden", state.user.role !== "platform_admin"));
+  lucide.createIcons();
 }
 function render() {
   const source = state.status.source;
@@ -61,7 +84,9 @@ function render() {
   $("#monitor-detail").textContent = source.type === "off-air" ? "Schedule a video or set a fallback" : state.status.streaming ? "Sending to YouTube" : "Ready in automation";
   $("#source-type").textContent = source.type === "youtube" ? "YouTube Live relay" : source.key.startsWith("override") || source.key.includes("override") ? "Manual override" : source.key.startsWith("fallback") ? "Fallback loop" : "Automation";
   renderRundown(); renderAssets(); renderSchedule(); renderSelectors(); renderOverride(); renderSettings(); renderOnDemand();
-  $("#open-catalog").href = `${BASE_PATH}/watch/${state.user.organization_slug}`;
+  const activeOrganization = state.organizations.find(org => org.id === state.activeOrganizationId);
+  const catalogSlug = activeOrganization?.slug || state.user.organization_slug;
+  $("#open-catalog").href = `${BASE_PATH}/?network=${encodeURIComponent(catalogSlug)}`;
   $$(".owner-only").forEach(node => node.classList.toggle("hidden", state.user.role !== "platform_admin"));
   $("#server-status").textContent = "Connected";
   lucide.createIcons();
@@ -85,7 +110,14 @@ function renderOnDemand() {
 async function renderPartners() {
   if (state.user.role !== "platform_admin") return;
   const partners = await api("/api/partners");
-  $("#partner-list").innerHTML = partners.map(p => `<div class="partner-row"><span class="media-icon"><span data-lucide="building-2"></span></span><div><strong>${escapeHtml(p.organization_name)}</strong><small>${escapeHtml(p.email)}</small></div><span>${p.channel_count} channel${p.channel_count===1?"":"s"}</span><a class="text-button" target="_blank" href="${BASE_PATH}/watch/${escapeHtml(p.slug)}">Catalog</a></div>`).join("");
+  $("#partner-list").innerHTML = partners.map(p => `<div class="partner-row"><span class="media-icon"><span data-lucide="building-2"></span></span><div><strong>${escapeHtml(p.organization_name)}</strong><small>${escapeHtml(p.email)}</small></div><span>${p.channel_count} channel${p.channel_count===1?"":"s"}</span><div class="partner-actions"><button class="text-button" data-manage-company="${p.organization_id}">Manage</button><a class="text-button" target="_blank" href="${BASE_PATH}/?network=${encodeURIComponent(p.slug)}">TMCPlay</a></div></div>`).join("");
+  $$("[data-manage-company]").forEach(button => button.onclick = async () => {
+    state.activeOrganizationId = Number(button.dataset.manageCompany);
+    state.channel = null;
+    await refresh();
+    go("overview");
+    toast("Company workspace opened");
+  });
   lucide.createIcons();
 }
 function renderRundown() {
@@ -155,11 +187,16 @@ $$(".nav-item").forEach(button => button.onclick = () => go(button.dataset.view)
 $$(".nav-item").forEach(button => button.addEventListener("click", () => { if (button.dataset.view === "partners") renderPartners(); }));
 $$("[data-go]").forEach(button => button.onclick = () => go(button.dataset.go));
 $("#channel-select").onchange = async event => { state.channel = state.channels.find(c => c.id === Number(event.target.value)); await refresh(); };
+$("#company-select").onchange = async event => {
+  state.activeOrganizationId = Number(event.target.value);
+  state.channel = null;
+  await refresh();
+};
 $("#add-channel").onclick = () => {
   const field = $("#channel-company-field");
   field.classList.toggle("hidden", state.user.role !== "platform_admin");
   $("#new-channel-company").innerHTML = state.organizations.map(org => `<option value="${org.id}">${escapeHtml(org.name)}</option>`).join("");
-  $("#new-channel-company").value = String(state.user.organization_id);
+  $("#new-channel-company").value = String(state.activeOrganizationId || state.user.organization_id);
   $("#channel-modal").classList.remove("hidden");
 };
 $("#open-help").onclick = () => $("#help-modal").classList.remove("hidden");
@@ -168,9 +205,11 @@ $$(".close-channel").forEach(button => button.onclick = () => $("#channel-modal"
 $("#channel-form").onsubmit = async event => {
   event.preventDefault();
   const organizationId = state.user.role === "platform_admin" ? Number($("#new-channel-company").value) : state.user.organization_id;
-  await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId})});
+  const created = await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId})});
   $("#channel-modal").classList.add("hidden");
   event.target.reset();
+  state.activeOrganizationId = organizationId;
+  state.channel = created;
   toast("Channel created for selected company");
   await refresh();
 };
