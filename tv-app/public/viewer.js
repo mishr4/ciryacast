@@ -7,8 +7,15 @@ function youtubeEmbed(url) {
   try {
     const parsed = new URL(url);
     const id = parsed.hostname.includes("youtu.be") ? parsed.pathname.slice(1) : parsed.searchParams.get("v");
-    return id ? `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1&rel=0&playsinline=1&modestbranding=1` : "";
+    return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1` : "";
   } catch { return ""; }
+}
+function synopsis(value, fallback = "") {
+  const clean = String(value || fallback).replace(/https?:\/\/\S+/g, "").replace(/[#@][\w-]+/g, "").replace(/\s+/g, " ").trim();
+  if (clean.length <= 320) return clean;
+  const clipped = clean.slice(0, 320);
+  const sentence = clipped.lastIndexOf(". ");
+  return `${clipped.slice(0, sentence > 180 ? sentence + 1 : clipped.lastIndexOf(" "))}...`;
 }
 function openPlayer(item, live = false) {
   clearTimeout(openPlayer.identTimer);
@@ -31,7 +38,7 @@ function openPlayer(item, live = false) {
   }
   $("#player-badge").textContent = live ? "LIVE" : "ON DEMAND";
   $("#player-title").textContent = live ? item.name : item.title;
-  $("#player-description").textContent = item.description || (live ? item.now_playing : item.channel_name);
+  $("#player-description").textContent = synopsis(item.description, live ? item.now_playing : item.channel_name);
   $("#player-modal").classList.remove("hidden");
   document.body.classList.add("modal-open");
 }
@@ -49,7 +56,7 @@ function render(data) {
   if (featured) {
     const isChannel = Object.hasOwn(featured, "public_live_url");
     $("#hero-title").textContent = isChannel ? featured.name : featured.title;
-    $("#hero-copy").textContent = featured.description || (isChannel ? featured.now_playing : featured.channel_name);
+    $("#hero-copy").textContent = synopsis(featured.description, isChannel ? featured.now_playing : featured.channel_name);
     $("#hero-status").textContent = isChannel && featured.is_live ? "LIVE NOW" : "FEATURED";
     if (featured.artwork_url || featured.poster_url) $(".hero-art").style.backgroundImage = `url("${featured.artwork_url || featured.poster_url}")`;
     $("#hero-watch").disabled = isChannel ? !featured.public_live_url : false;
