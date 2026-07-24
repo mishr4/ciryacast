@@ -76,7 +76,9 @@ const requireOwner = (req, res, next) => {
 };
 const ownsChannel = (req, res, next) => {
   const id = req.params.id || req.params.channelId;
-  const channel = db.prepare("SELECT * FROM channels WHERE id = ? AND organization_id = ?").get(id, req.user.organization_id);
+  const channel = req.user.role === "platform_admin"
+    ? db.prepare("SELECT * FROM channels WHERE id = ?").get(id)
+    : db.prepare("SELECT * FROM channels WHERE id = ? AND organization_id = ?").get(id, req.user.organization_id);
   if (!channel) return res.status(404).json({ error: "Channel not found." });
   req.channel = channel;
   next();
@@ -180,13 +182,17 @@ app.get("/api/organizations", requireOwner, (_req, res) => {
 app.post("/api/channels", (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Channel name is required." });
-  const slug = String(req.body.slug || name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
   const organizationId = req.user.role === "platform_admin" && req.body.organization_id
     ? Number(req.body.organization_id)
     : req.user.organization_id;
-  if (!db.prepare("SELECT id FROM organizations WHERE id = ? AND active = 1").get(organizationId)) {
+  const organization = db.prepare("SELECT id, slug FROM organizations WHERE id = ? AND active = 1").get(organizationId);
+  if (!organization) {
     return res.status(400).json({ error: "Choose an active company." });
   }
+  const baseSlug = String(req.body.slug || `${organization.slug}-${name}`).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  let slug = baseSlug;
+  let suffix = 2;
+  while (db.prepare("SELECT id FROM channels WHERE slug = ?").get(slug)) slug = `${baseSlug}-${suffix++}`;
   try {
     const result = db.prepare("INSERT INTO channels (name, slug, description, organization_id) VALUES (?, ?, ?, ?)").run(name, slug, req.body.description || "", organizationId);
     res.status(201).json(db.prepare("SELECT * FROM channels WHERE id = ?").get(result.lastInsertRowid));

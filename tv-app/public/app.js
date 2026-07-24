@@ -204,14 +204,18 @@ $$(".close-help").forEach(button => button.onclick = () => $("#help-modal").clas
 $$(".close-channel").forEach(button => button.onclick = () => $("#channel-modal").classList.add("hidden"));
 $("#channel-form").onsubmit = async event => {
   event.preventDefault();
-  const organizationId = state.user.role === "platform_admin" ? Number($("#new-channel-company").value) : state.user.organization_id;
-  const created = await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId})});
-  $("#channel-modal").classList.add("hidden");
-  event.target.reset();
-  state.activeOrganizationId = organizationId;
-  state.channel = created;
-  toast("Channel created for selected company");
-  await refresh();
+  try {
+    const organizationId = state.user.role === "platform_admin" ? Number($("#new-channel-company").value) : state.user.organization_id;
+    const created = await api("/api/channels", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:$("#new-channel-name").value,organization_id:organizationId})});
+    $("#channel-modal").classList.add("hidden");
+    event.target.reset();
+    state.activeOrganizationId = organizationId;
+    state.channel = created;
+    await refresh();
+    toast("Channel created and ready to configure");
+  } catch (error) {
+    toast(error.message, true);
+  }
 };
 $("#upload-trigger").onclick = () => $("#file-input").click();
 $("#file-input").onchange = event => uploadFiles(event.target.files);
