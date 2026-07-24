@@ -68,7 +68,7 @@ function renderEmptyCompany() {
 function render() {
   const source = state.status.source;
   $("#channel-title").textContent = state.channel.name;
-  $("#output-state").textContent = state.status.streaming ? "Live to YouTube" : state.status.outputRequested ? "Waiting for source" : "Stopped";
+  $("#output-state").textContent = state.status.streaming ? "Live to YouTube" : source.autoTv ? "Auto TV ready on TMCPlay" : state.status.outputRequested ? "Waiting for source" : "Stopped";
   $("#now-playing").textContent = source.label;
   const future = state.schedule.find(item => new Date(item.start_at) > new Date());
   $("#next-program").textContent = future?.title || "Nothing scheduled";
@@ -76,7 +76,7 @@ function render() {
   $("#live-badge").textContent = state.status.streaming ? "LIVE" : "OFF AIR";
   $("#live-badge").classList.toggle("on", state.status.streaming);
   $("#monitor-title").textContent = source.label;
-  $("#monitor-detail").textContent = source.type === "off-air" ? "Schedule a video or set a fallback" : state.status.streaming ? "Sending to YouTube" : "Ready in automation";
+  $("#monitor-detail").textContent = source.type === "off-air" ? "Schedule a video or enable Auto TV" : state.status.streaming ? "Sending to YouTube" : source.autoTv ? "Playing on TMCPlay without rebroadcasting" : "Ready in automation";
   $("#source-type").textContent = source.type === "youtube" ? "YouTube Live relay" : source.key.startsWith("override") || source.key.includes("override") ? "Manual override" : source.key.startsWith("fallback") ? "Fallback loop" : "Automation";
   renderRundown(); renderAssets(); renderSchedule(); renderSelectors(); renderOverride(); renderSettings(); renderOnDemand();
   const activeOrganization = state.organizations.find(org => org.id === state.activeOrganizationId);

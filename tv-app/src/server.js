@@ -240,11 +240,18 @@ app.get("/api/viewer/:organization", (req, res) => {
     SELECT id, name, description, public_live_url, artwork_url, watermark_url,
       ident_youtube_url, ident_duration_seconds, output_enabled
     FROM channels WHERE organization_id = ? ORDER BY id
-  `).all(organization.id).map(channel => ({
-    ...channel,
-    is_live: Boolean(channel.output_enabled && channel.public_live_url),
-    now_playing: playout.getSource(channel.id).label
-  }));
+  `).all(organization.id).map(channel => {
+    const source = playout.getSource(channel.id);
+    const automatedUrl = source.type === "youtube" ? source.url : "";
+    const playbackUrl = automatedUrl || (channel.output_enabled ? channel.public_live_url : "");
+    return {
+      ...channel,
+      playback_url: playbackUrl,
+      playback_mode: automatedUrl ? (source.autoTv ? "auto_tv" : "automation") : playbackUrl ? "youtube_live" : "off_air",
+      is_live: Boolean(playbackUrl),
+      now_playing: source.label
+    };
+  });
   const programs = db.prepare(`
     SELECT a.id, a.title, a.description, a.poster_url, a.mime_type, a.published_at,
       c.name AS channel_name, c.watermark_url, c.ident_youtube_url, c.ident_duration_seconds
