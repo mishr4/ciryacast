@@ -103,7 +103,8 @@ class PlayoutManager {
     return {
       source,
       outputRequested: Boolean(channel?.output_enabled),
-      streaming: Boolean(session?.ffmpeg && !session.ffmpeg.killed),
+      starting: Boolean(session?.starting),
+      streaming: Boolean(session?.ffmpeg && session.ffmpeg.exitCode === null && !session.ffmpeg.killed),
       ffmpegAvailable: this.ffmpegAvailable,
       ytDlpAvailable: this.ytDlpAvailable,
       streamKeyConfigured: Boolean(streamKey),
@@ -115,8 +116,12 @@ class PlayoutManager {
   stop(channelId, preserve = false) {
     const id = Number(channelId);
     const session = this.sessions.get(id);
-    if (session?.resolver && !session.resolver.killed) session.resolver.kill("SIGTERM");
-    if (session?.ffmpeg && !session.ffmpeg.killed) session.ffmpeg.kill("SIGTERM");
+    if (session?.resolver && session.resolver.exitCode === null && !session.resolver.killed) session.resolver.kill("SIGTERM");
+    if (session?.ffmpeg && session.ffmpeg.exitCode === null && !session.ffmpeg.killed) session.ffmpeg.kill("SIGTERM");
+    if (session) {
+      session.starting = false;
+      session.retryAt = 0;
+    }
     if (!preserve) this.sessions.delete(id);
   }
 
@@ -125,44 +130,72 @@ class PlayoutManager {
     try { streamKey = decrypt(channel.stream_key_encrypted); } catch { return; }
     if (!this.ffmpegAvailable || !streamKey || source.type === "off-air") return;
 
-    const output = `${channel.rtmp_url || process.env.YOUTUBE_RTMP_URL}/${streamKey}`;
-    let resolver = null;
-    let inputArgs;
-    let input;
-    if (source.type === "youtube") {
-      if (!this.ytDlpAvailable) return;
-      resolver = spawn("yt-dlp", ["--no-playlist", "-f", "best[ext=mp4]/best", "-o", "-", source.url], {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
-      input = resolver.stdout;
-      inputArgs = ["-i", "pipe:0"];
-    } else {
-      const file = path.join(root, "media", source.filename);
-      inputArgs = [...(source.loop ? ["-stream_loop", "-1"] : []), "-re", "-i", file];
-    }
-
-    const args = [
-      "-hide_banner", "-loglevel", "warning", ...inputArgs,
-      "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-      "-pix_fmt", "yuv420p", "-r", "30", "-g", "60",
-      "-b:v", "4500k", "-maxrate", "4500k", "-bufsize", "9000k",
-      "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
-      "-f", "flv", output
-    ];
-    const ffmpeg = spawn("ffmpeg", args, { stdio: [input ? "pipe" : "ignore", "ignore", "pipe"] });
-    if (input) input.pipe(ffmpeg.stdin);
-    const session = { sourceKey: source.key, ffmpeg, resolver, logs: [], lastError: null };
+    const baseOutput = channel.rtmp_url || process.env.YOUTUBE_RTMP_URL || "rtmps://a.rtmps.youtube.com/live2";
+    const output = `${baseOutput.replace(/\/$/, "")}/${streamKey}`;
+    const session = { sourceKey: source.key, ffmpeg: null, resolver: null, logs: [], lastError: null, starting: true, retryAt: 0 };
     const record = chunk => {
       const line = String(chunk).trim();
       if (line) session.logs = [...session.logs.slice(-7), line.slice(-400)];
     };
-    ffmpeg.stderr.on("data", record);
-    ffmpeg.on("error", error => { session.lastError = error.message; });
-    ffmpeg.on("exit", code => {
-      if (code && code !== 143) session.lastError = `FFmpeg exited with code ${code}`;
-    });
-    if (resolver) resolver.stderr.on("data", record);
     this.sessions.set(channel.id, session);
+
+    const startFfmpeg = inputArgs => {
+      if (this.sessions.get(channel.id) !== session) return;
+      const args = [
+        "-hide_banner", "-loglevel", "warning", ...inputArgs,
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        "-pix_fmt", "yuv420p", "-r", "30", "-g", "60",
+        "-b:v", "4500k", "-maxrate", "4500k", "-bufsize", "9000k",
+        "-c:a", "aac", "-b:a", "160k", "-ar", "44100",
+        "-f", "flv", output
+      ];
+      session.ffmpeg = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+      session.starting = false;
+      session.ffmpeg.stderr.on("data", record);
+      session.ffmpeg.on("error", error => {
+        session.lastError = error.message;
+        session.retryAt = Date.now() + 30000;
+      });
+      session.ffmpeg.on("exit", code => {
+        if (code && code !== 143) session.lastError = `FFmpeg exited with code ${code}. ${session.logs.at(-1) || ""}`.trim();
+        session.retryAt = Date.now() + 30000;
+      });
+    };
+
+    if (source.type !== "youtube") {
+      const file = path.join(root, "media", source.filename);
+      return startFfmpeg([...(source.loop ? ["-stream_loop", "-1"] : []), "-re", "-i", file]);
+    }
+    if (!this.ytDlpAvailable) {
+      session.starting = false;
+      session.lastError = "yt-dlp is not installed.";
+      return;
+    }
+
+    let resolved = "";
+    session.resolver = spawn("yt-dlp", ["--no-playlist", "--no-warnings", "-f", "best[ext=mp4]/best", "-g", source.url], {
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    session.resolver.stdout.on("data", chunk => { resolved += String(chunk); });
+    session.resolver.stderr.on("data", record);
+    session.resolver.on("error", error => {
+      session.starting = false;
+      session.lastError = `YouTube resolver failed: ${error.message}`;
+      session.retryAt = Date.now() + 30000;
+    });
+    session.resolver.on("exit", code => {
+      if (this.sessions.get(channel.id) !== session) return;
+      const directUrl = resolved.split(/\r?\n/).find(Boolean);
+      if (code || !directUrl) {
+        session.starting = false;
+        session.lastError = `YouTube resolver exited with code ${code}. ${session.logs.at(-1) || ""}`.trim();
+        session.retryAt = Date.now() + 30000;
+        return;
+      }
+      const seek = Math.max(0, Math.floor(Number(source.startSeconds) || 0));
+      startFfmpeg(["-re", ...(seek ? ["-ss", String(seek)] : []), "-i", directUrl]);
+    });
   }
 
   reconcile() {
@@ -170,10 +203,14 @@ class PlayoutManager {
       const source = this.getSource(channel.id);
       const session = this.sessions.get(channel.id);
       if (!channel.output_enabled || source.type === "off-air") {
-        if (session?.ffmpeg && !session.ffmpeg.killed) this.stop(channel.id, true);
+        if (session?.ffmpeg || session?.resolver) this.stop(channel.id, true);
         continue;
       }
-      if (!session?.ffmpeg || session.ffmpeg.killed || session.sourceKey !== source.key) {
+      const running = session?.ffmpeg && session.ffmpeg.exitCode === null && !session.ffmpeg.killed;
+      if (!session || session.sourceKey !== source.key) {
+        this.stop(channel.id);
+        this.start(channel, source);
+      } else if (!session.starting && !running && Date.now() >= (session.retryAt || 0)) {
         this.stop(channel.id);
         this.start(channel, source);
       }

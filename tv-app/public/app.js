@@ -84,7 +84,7 @@ function renderEmptyCompany() {
 function render() {
   const source = state.status.source;
   $("#channel-title").textContent = state.channel.name;
-  $("#output-state").textContent = state.status.streaming ? "Live to YouTube" : source.autoTv ? "Auto TV ready on TMCPlay" : state.status.outputRequested ? "Waiting for source" : "Stopped";
+  $("#output-state").textContent = state.status.streaming ? "Live to YouTube" : state.status.starting ? "Starting YouTube broadcast" : source.autoTv ? "Auto TV ready on TMCPlay" : state.status.outputRequested ? "Broadcast stopped" : "Stopped";
   $("#now-playing").textContent = source.label;
   const future = state.schedule.find(item => new Date(item.start_at) > new Date());
   $("#next-program").textContent = future?.title || "Nothing scheduled";
@@ -180,6 +180,7 @@ function renderSettings() {
     [state.status.streamKeyConfigured, "YouTube broadcast", state.status.streamKeyConfigured ? "Stream key saved; rebroadcast is available" : "Optional: add a stream key to broadcast Auto TV to YouTube Live"],
     [state.youtubePrograms.length > 0, "YouTube library", state.youtubePrograms.length ? `${state.youtubePrograms.length} item(s) ready` : "Add at least one YouTube video"]
   ];
+  if (state.status.lastError) checks.push([false, "Broadcast error", state.status.lastError]);
   $("#readiness").innerHTML = checks.map(([ok,title,detail]) => `<div class="check-row ${ok ? "ok":"bad"}"><span data-lucide="${ok ? "circle-check":"circle-x"}"></span><div><strong>${title}</strong><small>${detail}</small></div></div>`).join("");
 }
 $$(".nav-item").forEach(button => button.onclick = () => go(button.dataset.view));

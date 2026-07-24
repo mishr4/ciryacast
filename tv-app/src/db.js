@@ -36,7 +36,7 @@ db.exec(`
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
-    rtmp_url TEXT NOT NULL DEFAULT 'rtmp://a.rtmp.youtube.com/live2',
+    rtmp_url TEXT NOT NULL DEFAULT 'rtmps://a.rtmps.youtube.com/live2',
     stream_key_env TEXT NOT NULL DEFAULT 'YOUTUBE_STREAM_KEY',
     output_enabled INTEGER NOT NULL DEFAULT 0,
     fallback_asset_id INTEGER,
@@ -127,6 +127,7 @@ addColumn("assets", "on_demand INTEGER NOT NULL DEFAULT 0");
 addColumn("assets", "description TEXT NOT NULL DEFAULT ''");
 addColumn("assets", "poster_url TEXT NOT NULL DEFAULT ''");
 addColumn("assets", "published_at TEXT");
+db.prepare("UPDATE channels SET rtmp_url = 'rtmps://a.rtmps.youtube.com/live2' WHERE rtmp_url = 'rtmp://a.rtmp.youtube.com/live2'").run();
 
 let defaultOrganization = db.prepare("SELECT * FROM organizations ORDER BY id LIMIT 1").get();
 if (!defaultOrganization) {

@@ -421,7 +421,7 @@ app.post("/api/channels/:id/branding", ownsChannel, brandingUpload.fields([
 });
 app.put("/api/channels/:id/youtube-credentials", ownsChannel, (req, res) => {
   const streamKey = String(req.body.stream_key || "").trim();
-  const rtmpUrl = String(req.body.rtmp_url || "rtmp://a.rtmp.youtube.com/live2").trim();
+  const rtmpUrl = String(req.body.rtmp_url || "rtmps://a.rtmps.youtube.com/live2").trim();
   if (!streamKey || streamKey.length < 8) return res.status(400).json({ error: "Enter a valid YouTube stream key." });
   if (!/^rtmps?:\/\//i.test(rtmpUrl)) return res.status(400).json({ error: "RTMP server must begin with rtmp:// or rtmps://." });
   db.prepare("UPDATE channels SET stream_key_encrypted = ?, rtmp_url = ? WHERE id = ?")
